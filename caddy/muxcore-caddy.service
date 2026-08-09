@@ -1,0 +1,18 @@
+[Unit]
+Description=MuxCore MVP Caddy edge (HTTPS *.gringotts)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Projects/muxcore/mvp
+Environment=MVP_TLS_DIR=%h/Projects/muxcore/mvp/tls
+# NIX_CONFIG is set inside run-caddy.sh (systemd Environment= cannot hold multiline values).
+# Privileged bind (:80/:443): run-caddy.sh uses sudo -n when AmbientCapabilities are unavailable
+# (common for systemd --user).
+ExecStart=%h/Projects/muxcore/mvp/caddy/run-caddy.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

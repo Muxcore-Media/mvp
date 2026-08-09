@@ -1,0 +1,14 @@
+{
+  "server": {
+    "addr": ":8080"
+  },
+  "grpc": {
+    "addr": ":9090",
+    "mtls_enabled": true,
+    "ca_cert_dir": "tls/ca-mesh"
+  },
+  "log": {
+    "level": "info",
+    "format": "text"
+  }
+}

@@ -32,7 +32,9 @@ func main() {
 	moviesHTTP := flag.String("movies-http", envOr("MOVIES_HTTP_URL", "http://127.0.0.1:9430"), "media-movies HTTP (images/stream)")
 	tvHTTP := flag.String("tv-http", envOr("TVSHOWS_HTTP_URL", "http://127.0.0.1:9450"), "media-tvshows HTTP (images)")
 	requestHTTP := flag.String("request-http", envOr("REQUEST_MEDIA_HTTP_URL", "http://127.0.0.1:9380"), "request-media HTTP (search/request)")
-	authHTTP := flag.String("auth-http", envOr("AUTH_HTTP_URL", "http://127.0.0.1:9401"), "auth-local HTTP (login)")
+	authHTTP := flag.String("auth-http", envOr("AUTH_HTTP_URL", "http://127.0.0.1:9401"), "browser-facing auth-local URL (login redirects)")
+	authInternal := flag.String("auth-http-internal", envOr("AUTH_HTTP_INTERNAL_URL", ""), "server-side auth-local URL for code exchange (defaults to auth-http)")
+	publicURL := flag.String("public-url", envOr("MEDIA_UI_PUBLIC_URL", ""), "public origin for OAuth callbacks (e.g. https://media.gringotts)")
 	requireAuth := flag.Bool("require-auth", envOr("MEDIA_UI_REQUIRE_AUTH", "1") != "0", "require auth-local login")
 	flag.Parse()
 	if *dist == "" {
@@ -55,16 +57,23 @@ func main() {
 	}
 	defer tvConn.Close()
 
+	authPublic := strings.TrimRight(*authHTTP, "/")
+	authInt := strings.TrimRight(*authInternal, "/")
+	if authInt == "" {
+		authInt = authPublic
+	}
 	s := &server{
-		movies:      mgmntv1.NewMovieManagementServiceClient(moviesConn),
-		tv:          tvmgmtv1.NewTvManagementServiceClient(tvConn),
-		moviesHTTP:  mustURL(*moviesHTTP),
-		tvHTTP:      mustURL(*tvHTTP),
-		requestHTTP: mustURL(*requestHTTP),
-		authHTTP:    strings.TrimRight(*authHTTP, "/"),
-		dist:        *dist,
-		requireAuth: *requireAuth,
-		sessions:    newSessionStore(24 * time.Hour),
+		movies:         mgmntv1.NewMovieManagementServiceClient(moviesConn),
+		tv:             tvmgmtv1.NewTvManagementServiceClient(tvConn),
+		moviesHTTP:     mustURL(*moviesHTTP),
+		tvHTTP:         mustURL(*tvHTTP),
+		requestHTTP:    mustURL(*requestHTTP),
+		authHTTP:       authPublic,
+		authInternal:   authInt,
+		publicURL:      strings.TrimRight(*publicURL, "/"),
+		dist:           *dist,
+		requireAuth:    *requireAuth,
+		sessions:       newSessionStore(24 * time.Hour),
 	}
 
 	mux := http.NewServeMux()
@@ -94,7 +103,8 @@ func main() {
 		handler = s.withAuth(mux)
 	}
 
-	log.Printf("media-ui proxy listening on %s (dist=%s auth=%v auth_http=%s)", *listen, *dist, *requireAuth, s.authHTTP)
+	log.Printf("media-ui proxy listening on %s (dist=%s auth=%v auth_http=%s auth_internal=%s public=%s)",
+		*listen, *dist, *requireAuth, s.authHTTP, s.authInternal, s.publicURL)
 	if err := http.ListenAndServe(*listen, handler); err != nil {
 		log.Fatal(err)
 	}
@@ -152,15 +162,17 @@ func (s *sessionStore) Delete(tok string) {
 }
 
 type server struct {
-	movies      mgmntv1.MovieManagementServiceClient
-	tv          tvmgmtv1.TvManagementServiceClient
-	moviesHTTP  *url.URL
-	tvHTTP      *url.URL
-	requestHTTP *url.URL
-	authHTTP    string
-	dist        string
-	requireAuth bool
-	sessions    *sessionStore
+	movies       mgmntv1.MovieManagementServiceClient
+	tv           tvmgmtv1.TvManagementServiceClient
+	moviesHTTP   *url.URL
+	tvHTTP       *url.URL
+	requestHTTP  *url.URL
+	authHTTP     string // browser redirects
+	authInternal string // server-side code exchange
+	publicURL    string // optional fixed public origin
+	dist         string
+	requireAuth  bool
+	sessions     *sessionStore
 }
 
 func (s *server) withAuth(next http.Handler) http.Handler {
@@ -189,7 +201,7 @@ func wantsJSON(r *http.Request) bool {
 }
 
 func (s *server) redirectLogin(w http.ResponseWriter, r *http.Request) {
-	callback := publicOrigin(r) + "/auth/callback"
+	callback := s.publicOrigin(r) + "/auth/callback"
 	target := s.authHTTP + "/login?redirect=" + url.QueryEscape(callback)
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }
@@ -205,8 +217,11 @@ func (s *server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body, _ := json.Marshal(map[string]string{"code": code})
-	resp, err := http.Post(s.authHTTP+"/login/exchange", "application/json", strings.NewReader(string(body)))
+	// Exchange must hit auth over the loopback URL — browsers use AUTH_HTTP_URL (Caddy),
+	// but the host often cannot resolve/trust https://auth.*.
+	resp, err := http.Post(s.authInternal+"/login/exchange", "application/json", strings.NewReader(string(body)))
 	if err != nil {
+		log.Printf("auth exchange: %v (internal=%s)", err, s.authInternal)
 		http.Error(w, "auth unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -229,11 +244,13 @@ func (s *server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session error", http.StatusInternalServerError)
 		return
 	}
+	origin := s.publicOrigin(r)
 	http.SetCookie(w, &http.Cookie{
 		Name:     "session",
 		Value:    sess,
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   strings.HasPrefix(origin, "https://"),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int((24 * time.Hour).Seconds()),
 	})
@@ -248,12 +265,18 @@ func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
-func publicOrigin(r *http.Request) string {
+func (s *server) publicOrigin(r *http.Request) string {
+	if s.publicURL != "" {
+		return s.publicURL
+	}
 	scheme := "http"
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
 	}
-	host := r.Host
+	host := r.Header.Get("X-Forwarded-Host")
+	if host == "" {
+		host = r.Host
+	}
 	if host == "" {
 		host = "127.0.0.1:5173"
 	}
