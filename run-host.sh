@@ -171,6 +171,7 @@ case "$cmd" in
 
     start_one media-scanner env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-scanner MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+      MUXCORE_MESH_DIAL_LOCAL=true \
       SCANNER_DB_PATH="$DATA/scanner/scanner.db" \
       SCANNER_LIBRARY_ROOT="$LIBRARY_ROOT" \
       SCANNER_DEFAULT_WATCH_DIR="$DOWNLOADS_DIR" \
