@@ -69,6 +69,7 @@ case "$cmd" in
 
     start_one api-rest env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=api-rest MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+      MUXCORE_MESH_DIAL_LOCAL=true \
       API_REST_HTTP_ADDR=":18080" API_REST_GRPC_ADDR=":9400" \
       "$BIN/api-rest"
 
