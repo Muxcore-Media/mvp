@@ -268,8 +268,8 @@ case "$cmd" in
           MEDIA_UI_LISTEN="${MEDIA_UI_LISTEN:-:5173}" \
           MEDIA_UI_DIST="$UI_DIST" \
           MEDIA_UI_REQUIRE_AUTH="${MEDIA_UI_REQUIRE_AUTH:-1}" \
-          MEDIA_UI_PUBLIC_URL="${MEDIA_UI_PUBLIC_URL:-}" \
-          AUTH_HTTP_URL="${AUTH_HTTP_URL:-http://127.0.0.1:9401}" \
+          MEDIA_UI_PUBLIC_URL="${MEDIA_UI_PUBLIC_URL:-https://media.gringotts}" \
+          AUTH_HTTP_URL="${AUTH_HTTP_URL:-https://auth.gringotts}" \
           AUTH_HTTP_INTERNAL_URL="${AUTH_HTTP_INTERNAL_URL:-http://127.0.0.1:9401}" \
           MOVIES_GRPC_CLIENT_ADDR="127.0.0.1:9420" \
           TVSHOWS_GRPC_CLIENT_ADDR="127.0.0.1:9440" \
@@ -280,9 +280,9 @@ case "$cmd" in
             -listen "${MEDIA_UI_LISTEN:-:5173}" \
             -dist "$UI_DIST" \
             -request-http "http://127.0.0.1:9380" \
-            -auth-http "${AUTH_HTTP_URL:-http://127.0.0.1:9401}" \
+            -auth-http "${AUTH_HTTP_URL:-https://auth.gringotts}" \
             -auth-http-internal "${AUTH_HTTP_INTERNAL_URL:-http://127.0.0.1:9401}" \
-            -public-url "${MEDIA_UI_PUBLIC_URL:-}"
+            -public-url "${MEDIA_UI_PUBLIC_URL:-https://media.gringotts}"
       fi
     fi
 
