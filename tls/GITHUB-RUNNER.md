@@ -30,6 +30,9 @@ Installed into `~/.nix-profile` for jobs that expect a fuller Linux CI image:
 | `gcc` / `gnumake` / `pkg-config` | `go test -race` needs CGO |
 | `syft` | GoReleaser SBOM step |
 | `podman` + `docker` (client) | Docker Build / GHCR jobs |
+| `cosign` | GoReleaser artifact signing |
+| `~/.local/bin/docker` wrapper | `docker build` → `podman build` (buildx+podman otherwise drops tags) |
+| `~/.config/containers/policy.json` | Required for rootless pulls/builds |
 
 Runner unit env:
 
