@@ -1,0 +1,384 @@
+# MuxCore MVP reference stack (local sibling clones).
+# Docs: ../core.wiki/Getting-Started.md, ../core.wiki/Deployment.md
+# Spool tags mirrored: minimal + media (+ acquisition modules).
+#
+# From this directory:
+#   docker compose up --build -d
+#   ./smoke.sh
+
+name: muxcore-mvp
+
+x-module: &module
+  build:
+    context: ..
+    dockerfile: _mvp/dockerfiles/module.Dockerfile
+    args:
+      GO_VERSION: "1.26"
+  environment: &module_env
+    MUXCORE_GRPC_ADDR: core:9090
+    MUXCORE_INSECURE_DISABLE_TLS: "true"
+    MUXCORE_LOG_LEVEL: ${MUXCORE_LOG_LEVEL:-info}
+  depends_on:
+    core:
+      condition: service_healthy
+  restart: unless-stopped
+  networks: [muxcore]
+
+services:
+  core:
+    build:
+      context: ../core
+      dockerfile: Dockerfile
+    environment:
+      MUXCORE_CONFIG: /app/muxcore.json
+      MUXCORE_SERVER_ADDR: ":8080"
+      MUXCORE_INSECURE_DISABLE_TLS: "true"
+      MUXCORE_LOG_LEVEL: ${MUXCORE_LOG_LEVEL:-info}
+      MUXCORE_STORAGE_DIR: /app/data/storage
+    ports:
+      - "${MUXCORE_HTTP_PORT:-8080}:8080"
+      - "${MUXCORE_GRPC_PORT:-9090}:9090"
+    volumes:
+      - core-data:/app/data
+      - ./muxcore.json:/app/muxcore.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+    networks: [muxcore]
+
+  # --- platform (spool tag: minimal + policies) ---
+  api-rest:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: api-rest }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: api-rest
+      API_REST_HTTP_ADDR: ":8080"
+      API_REST_GRPC_ADDR: ":9400"
+    ports:
+      - "${API_REST_HTTP_PORT:-18080}:8080"
+      - "${API_REST_GRPC_PORT:-9400}:9400"
+
+  auth-local:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: auth-local }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: auth-local
+      AUTH_DB_PATH: /data/auth.db
+      AUTH_GRPC_ADDR: ":9403"
+      AUTH_HTTP_ADDR: ":9401"
+    ports:
+      - "${AUTH_LOCAL_PORT:-9403}:9403"
+      - "${AUTH_HTTP_PORT:-9401}:9401"
+    volumes:
+      - auth-data:/data
+
+  database-sqlite:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: database-sqlite }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: database-sqlite
+    volumes:
+      - sqlite-data:/data
+
+  secrets-file:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: secrets-file }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: secrets-file
+    volumes:
+      - secrets-data:/data
+
+  encryption-aesgcm:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: encryption-aesgcm }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: encryption-aesgcm
+
+  call-policy-default:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: call-policy-default }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: call-policy-default
+
+  publish-policy-default:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: publish-policy-default }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: publish-policy-default
+
+  health-monitor:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: health-monitor }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: health-monitor
+      HEALTH_MONITOR_GRPC_ADDR: ":9202"
+      HEALTH_MONITOR_HTTP_ADDR: ":9203"
+      HEALTH_MONITOR_INTERVAL: "5s"
+    ports:
+      - "${HEALTH_MONITOR_HTTP_PORT:-9203}:9203"
+      - "${HEALTH_MONITOR_GRPC_PORT:-9202}:9202"
+
+  admin-ui:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: admin-ui }
+    environment:
+      <<: *module_env
+      ADMIN_UI_ADDR: ":8082"
+      ADMIN_UI_CORE_ADDR: core:9090
+      ADMIN_UI_INSECURE: "true"
+      ADMIN_UI_AUTH_ADDR: http://auth-local:9401
+      ADMIN_UI_HEALTH_MONITOR_URL: ${ADMIN_UI_HEALTH_MONITOR_URL:-http://health-monitor:9203}
+      # Leave unset in compose so bare :port discovery addrs resolve via service DNS.
+    ports:
+      - "${ADMIN_UI_HTTP_PORT:-8082}:8082"
+
+  # --- media (spool tag: media) ---
+  metadata-tmdb:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: metadata-tmdb }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: metadata-tmdb
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
+      TMDB_FIXTURE: ${TMDB_FIXTURE:-}
+
+  media-movies:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-movies }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-movies
+      MOVIES_DB_PATH: /data/movies.db
+      MOVIES_IMAGE_DIR: /data/images
+    ports:
+      - "${MEDIA_MOVIES_HTTP_PORT:-9430}:9430"
+    volumes:
+      - movies-data:/data
+
+  media-tvshows:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-tvshows }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-tvshows
+      TVSHOWS_DB_PATH: /data/tvshows.db
+      TVSHOWS_IMAGE_DIR: /data/images
+    ports:
+      - "${MEDIA_TVSHOWS_HTTP_PORT:-9450}:9450"
+    volumes:
+      - tvshows-data:/data
+
+  media-automation:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-automation }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-automation
+      AUTOMATION_DB_PATH: /data/automation.db
+      AUTOMATION_GRPC_ADDR: ":9460"
+      AUTOMATION_EVENT_SUBSCRIBE_DELAY: 1s
+    ports:
+      - "${AUTOMATION_GRPC_PORT:-9460}:9460"
+    volumes:
+      - automation-data:/data
+
+  media-scanner:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-scanner }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-scanner
+      SCANNER_DB_PATH: /data/scanner.db
+      SCANNER_LIBRARY_ROOT: /library
+      SCANNER_DEFAULT_WATCH_DIR: /downloads
+      SCANNER_IMPORT_MODE: copy
+      SCANNER_MIN_VIDEO_BYTES: "0"
+      SCANNER_GRPC_ADDR: ":9470"
+    ports:
+      - "${SCANNER_GRPC_PORT:-9470}:9470"
+    volumes:
+      - scanner-data:/data
+      - library-data:/library
+      - downloads-data:/downloads
+
+  media-root-folders:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-root-folders }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-root-folders
+      ROOTS_DB_PATH: /data/roots.db
+    volumes:
+      - roots-data:/data
+      - library-data:/library
+
+  # --- fixture downloader (no BitTorrent network; pirate indexer stays on acquisition) ---
+  downloader-native-torrent:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: downloader-native-torrent }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: downloader-native-torrent
+      DOWNLOADER_GRPC_ADDR: ":9461"
+      DOWNLOAD_DIR: /downloads
+      DOWNLOADER_ENGINE: ${DOWNLOADER_ENGINE:-fixture}
+      SEED_MINUTES: "1"
+      SEED_RATIO: "1.0"
+    ports:
+      - "${DOWNLOADER_GRPC_PORT:-9461}:9461"
+    volumes:
+      - downloads-data:/downloads
+
+  # --- acquisition (spool tag: acquisition) — live indexer only; downloader is fixture by default ---
+  indexer-piratebay:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: indexer-piratebay }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: indexer-piratebay
+      PIRATEBAY_GRPC_ADDR: ":9485"
+      PIRATEBAY_API_BASE: ${PIRATEBAY_API_BASE:-https://apibay.org}
+    ports:
+      - "${INDEXER_PIRATEBAY_GRPC_PORT:-9485}:9485"
+    profiles: ["acquisition"]
+
+  request-media:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: request-media }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: request-media
+      REQUEST_GRPC_ADDR: ":9481"
+      REQUEST_HTTP_ADDR: ":9380"
+      REQUEST_DATA_DIR: /data/request
+    ports:
+      - "${REQUEST_MEDIA_HTTP_PORT:-9380}:9380"
+      - "${REQUEST_MEDIA_GRPC_PORT:-9481}:9481"
+    volumes:
+      - request-data:/data
+
+  jellyfin:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: jellyfin }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: jellyfin
+      JELLYFIN_GRPC_ADDR: ":9475"
+      JELLYFIN_HTTP_ADDR: ":8475"
+      JELLYFIN_DATA_DIR: /data/jellyfin
+      JELLYFIN_BASE_URL: ${JELLYFIN_BASE_URL:-}
+      JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
+      JELLYFIN_WEBHOOK_SECRET: ${JELLYFIN_WEBHOOK_SECRET:-}
+    ports:
+      - "${JELLYFIN_HTTP_PORT:-8475}:8475"
+      - "${JELLYFIN_GRPC_PORT:-9475}:9475"
+    volumes:
+      - jellyfin-data:/data
+
+  # Consumer SPA — media-ui-app clean extract (not polluted media-ui dump). Profile: media-ui
+  media-ui:
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/media-ui.Dockerfile
+    environment:
+      MOVIES_GRPC_CLIENT_ADDR: media-movies:9420
+      TVSHOWS_GRPC_CLIENT_ADDR: media-tvshows:9440
+      MOVIES_HTTP_URL: http://media-movies:9430
+      TVSHOWS_HTTP_URL: http://media-tvshows:9450
+      REQUEST_MEDIA_HTTP_URL: http://request-media:9380
+    ports:
+      - "${MEDIA_UI_HTTP_PORT:-5173}:5173"
+    depends_on:
+      - media-movies
+      - media-tvshows
+      - request-media
+    profiles: ["media-ui"]
+    networks: [muxcore]
+    restart: unless-stopped
+
+networks:
+  muxcore:
+
+volumes:
+  core-data:
+  auth-data:
+  sqlite-data:
+  secrets-data:
+  automation-data:
+  scanner-data:
+  roots-data:
+  movies-data:
+  tvshows-data:
+  library-data:
+  downloads-data:
+  jellyfin-data:
+  request-data:

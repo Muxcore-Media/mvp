@@ -1,0 +1,12 @@
+{
+  "server": {
+    "addr": ":8080"
+  },
+  "grpc": {
+    "addr": ":9090"
+  },
+  "log": {
+    "level": "info",
+    "format": "text"
+  }
+}
