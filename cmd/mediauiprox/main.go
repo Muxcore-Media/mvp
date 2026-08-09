@@ -93,8 +93,9 @@ func main() {
 	mux.Handle("/api/search", reqProxy)
 	mux.Handle("/api/request", reqProxy)
 	mux.Handle("/api/requests", reqProxy)
-	mux.Handle("/images/movies/", http.StripPrefix("/images/movies", reverseProxy(s.moviesHTTP)))
-	mux.Handle("/images/tv/", http.StripPrefix("/images/tv", reverseProxy(s.tvHTTP)))
+	// SPA uses /images/movies/<rel> and /images/tv/<rel>; modules serve under /images/<rel>.
+	mux.Handle("/images/movies/", imagePrefixProxy("/images/movies", "/images", reverseProxy(s.moviesHTTP)))
+	mux.Handle("/images/tv/", imagePrefixProxy("/images/tv", "/images", reverseProxy(s.tvHTTP)))
 	mux.Handle("/stream/", reverseProxy(s.moviesHTTP))
 	mux.HandleFunc("/", s.spa)
 
@@ -179,6 +180,12 @@ func (s *server) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/healthz", "/login", "/auth/callback", "/logout":
+			next.ServeHTTP(w, r)
+			return
+		}
+		// Poster/backdrop URLs are loaded via <img>; allow after login path rewrite
+		// without forcing a login redirect (cookies are still preferred for /api).
+		if strings.HasPrefix(r.URL.Path, "/images/") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -476,6 +483,28 @@ func reverseProxy(target *url.URL) http.Handler {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 	}
 	return p
+}
+
+// imagePrefixProxy rewrites /images/movies/<rel> → /images/<rel> (same for tv)
+// before handing off to the module reverse proxy.
+func imagePrefixProxy(publicPrefix, modulePrefix string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		suffix := strings.TrimPrefix(r.URL.Path, publicPrefix)
+		if suffix == r.URL.Path {
+			http.NotFound(w, r)
+			return
+		}
+		if !strings.HasPrefix(suffix, "/") {
+			suffix = "/" + suffix
+		}
+		r2 := r.Clone(r.Context())
+		u := *r.URL
+		u.Path = modulePrefix + suffix
+		u.RawPath = ""
+		r2.URL = &u
+		r2.RequestURI = ""
+		next.ServeHTTP(w, r2)
+	})
 }
 
 func mustURL(raw string) *url.URL {

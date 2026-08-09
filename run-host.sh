@@ -144,12 +144,14 @@ case "$cmd" in
 
     start_one media-movies env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-movies MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+      MUXCORE_MESH_DIAL_LOCAL=true \
       MOVIES_DB_PATH="$DATA/movies/movies.db" MOVIES_IMAGE_DIR="$DATA/movies/images" \
       MOVIES_HTTP_ADDR=":9430" \
       "$BIN/media-movies"
 
     start_one media-tvshows env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-tvshows MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+      MUXCORE_MESH_DIAL_LOCAL=true \
       TVSHOWS_DB_PATH="$DATA/tvshows/tvshows.db" TVSHOWS_IMAGE_DIR="$DATA/tvshows/images" \
       TVSHOWS_GRPC_ADDR=":9440" TVSHOWS_HTTP_ADDR=":9450" \
       "$BIN/media-tvshows"
