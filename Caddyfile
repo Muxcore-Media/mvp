@@ -1,0 +1,72 @@
+# MuxCore MVP edge proxy on gringotts (:80/:443).
+# Upstream stack stays on localhost (run-host.sh).
+#
+# Certs: tls/certs/gringotts.{crt,key}  CA: tls/ca/ca.crt
+
+{
+	auto_https disable_redirects
+	admin off
+}
+
+(mesh_tls) {
+	# Paths relative to mvp/ working directory (see caddy/run-caddy.sh).
+	tls tls/certs/gringotts.crt tls/certs/gringotts.key
+}
+
+(mesh_proxy_headers) {
+	# Caddy already forwards X-Forwarded-For / Proto / Host by default.
+	header_up X-Real-IP {remote_host}
+}
+
+# HTTP → HTTPS
+:80 {
+	redir https://{host}{uri} permanent
+}
+
+admin.gringotts {
+	import mesh_tls
+	encode gzip
+	reverse_proxy 127.0.0.1:8082 {
+		import mesh_proxy_headers
+	}
+}
+
+media.gringotts {
+	import mesh_tls
+	encode gzip
+	reverse_proxy 127.0.0.1:5173 {
+		import mesh_proxy_headers
+	}
+}
+
+api.gringotts {
+	import mesh_tls
+	encode gzip
+	reverse_proxy 127.0.0.1:18080 {
+		import mesh_proxy_headers
+	}
+}
+
+auth.gringotts {
+	import mesh_tls
+	encode gzip
+	reverse_proxy 127.0.0.1:9401 {
+		import mesh_proxy_headers
+	}
+}
+
+core.gringotts {
+	import mesh_tls
+	encode gzip
+	reverse_proxy 127.0.0.1:8080 {
+		import mesh_proxy_headers
+	}
+}
+
+health.gringotts {
+	import mesh_tls
+	encode gzip
+	reverse_proxy 127.0.0.1:9203 {
+		import mesh_proxy_headers
+	}
+}

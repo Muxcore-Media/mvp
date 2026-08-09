@@ -1,0 +1,10 @@
+ca/ca.key
+ca/ca.crt
+ca/*.srl
+ca-mesh/
+certs/*.key
+certs/*.crt
+certs/*.csr
+certs/*.ext
+*.pem
+!ca/ca.crt.example
