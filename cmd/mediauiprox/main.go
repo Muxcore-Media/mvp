@@ -1,0 +1,480 @@
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"log"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"os"
+	"path"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	mgmntv1 "github.com/Muxcore-Media/media-movies/proto/mgmntv1"
+	tvmgmtv1 "github.com/Muxcore-Media/media-tvshows/proto/tvmgmtv1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+)
+
+func main() {
+	listen := flag.String("listen", envOr("MEDIA_UI_LISTEN", ":5173"), "HTTP listen address")
+	dist := flag.String("dist", envOr("MEDIA_UI_DIST", ""), "path to media-ui dist-app (required)")
+	moviesGRPC := flag.String("movies-grpc", envOr("MOVIES_GRPC_CLIENT_ADDR", "127.0.0.1:9420"), "media-movies gRPC")
+	tvGRPC := flag.String("tv-grpc", envOr("TVSHOWS_GRPC_CLIENT_ADDR", "127.0.0.1:9440"), "media-tvshows gRPC")
+	moviesHTTP := flag.String("movies-http", envOr("MOVIES_HTTP_URL", "http://127.0.0.1:9430"), "media-movies HTTP (images/stream)")
+	tvHTTP := flag.String("tv-http", envOr("TVSHOWS_HTTP_URL", "http://127.0.0.1:9450"), "media-tvshows HTTP (images)")
+	requestHTTP := flag.String("request-http", envOr("REQUEST_MEDIA_HTTP_URL", "http://127.0.0.1:9380"), "request-media HTTP (search/request)")
+	authHTTP := flag.String("auth-http", envOr("AUTH_HTTP_URL", "http://127.0.0.1:9401"), "auth-local HTTP (login)")
+	requireAuth := flag.Bool("require-auth", envOr("MEDIA_UI_REQUIRE_AUTH", "1") != "0", "require auth-local login")
+	flag.Parse()
+	if *dist == "" {
+		fmt.Fprintln(os.Stderr, "-dist / MEDIA_UI_DIST is required (path to media-ui/ui/dist-app)")
+		os.Exit(1)
+	}
+	if st, err := os.Stat(*dist); err != nil || !st.IsDir() {
+		fmt.Fprintf(os.Stderr, "dist dir missing: %s (%v)\n", *dist, err)
+		os.Exit(1)
+	}
+
+	moviesConn, err := grpc.NewClient(*moviesGRPC, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("dial movies: %v", err)
+	}
+	defer moviesConn.Close()
+	tvConn, err := grpc.NewClient(*tvGRPC, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("dial tv: %v", err)
+	}
+	defer tvConn.Close()
+
+	s := &server{
+		movies:      mgmntv1.NewMovieManagementServiceClient(moviesConn),
+		tv:          tvmgmtv1.NewTvManagementServiceClient(tvConn),
+		moviesHTTP:  mustURL(*moviesHTTP),
+		tvHTTP:      mustURL(*tvHTTP),
+		requestHTTP: mustURL(*requestHTTP),
+		authHTTP:    strings.TrimRight(*authHTTP, "/"),
+		dist:        *dist,
+		requireAuth: *requireAuth,
+		sessions:    newSessionStore(24 * time.Hour),
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	mux.HandleFunc("/login", s.handleLogin)
+	mux.HandleFunc("/auth/callback", s.handleAuthCallback)
+	mux.HandleFunc("/logout", s.handleLogout)
+
+	mux.HandleFunc("/api/movies", s.handleListMovies)
+	mux.HandleFunc("/api/movies/", s.handleMovieByID)
+	mux.HandleFunc("/api/tv", s.handleListTV)
+	mux.HandleFunc("/api/tv/", s.handleTVByID)
+	reqProxy := reverseProxy(s.requestHTTP)
+	mux.Handle("/api/search", reqProxy)
+	mux.Handle("/api/request", reqProxy)
+	mux.Handle("/api/requests", reqProxy)
+	mux.Handle("/images/movies/", http.StripPrefix("/images/movies", reverseProxy(s.moviesHTTP)))
+	mux.Handle("/images/tv/", http.StripPrefix("/images/tv", reverseProxy(s.tvHTTP)))
+	mux.Handle("/stream/", reverseProxy(s.moviesHTTP))
+	mux.HandleFunc("/", s.spa)
+
+	handler := http.Handler(mux)
+	if s.requireAuth {
+		handler = s.withAuth(mux)
+	}
+
+	log.Printf("media-ui proxy listening on %s (dist=%s auth=%v auth_http=%s)", *listen, *dist, *requireAuth, s.authHTTP)
+	if err := http.ListenAndServe(*listen, handler); err != nil {
+		log.Fatal(err)
+	}
+}
+
+type sessionStore struct {
+	mu   sync.Mutex
+	ttl  time.Duration
+	byID map[string]sessionEntry
+}
+
+type sessionEntry struct {
+	userID   string
+	username string
+	expiry   time.Time
+}
+
+func newSessionStore(ttl time.Duration) *sessionStore {
+	return &sessionStore{ttl: ttl, byID: make(map[string]sessionEntry)}
+}
+
+func (s *sessionStore) Create(userID, username string) (string, error) {
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	tok := hex.EncodeToString(b[:])
+	s.mu.Lock()
+	s.byID[tok] = sessionEntry{userID: userID, username: username, expiry: time.Now().Add(s.ttl)}
+	s.mu.Unlock()
+	return tok, nil
+}
+
+func (s *sessionStore) Valid(tok string) bool {
+	if tok == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.byID[tok]
+	if !ok {
+		return false
+	}
+	if time.Now().After(e.expiry) {
+		delete(s.byID, tok)
+		return false
+	}
+	return true
+}
+
+func (s *sessionStore) Delete(tok string) {
+	s.mu.Lock()
+	delete(s.byID, tok)
+	s.mu.Unlock()
+}
+
+type server struct {
+	movies      mgmntv1.MovieManagementServiceClient
+	tv          tvmgmtv1.TvManagementServiceClient
+	moviesHTTP  *url.URL
+	tvHTTP      *url.URL
+	requestHTTP *url.URL
+	authHTTP    string
+	dist        string
+	requireAuth bool
+	sessions    *sessionStore
+}
+
+func (s *server) withAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/healthz", "/login", "/auth/callback", "/logout":
+			next.ServeHTTP(w, r)
+			return
+		}
+		c, err := r.Cookie("session")
+		if err == nil && s.sessions.Valid(c.Value) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if wantsJSON(r) || strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/stream/") {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		s.redirectLogin(w, r)
+	})
+}
+
+func wantsJSON(r *http.Request) bool {
+	accept := r.Header.Get("Accept")
+	return strings.Contains(accept, "application/json")
+}
+
+func (s *server) redirectLogin(w http.ResponseWriter, r *http.Request) {
+	callback := publicOrigin(r) + "/auth/callback"
+	target := s.authHTTP + "/login?redirect=" + url.QueryEscape(callback)
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	s.redirectLogin(w, r)
+}
+
+func (s *server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		http.Error(w, "code required", http.StatusBadRequest)
+		return
+	}
+	body, _ := json.Marshal(map[string]string{"code": code})
+	resp, err := http.Post(s.authHTTP+"/login/exchange", "application/json", strings.NewReader(string(body)))
+	if err != nil {
+		http.Error(w, "auth unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		http.Error(w, "code exchange failed", http.StatusUnauthorized)
+		return
+	}
+	var result struct {
+		Token    string `json:"token"`
+		UserID   string `json:"user_id"`
+		Username string `json:"username"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		http.Error(w, "invalid response", http.StatusInternalServerError)
+		return
+	}
+	sess, err := s.sessions.Create(result.UserID, result.Username)
+	if err != nil {
+		http.Error(w, "session error", http.StatusInternalServerError)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "session",
+		Value:    sess,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int((24 * time.Hour).Seconds()),
+	})
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if c, err := r.Cookie("session"); err == nil {
+		s.sessions.Delete(c.Value)
+	}
+	http.SetCookie(w, &http.Cookie{Name: "session", Value: "", Path: "/", MaxAge: -1})
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+func publicOrigin(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	host := r.Host
+	if host == "" {
+		host = "127.0.0.1:5173"
+	}
+	return scheme + "://" + host
+}
+
+func (s *server) spa(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/images/") || strings.HasPrefix(r.URL.Path, "/stream/") {
+		http.NotFound(w, r)
+		return
+	}
+	p := path.Clean("/" + r.URL.Path)
+	fsPath := path.Join(s.dist, p)
+	if p != "/" {
+		if st, err := os.Stat(fsPath); err == nil && !st.IsDir() {
+			http.ServeFile(w, r, fsPath)
+			return
+		}
+	}
+	http.ServeFile(w, r, path.Join(s.dist, "index.html"))
+}
+
+func (s *server) handleListMovies(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	page, pageSize := pageParams(r)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	resp, err := s.movies.ListMovies(ctx, &mgmntv1.ListMoviesRequest{Page: page, PageSize: pageSize})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	items := make([]map[string]any, 0, len(resp.GetMovies()))
+	for _, m := range resp.GetMovies() {
+		items = append(items, movieJSON(m))
+	}
+	writeJSON(w, map[string]any{
+		"items":     items,
+		"total":     resp.GetTotal(),
+		"page":      resp.GetPage(),
+		"page_size": resp.GetPageSize(),
+	})
+}
+
+func (s *server) handleMovieByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/api/movies/")
+	id = strings.Trim(id, "/")
+	if id == "" {
+		http.NotFound(w, r)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	resp, err := s.movies.GetMovie(ctx, &mgmntv1.GetMovieRequest{MovieId: id})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, map[string]any{"movie": movieJSON(resp.GetMovie())})
+}
+
+func (s *server) handleListTV(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	page, pageSize := pageParams(r)
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	resp, err := s.tv.ListTVShows(ctx, &tvmgmtv1.ListTVShowsRequest{Page: page, PageSize: pageSize})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	items := make([]map[string]any, 0, len(resp.GetSeries()))
+	for _, m := range resp.GetSeries() {
+		items = append(items, tvJSON(m))
+	}
+	writeJSON(w, map[string]any{
+		"items":     items,
+		"total":     resp.GetTotal(),
+		"page":      resp.GetPage(),
+		"page_size": resp.GetPageSize(),
+	})
+}
+
+func (s *server) handleTVByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/api/tv/")
+	id = strings.Trim(id, "/")
+	if id == "" {
+		http.NotFound(w, r)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	resp, err := s.tv.GetTVShow(ctx, &tvmgmtv1.GetTVShowRequest{SeriesId: id})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, map[string]any{"show": tvJSON(resp.GetSeries())})
+}
+
+func movieJSON(m *mgmntv1.MovieItem) map[string]any {
+	if m == nil {
+		return map[string]any{}
+	}
+	poster := m.GetPosterUrl()
+	if poster == "" {
+		poster = m.GetPosterPath()
+	}
+	return map[string]any{
+		"id":           m.GetId(),
+		"tmdb_id":      m.GetTmdbId(),
+		"title":        m.GetTitle(),
+		"year":         m.GetYear(),
+		"overview":     m.GetOverview(),
+		"runtime":      m.GetRuntime(),
+		"vote_average": m.GetVoteAverage(),
+		"genres":       m.GetGenres(),
+		"poster_url":   poster,
+		"backdrop_url": firstNonEmpty(m.GetBackdropUrl(), m.GetBackdropPath()),
+		"has_file":     m.GetHasFile(),
+		"status":       m.GetStatus(),
+		"tagline":      m.GetTagline(),
+		"created_at":   m.GetCreatedAt(),
+		"stream_url":   "/stream/movies/" + m.GetId(),
+	}
+}
+
+func tvJSON(m *tvmgmtv1.TVSeries) map[string]any {
+	if m == nil {
+		return map[string]any{}
+	}
+	poster := m.GetPosterUrl()
+	if poster == "" {
+		poster = m.GetPosterPath()
+	}
+	return map[string]any{
+		"id":           m.GetId(),
+		"tmdb_id":      m.GetTmdbId(),
+		"title":        m.GetName(),
+		"name":         m.GetName(),
+		"year":         m.GetYear(),
+		"overview":     m.GetOverview(),
+		"vote_average": m.GetVoteAverage(),
+		"genres":       m.GetGenres(),
+		"poster_url":   poster,
+		"backdrop_url": firstNonEmpty(m.GetBackdropUrl(), m.GetBackdropPath()),
+		"has_file":     false,
+		"status":       m.GetStatus(),
+		"created_at":   m.GetCreatedAt(),
+	}
+}
+
+func pageParams(r *http.Request) (int32, int32) {
+	page := int32(1)
+	pageSize := int32(48)
+	if v := r.URL.Query().Get("page"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			page = int32(n)
+		}
+	}
+	if v := r.URL.Query().Get("page_size"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			pageSize = int32(n)
+		}
+	}
+	return page, pageSize
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	enc := json.NewEncoder(w)
+	_ = enc.Encode(v)
+}
+
+func reverseProxy(target *url.URL) http.Handler {
+	p := httputil.NewSingleHostReverseProxy(target)
+	orig := p.Director
+	p.Director = func(r *http.Request) {
+		orig(r)
+		r.Host = target.Host
+	}
+	p.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+	}
+	return p
+}
+
+func mustURL(raw string) *url.URL {
+	u, err := url.Parse(raw)
+	if err != nil {
+		log.Fatalf("bad url %q: %v", raw, err)
+	}
+	return u
+}
+
+func envOr(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
