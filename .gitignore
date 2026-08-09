@@ -5,3 +5,12 @@
 *.log
 muxcore.db
 *.db
+/tls/ca/ca.key
+/tls/ca/*.srl
+/tls/certs/*.key
+/tls/certs/*.csr
+/tls/certs/*.ext
+# WireGuard private keys (also ignored at workspace root)
+/wg.conf
+/wg-mux.conf
+*.wg.conf

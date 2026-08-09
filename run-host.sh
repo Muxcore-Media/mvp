@@ -9,12 +9,17 @@ DATA="$ROOT/data"
 # shellcheck disable=SC1091
 [[ -f "$ROOT/.env" ]] && source "$ROOT/.env" || true
 
-export MUXCORE_INSECURE_DISABLE_TLS=true
+# Dev default is insecure mesh TLS. Staging profile (run-host-staging.sh) leaves this unset.
+if [[ "${MUXCORE_PROFILE:-}" == "staging" ]]; then
+  unset MUXCORE_INSECURE_DISABLE_TLS || true
+else
+  export MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-true}"
+fi
 export MUXCORE_LOG_LEVEL="${MUXCORE_LOG_LEVEL:-info}"
 export MUXCORE_CONFIG="${MUXCORE_CONFIG:-$ROOT/muxcore.json}"
 MESH="${MUXCORE_MESH_ADDR:-127.0.0.1:9090}"
 
-    mkdir -p "$BIN" "$RUN" "$DATA"/{movies,tvshows,automation,scanner,roots,sqlite,secrets,library/tv,storage,auth,jellyfin,downloads,request}
+mkdir -p "$BIN" "$RUN" "$DATA"/{movies,tvshows,automation,scanner,roots,sqlite,secrets,library/tv,storage,auth,jellyfin,downloads,request}
 
 start_one() {
   local name="$1"; shift
@@ -50,8 +55,8 @@ case "$cmd" in
     stop_all
     [[ -x "$BIN/muxcored" ]] || (cd "$WS/core" && go build -o "$BIN/muxcored" ./cmd/muxcored)
     start_one core env \
-      MUXCORE_CONFIG="$ROOT/muxcore.json" \
-      MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_CONFIG="$MUXCORE_CONFIG" \
+      MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_STORAGE_DIR="$DATA/storage" \
       MUXCORE_LOG_LEVEL="${MUXCORE_LOG_LEVEL:-info}" \
       "$BIN/muxcored"
@@ -63,124 +68,159 @@ case "$cmd" in
     done
 
     start_one api-rest env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=api-rest MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=api-rest MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       API_REST_HTTP_ADDR=":18080" API_REST_GRPC_ADDR=":9400" \
       "$BIN/api-rest"
 
     start_one auth-local env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=auth-local MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=auth-local MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       AUTH_DB_PATH="$DATA/auth/auth.db" \
       AUTH_GRPC_ADDR=":9403" AUTH_HTTP_ADDR=":9401" \
       "$BIN/auth-local"
 
     start_one database-sqlite env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=database-sqlite MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=database-sqlite MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       SQLITE_DB_PATH="$DATA/sqlite/muxcore.db" \
       "$BIN/database-sqlite"
 
     mkdir -p "$DATA/secrets" "$DATA/encryption"
     start_one secrets-file env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=secrets-file MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=secrets-file MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       SECRETS_STORE="$DATA/secrets/store.json" \
       SECRETS_KEY_FILE="$DATA/secrets/master.key" \
       "$BIN/secrets-file"
 
     start_one encryption-aesgcm env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=encryption-aesgcm MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=encryption-aesgcm MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       ENCRYPTION_KEY_FILE="$DATA/encryption/master.key" \
       "$BIN/encryption-aesgcm"
 
     start_one call-policy-default env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=call-policy-default MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=call-policy-default MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       CALL_POLICY_FILE="$WS/call-policy-default/policies.yaml" \
       "$BIN/call-policy-default"
 
     start_one publish-policy-default env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=publish-policy-default MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=publish-policy-default MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       PUBLISH_POLICY_FILE="$WS/publish-policy-default/policies.yaml" \
       "$BIN/publish-policy-default"
 
     start_one health-monitor env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=health-monitor MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=health-monitor MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
       HEALTH_MONITOR_GRPC_ADDR="${HEALTH_MONITOR_GRPC_ADDR:-:9202}" \
       HEALTH_MONITOR_HTTP_ADDR="${HEALTH_MONITOR_HTTP_ADDR:-:9203}" \
       HEALTH_MONITOR_INTERVAL="${HEALTH_MONITOR_INTERVAL:-5s}" \
       "$BIN/health-monitor"
 
-    # :8082 is in auth-local's safeRedirect allowlist for OAuth-style callbacks
+    # Keep /status non-idle between module self-reports (local mesh fan-out already allowed).
+    if [[ ! -x "$BIN/healthtick" ]]; then
+      echo "building healthtick"
+      (cd "$ROOT" && go build -o "$BIN/healthtick" ./cmd/healthtick) || true
+    fi
+    if [[ -x "$BIN/healthtick" ]]; then
+      start_one healthtick \
+        "$BIN/healthtick" -addr "127.0.0.1:9202" -interval 30s
+    fi
+
+    # Public auth URL for browser redirects (Caddy); internal for code exchange.
     start_one admin-ui env \
       ADMIN_UI_ADDR=":8082" \
       ADMIN_UI_CORE_ADDR="$MESH" \
       ADMIN_UI_INSECURE=true \
-      ADMIN_UI_AUTH_ADDR="http://127.0.0.1:9401" \
+      ADMIN_UI_AUTH_ADDR="${ADMIN_UI_AUTH_ADDR:-http://127.0.0.1:9401}" \
+      ADMIN_UI_AUTH_INTERNAL_ADDR="${ADMIN_UI_AUTH_INTERNAL_ADDR:-http://127.0.0.1:9401}" \
+      ADMIN_UI_TRUSTED_PROXIES="${ADMIN_UI_TRUSTED_PROXIES:-127.0.0.1/32,::1/128}" \
       ADMIN_UI_HEALTH_MONITOR_URL="${ADMIN_UI_HEALTH_MONITOR_URL:-http://127.0.0.1:9203}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
       "$BIN/admin-ui"
 
     start_one metadata-tmdb env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=metadata-tmdb MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=metadata-tmdb MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       TMDB_API_KEY="${TMDB_API_KEY:-}" \
       MUXCORE_CFG_TMDB_API_KEY="${MUXCORE_CFG_TMDB_API_KEY:-${TMDB_API_KEY:-}}" \
       TMDB_FIXTURE="${TMDB_FIXTURE:-}" \
       "$BIN/metadata-tmdb"
 
     start_one media-movies env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-movies MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-movies MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MOVIES_DB_PATH="$DATA/movies/movies.db" MOVIES_IMAGE_DIR="$DATA/movies/images" \
       MOVIES_HTTP_ADDR=":9430" \
       "$BIN/media-movies"
 
     start_one media-tvshows env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-tvshows MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-tvshows MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       TVSHOWS_DB_PATH="$DATA/tvshows/tvshows.db" TVSHOWS_IMAGE_DIR="$DATA/tvshows/images" \
       TVSHOWS_GRPC_ADDR=":9440" TVSHOWS_HTTP_ADDR=":9450" \
       "$BIN/media-tvshows"
 
     start_one media-automation env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-automation MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-automation MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
       AUTOMATION_DB_PATH="$DATA/automation/automation.db" \
       AUTOMATION_GRPC_ADDR=":9460" \
       AUTOMATION_EVENT_SUBSCRIBE_DELAY=1s \
       "$BIN/media-automation"
 
+    LIBRARY_ROOT="${MVP_LIBRARY_ROOT:-$DATA/library}"
+    TV_LIBRARY_ROOT="${MVP_TV_LIBRARY_ROOT:-$DATA/library/tv}"
+    DOWNLOADS_DIR="${MVP_DOWNLOADS_DIR:-$DATA/downloads}"
+    mkdir -p "$LIBRARY_ROOT" "$TV_LIBRARY_ROOT" "$DOWNLOADS_DIR"
+
     start_one media-scanner env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-scanner MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-scanner MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       SCANNER_DB_PATH="$DATA/scanner/scanner.db" \
-      SCANNER_LIBRARY_ROOT="$DATA/library" \
-      SCANNER_DEFAULT_WATCH_DIR="$DATA/downloads" \
+      SCANNER_LIBRARY_ROOT="$LIBRARY_ROOT" \
+      SCANNER_DEFAULT_WATCH_DIR="$DOWNLOADS_DIR" \
       SCANNER_GRPC_ADDR=":9470" \
       SCANNER_IMPORT_MODE=copy \
       SCANNER_MIN_VIDEO_BYTES=0 \
       "$BIN/media-scanner"
 
     # DOWNLOADER_ENGINE=fixture (default) for offline smoke; set to empty/anacrolix for live torrents.
+    # WireGuard needs CAP_NET_ADMIN (setcap below). NAT-PMP auto-starts when WG conf comments say
+    # "NAT-PMP ... = on" or NAT_PMP_PORT is set (maps UDP+TCP on the torrent listen port).
+    if [[ -x "$BIN/downloader-native-torrent" ]] && command -v setcap >/dev/null 2>&1; then
+      if ! getcap "$BIN/downloader-native-torrent" 2>/dev/null | grep -q 'cap_net_admin'; then
+        sudo setcap 'cap_net_admin,cap_net_raw+ep' "$BIN/downloader-native-torrent" 2>/dev/null \
+          || echo "WARN: setcap failed — WireGuard auto-start needs CAP_NET_ADMIN" >&2
+      fi
+    fi
+    WG_CONF_PATH="${WG_CONF:-}"
+    if [[ -z "$WG_CONF_PATH" && -f "$WS/wg-mux.conf" ]]; then
+      WG_CONF_PATH="$WS/wg-mux.conf"
+    elif [[ -z "$WG_CONF_PATH" && -f "$WS/wg.conf" ]]; then
+      WG_CONF_PATH="$WS/wg.conf"
+    fi
     start_one downloader-native-torrent env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=downloader-native-torrent MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=downloader-native-torrent MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       DOWNLOADER_GRPC_ADDR=":9461" \
-      DOWNLOAD_DIR="$DATA/downloads" \
+      DOWNLOAD_DIR="$DOWNLOADS_DIR" \
       DOWNLOADER_ENGINE="${DOWNLOADER_ENGINE:-fixture}" \
       SEED_MINUTES=1 \
       SEED_RATIO=1.0 \
+      WG_CONF="${WG_CONF_PATH}" \
+      WG_KILL_SWITCH="${WG_KILL_SWITCH:-false}" \
+      TORRENT_LISTEN_PORT="${TORRENT_LISTEN_PORT:-6881}" \
+      NAT_PMP_PORT="${NAT_PMP_PORT:-${TORRENT_LISTEN_PORT:-6881}}" \
       "$BIN/downloader-native-torrent"
 
     # Live Apibay indexer when PIRATEBAY_API_BASE is set (VPN recommended).
     if [[ -n "${PIRATEBAY_API_BASE:-}" ]]; then
       start_one indexer-piratebay env \
-        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=indexer-piratebay MUXCORE_INSECURE_DISABLE_TLS=true \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=indexer-piratebay MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
         PIRATEBAY_GRPC_ADDR=":9485" \
         PIRATEBAY_API_BASE="$PIRATEBAY_API_BASE" \
         "$BIN/indexer-piratebay"
     fi
 
     start_one media-root-folders env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-root-folders MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-root-folders MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       ROOTS_DB_PATH="$DATA/roots/roots.db" \
       "$BIN/media-root-folders"
 
     start_one request-media env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=request-media MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=request-media MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
       REQUEST_GRPC_ADDR=":9481" \
       REQUEST_HTTP_ADDR=":9380" \
@@ -193,14 +233,14 @@ case "$cmd" in
       (cd "$WS/notification-default" && go build -o "$BIN/notification-default" ./cmd/module)
     fi
     start_one notification-default env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=notification-default MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=notification-default MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       NOTIFY_GRPC_ADDR=":9441" \
       WEBHOOK_URL="${NOTIFY_WEBHOOK_URL:-http://127.0.0.1:9/muxcore-notify-sink}" \
       "$BIN/notification-default"
 
     # Soft-config OK without live Jellyfin; set JELLYFIN_BASE_URL + JELLYFIN_API_KEY for sync.
     start_one jellyfin env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=jellyfin MUXCORE_INSECURE_DISABLE_TLS=true \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=jellyfin MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       JELLYFIN_GRPC_ADDR=":9475" JELLYFIN_HTTP_ADDR=":8475" \
       JELLYFIN_DATA_DIR="$DATA/jellyfin" \
       JELLYFIN_BASE_URL="${JELLYFIN_BASE_URL:-}" \
@@ -223,7 +263,9 @@ case "$cmd" in
           MEDIA_UI_LISTEN="${MEDIA_UI_LISTEN:-:5173}" \
           MEDIA_UI_DIST="$UI_DIST" \
           MEDIA_UI_REQUIRE_AUTH="${MEDIA_UI_REQUIRE_AUTH:-1}" \
+          MEDIA_UI_PUBLIC_URL="${MEDIA_UI_PUBLIC_URL:-}" \
           AUTH_HTTP_URL="${AUTH_HTTP_URL:-http://127.0.0.1:9401}" \
+          AUTH_HTTP_INTERNAL_URL="${AUTH_HTTP_INTERNAL_URL:-http://127.0.0.1:9401}" \
           MOVIES_GRPC_CLIENT_ADDR="127.0.0.1:9420" \
           TVSHOWS_GRPC_CLIENT_ADDR="127.0.0.1:9440" \
           MOVIES_HTTP_URL="http://127.0.0.1:9430" \
@@ -233,7 +275,9 @@ case "$cmd" in
             -listen "${MEDIA_UI_LISTEN:-:5173}" \
             -dist "$UI_DIST" \
             -request-http "http://127.0.0.1:9380" \
-            -auth-http "${AUTH_HTTP_URL:-http://127.0.0.1:9401}"
+            -auth-http "${AUTH_HTTP_URL:-http://127.0.0.1:9401}" \
+            -auth-http-internal "${AUTH_HTTP_INTERNAL_URL:-http://127.0.0.1:9401}" \
+            -public-url "${MEDIA_UI_PUBLIC_URL:-}"
       fi
     fi
 
