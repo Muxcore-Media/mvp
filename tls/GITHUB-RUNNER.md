@@ -21,6 +21,25 @@ journalctl --user -u github-actions-runner.service -f
 
 `DISABLE_RUNNER_UPDATE=1` is set so the runner does not replace the Nix store binary with an upstream tarball.
 
+## Toolchain (user nix profile + unit env)
+
+Installed into `~/.nix-profile` for jobs that expect a fuller Linux CI image:
+
+| Tool | Why |
+|------|-----|
+| `gcc` / `gnumake` / `pkg-config` | `go test -race` needs CGO |
+| `syft` | GoReleaser SBOM step |
+| `podman` + `docker` (client) | Docker Build / GHCR jobs |
+
+Runner unit env:
+
+- `CGO_ENABLED=1`
+- `PATH` includes `%h/.nix-profile/bin`
+- `DOCKER_HOST=unix:///run/user/1001/podman/podman.sock`
+- `podman.socket` enabled (`systemctl --user enable --now podman.socket`)
+
+`loginctl enable-linger ender` still needs root/sudo once so the user unit survives logout.
+
 ## Reconfigure / reinstall
 
 ```bash
