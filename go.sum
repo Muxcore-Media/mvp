@@ -2,12 +2,12 @@ github.com/Muxcore-Media/jellyfin v0.2.4 h1:VOGM3bpNWPOkpQEy1VN2VaMw5gLOlnNng8Bm
 github.com/Muxcore-Media/jellyfin v0.2.4/go.mod h1:KumEr7+rXt7ZttI8i8vHp2eRLUuFJ5Zg4shoJOQv6Fs=
 github.com/Muxcore-Media/media-automation v0.1.7 h1:dsFWsX2YIUhFcuTQJkKsv/MQDl+/OABRaqhvyzWTeN8=
 github.com/Muxcore-Media/media-automation v0.1.7/go.mod h1:xOS6M5Hs5odpNsciC40eqSBMxEsUza+XUA4LNZuPDxg=
-github.com/Muxcore-Media/media-movies v0.1.5 h1:Q5kQx3wWEuE01x2cmmbDZ8iTAiL6eFfUKgRd0O3Y9Pc=
-github.com/Muxcore-Media/media-movies v0.1.5/go.mod h1:HS18GIAQ9OYhASQI6sHYKWteB2uuQB+4jI2QvBFihcQ=
+github.com/Muxcore-Media/media-movies v0.1.7 h1:EgWWqVvAploObsg41c9giv3Me7rGmL3ufV0Q3W9ciww=
+github.com/Muxcore-Media/media-movies v0.1.7/go.mod h1:HS18GIAQ9OYhASQI6sHYKWteB2uuQB+4jI2QvBFihcQ=
 github.com/Muxcore-Media/media-root-folders v0.1.4 h1:f0FCpt7BvsfmQIYwZQaeilgsiRsPXAxP2nN59Z5801U=
 github.com/Muxcore-Media/media-root-folders v0.1.4/go.mod h1:hNDCCQh33OfsLWahbdAirdO2XU0IwApVHETVJtYQzW4=
-github.com/Muxcore-Media/media-scanner v0.1.5 h1:AK7C3aGlbhzNYZjyhXblCeLfqPbmPlIrgcjEE0sM4cI=
-github.com/Muxcore-Media/media-scanner v0.1.5/go.mod h1:Mcq9yHuyB74Mm+MfvbfccxM8Qa01/TviyHnQbJfUli4=
+github.com/Muxcore-Media/media-scanner v0.1.6 h1:d/bapN0ZByrnwl9iPTxx7AUF6SSfcttfgVCJVDE4MIs=
+github.com/Muxcore-Media/media-scanner v0.1.6/go.mod h1:Mcq9yHuyB74Mm+MfvbfccxM8Qa01/TviyHnQbJfUli4=
 github.com/Muxcore-Media/media-tvshows v0.1.6 h1:0/0jLCq7Q7TJbN/zPNbHFjam8dhgAECJ3yqgVN8XO9c=
 github.com/Muxcore-Media/media-tvshows v0.1.6/go.mod h1:EF2inTXgmF1WncbVGgUrk3I6Hm8BT1mCsT3sP3Mk8tE=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
