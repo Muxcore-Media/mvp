@@ -13,8 +13,13 @@ Goal: boot the host stack **without** `MUXCORE_INSECURE_DISABLE_TLS=true`, using
    ./run-host-staging.sh up
    ```
    This wrapper **does not** export `MUXCORE_INSECURE_DISABLE_TLS`. Core alone should reach `gRPC TLS enabled … auto_ca=true` and `API server TLS enabled`.
-5. **Sidecar spawn** — prefer core-managed `--tag` spawn (auto-issue certs), **or** issue bootstrap tokens and call `BootstrapRegister` for external binaries. Manual `start_one` peers without client certs will fail mesh dial until bootstrapped.
-6. **Verify** — `grpcurl` / admin discovery lists modules; `curl -sk https://127.0.0.1:8080/health`; no process env contains `MUXCORE_INSECURE_DISABLE_TLS=true`.
+5. **Sidecar spawn** — After core creates the CA:
+   ```bash
+   ./scripts/issue-staging-module-certs.sh   # openssl client certs under tls/module-certs/<id>/
+   ./run-host-staging.sh up                  # start_one injects MUXCORE_TLS_* when certs exist
+   ```
+   Prefer core-managed `--tag` spawn when available (auto-issue + `--muxcore-tls-ca`). Manual peers need SDK ≥ this cutover (mTLS dial) rebuilt against core.
+6. **Verify** — `grpcurl` / admin discovery lists modules; `curl -sk https://127.0.0.1:8080/health`; `tr '\0' '\n' < /proc/<pid>/environ | grep INSECURE` shows nothing for staging processes.
 7. **Keep insecure for unit tests only** — CI and local `go test` may still set the flag; never on staging/prod hosts.
 
 ## Rollback
