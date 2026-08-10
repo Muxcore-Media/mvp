@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	jellyfinv1 "github.com/Muxcore-Media/jellyfin/proto/jellyfinv1"
 	mgmntv1 "github.com/Muxcore-Media/media-movies/proto/mgmntv1"
 	tvmgmtv1 "github.com/Muxcore-Media/media-tvshows/proto/tvmgmtv1"
 	"google.golang.org/grpc"
@@ -29,6 +30,7 @@ func main() {
 	dist := flag.String("dist", envOr("MEDIA_UI_DIST", ""), "path to media-ui dist-app (required)")
 	moviesGRPC := flag.String("movies-grpc", envOr("MOVIES_GRPC_CLIENT_ADDR", "127.0.0.1:9420"), "media-movies gRPC")
 	tvGRPC := flag.String("tv-grpc", envOr("TVSHOWS_GRPC_CLIENT_ADDR", "127.0.0.1:9440"), "media-tvshows gRPC")
+	jellyfinGRPC := flag.String("jellyfin-grpc", envOr("JELLYFIN_GRPC_CLIENT_ADDR", "127.0.0.1:9475"), "jellyfin bridge gRPC")
 	moviesHTTP := flag.String("movies-http", envOr("MOVIES_HTTP_URL", "http://127.0.0.1:9430"), "media-movies HTTP (images/stream)")
 	tvHTTP := flag.String("tv-http", envOr("TVSHOWS_HTTP_URL", "http://127.0.0.1:9450"), "media-tvshows HTTP (images)")
 	requestHTTP := flag.String("request-http", envOr("REQUEST_MEDIA_HTTP_URL", "http://127.0.0.1:9380"), "request-media HTTP (search/request)")
@@ -56,6 +58,11 @@ func main() {
 		log.Fatalf("dial tv: %v", err)
 	}
 	defer tvConn.Close()
+	jellyfinConn, err := grpc.NewClient(*jellyfinGRPC, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("dial jellyfin: %v", err)
+	}
+	defer jellyfinConn.Close()
 
 	authPublic := strings.TrimRight(*authHTTP, "/")
 	authInt := strings.TrimRight(*authInternal, "/")
@@ -65,6 +72,7 @@ func main() {
 	s := &server{
 		movies:         mgmntv1.NewMovieManagementServiceClient(moviesConn),
 		tv:             tvmgmtv1.NewTvManagementServiceClient(tvConn),
+		jellyfin:       jellyfinv1.NewJellyfinBridgeClient(jellyfinConn),
 		moviesHTTP:     mustURL(*moviesHTTP),
 		tvHTTP:         mustURL(*tvHTTP),
 		requestHTTP:    mustURL(*requestHTTP),
@@ -89,6 +97,7 @@ func main() {
 	mux.HandleFunc("/api/movies/", s.handleMovieByID)
 	mux.HandleFunc("/api/tv", s.handleListTV)
 	mux.HandleFunc("/api/tv/", s.handleTVByID)
+	mux.HandleFunc("/api/jellyfin/play", s.handleJellyfinPlay)
 	reqProxy := reverseProxy(s.requestHTTP)
 	mux.Handle("/api/search", reqProxy)
 	mux.Handle("/api/request", reqProxy)
@@ -165,6 +174,7 @@ func (s *sessionStore) Delete(tok string) {
 type server struct {
 	movies       mgmntv1.MovieManagementServiceClient
 	tv           tvmgmtv1.TvManagementServiceClient
+	jellyfin     jellyfinv1.JellyfinBridgeClient
 	moviesHTTP   *url.URL
 	tvHTTP       *url.URL
 	requestHTTP  *url.URL
@@ -396,6 +406,67 @@ func (s *server) handleTVByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"show": tvJSON(resp.GetSeries())})
+}
+
+// handleJellyfinPlay resolves mux_id → Jellyfin item link → play deep-link URL.
+// SPA: GET /api/jellyfin/play?mux_id=… → {"url":"…"}. 404 when unlinked; 503 when bridge down.
+func (s *server) handleJellyfinPlay(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	muxID := strings.TrimSpace(r.URL.Query().Get("mux_id"))
+	if muxID == "" {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "mux_id required", "code": "jellyfin.mux_id_required"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	list, err := s.jellyfin.ListItemLinks(ctx, &jellyfinv1.ListItemLinksRequest{})
+	if err != nil {
+		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": err.Error(), "code": "jellyfin.unavailable"})
+		return
+	}
+	var jfID string
+	for _, link := range list.GetLinks() {
+		if link.GetMuxcoreId() == muxID && link.GetJellyfinId() != "" {
+			jfID = link.GetJellyfinId()
+			break
+		}
+	}
+	if jfID == "" {
+		writeJSONStatus(w, http.StatusNotFound, map[string]any{"error": "no jellyfin link for mux_id", "code": "jellyfin.not_linked"})
+		return
+	}
+
+	play, err := s.jellyfin.PlayURL(ctx, &jellyfinv1.PlayURLRequest{ItemId: jfID})
+	if err != nil {
+		// Soft fallback when bridge has a link but PlayURL needs a configured base URL.
+		st, stErr := s.jellyfin.Status(ctx, &jellyfinv1.StatusRequest{})
+		if stErr != nil {
+			writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": err.Error(), "code": "jellyfin.play_failed"})
+			return
+		}
+		if st.GetBaseUrl() == "" {
+			writeJSONStatus(w, http.StatusNotFound, map[string]any{"error": "jellyfin not configured", "code": "jellyfin.not_configured"})
+			return
+		}
+		u := strings.TrimRight(st.GetBaseUrl(), "/") + "/web/index.html#!/details?id=" + url.PathEscape(jfID)
+		writeJSON(w, map[string]any{"url": u})
+		return
+	}
+	if play.GetUrl() == "" {
+		writeJSONStatus(w, http.StatusNotFound, map[string]any{"error": "empty play url", "code": "jellyfin.empty_url"})
+		return
+	}
+	writeJSON(w, map[string]any{"url": play.GetUrl()})
+}
+
+func writeJSONStatus(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func movieJSON(m *mgmntv1.MovieItem) map[string]any {
