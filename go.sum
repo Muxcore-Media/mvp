@@ -1,7 +1,7 @@
 github.com/Muxcore-Media/jellyfin v0.2.4 h1:VOGM3bpNWPOkpQEy1VN2VaMw5gLOlnNng8BmoHCaW7Q=
 github.com/Muxcore-Media/jellyfin v0.2.4/go.mod h1:KumEr7+rXt7ZttI8i8vHp2eRLUuFJ5Zg4shoJOQv6Fs=
-github.com/Muxcore-Media/media-automation v0.1.5 h1:SPEENv8Q+Hg5uxU1XsmH8yGYOH3yKEuT6cASR4z5i4w=
-github.com/Muxcore-Media/media-automation v0.1.5/go.mod h1:fZhn4Ep/rfR3s7cyuDzQsBbKAAYX3K310RstJB0vjxY=
+github.com/Muxcore-Media/media-automation v0.1.7 h1:dsFWsX2YIUhFcuTQJkKsv/MQDl+/OABRaqhvyzWTeN8=
+github.com/Muxcore-Media/media-automation v0.1.7/go.mod h1:xOS6M5Hs5odpNsciC40eqSBMxEsUza+XUA4LNZuPDxg=
 github.com/Muxcore-Media/media-movies v0.1.4 h1:wR4eWEEB31xpCpxRykKTHb+lQcXXvIudP3DYis49kDs=
 github.com/Muxcore-Media/media-movies v0.1.4/go.mod h1:HS18GIAQ9OYhASQI6sHYKWteB2uuQB+4jI2QvBFihcQ=
 github.com/Muxcore-Media/media-root-folders v0.1.4 h1:f0FCpt7BvsfmQIYwZQaeilgsiRsPXAxP2nN59Z5801U=
