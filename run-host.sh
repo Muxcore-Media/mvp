@@ -452,9 +452,18 @@ case "$cmd" in
         echo "building media-transcoder"
         (cd "$WS/media-transcoder" && go build -o "$BIN/media-transcoder" ./cmd/module)
       fi
+      # Health requires ffmpeg on PATH. Prefer $BIN/ffmpeg (symlink) so nix/host installs work.
+      if ! command -v ffmpeg >/dev/null 2>&1 && [[ ! -x "$BIN/ffmpeg" ]] && command -v nix >/dev/null 2>&1; then
+        echo "linking ffmpeg from nix into $BIN"
+        ff=$(nix shell nixpkgs#ffmpeg --command bash -c 'command -v ffmpeg' 2>/dev/null || true)
+        if [[ -n "${ff:-}" && -x "$ff" ]]; then
+          ln -sfn "$ff" "$BIN/ffmpeg"
+        fi
+      fi
       mkdir -p "$DATA/transcoder"
       maybe_start media-transcoder env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-transcoder MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        PATH="$BIN:${PATH}" \
         TRANSCODER_GRPC_ADDR=":9525" \
         TRANSCODER_DB_PATH="$DATA/transcoder/transcoder.db" \
         TRANSCODER_MAX_CONCURRENT="${TRANSCODER_MAX_CONCURRENT:-2}" \
