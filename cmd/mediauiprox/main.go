@@ -478,7 +478,7 @@ func movieJSON(m *mgmntv1.MovieItem) map[string]any {
 	if genres == nil {
 		genres = []string{}
 	}
-	return map[string]any{
+	out := map[string]any{
 		"id":           m.GetId(),
 		"tmdb_id":      m.GetTmdbId(),
 		"title":        m.GetTitle(),
@@ -493,8 +493,11 @@ func movieJSON(m *mgmntv1.MovieItem) map[string]any {
 		"status":       m.GetStatus(),
 		"tagline":      m.GetTagline(),
 		"created_at":   m.GetCreatedAt(),
-		"stream_url":   "/stream/movies/" + m.GetId(),
 	}
+	if m.GetHasFile() && m.GetId() != "" {
+		out["stream_url"] = "/stream/movies/" + url.PathEscape(m.GetId())
+	}
+	return out
 }
 
 func tvJSON(m *tvmgmtv1.TVSeries) map[string]any {
@@ -514,7 +517,7 @@ func tvJSON(m *tvmgmtv1.TVSeries) map[string]any {
 			epStream := ""
 			if ep.GetHasFile() {
 				hasFile = true
-				epStream = "/stream/tv/" + ep.GetId()
+				epStream = "/stream/tv/" + url.PathEscape(ep.GetId())
 				if streamURL == "" {
 					streamURL = epStream
 				}
