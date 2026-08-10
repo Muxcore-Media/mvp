@@ -39,12 +39,24 @@ Requires `gh` token scopes `repo` + `write:packages`. Image build is verified lo
 
 ## Quick start
 
+Guided host setup (recommended):
+
 ```bash
-cd _mvp
-cp .env.example .env
+cd mvp   # or _mvp in older layouts
+./setup.sh
 ```
 
-### Docker Compose (preferred)
+Prompts for TMDB (live key or offline fixtures), admin credentials, library paths, and optional Jellyfin; writes `.env`, starts `./run-host.sh up`, bootstraps auth, and can run `./smoke.sh`.
+
+Manual path:
+
+```bash
+cd mvp
+cp .env.example .env
+# edit TMDB_API_KEY=… (or TMDB_FIXTURE=1) and MVP_ADMIN_* as needed
+```
+
+### Docker Compose (preferred for containers)
 
 ```bash
 docker compose up --build -d
