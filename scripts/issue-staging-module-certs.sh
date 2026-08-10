@@ -22,7 +22,8 @@ if [[ ${#modules[@]} -eq 0 ]]; then
     call-policy-default publish-policy-default health-monitor
     media-movies media-tvshows media-automation metadata-tmdb
     media-scanner media-root-folders request-media notification-default
-    jellyfin downloader-native-torrent indexer-torznab
+    jellyfin downloader-native-torrent indexer-torznab indexer-piratebay
+    media-custom-formats media-rename media-ffprobe media-subtitles
   )
 fi
 
