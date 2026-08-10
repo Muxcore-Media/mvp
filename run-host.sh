@@ -86,9 +86,13 @@ case "$cmd" in
       MUXCORE_STORAGE_DIR="$DATA/storage" \
       MUXCORE_LOG_LEVEL="${MUXCORE_LOG_LEVEL:-info}" \
       "$BIN/muxcored"
-    # wait for mesh (prefer HTTP 200 once storage is registered)
+    # wait for mesh (prefer HTTP 200 once storage is registered; staging API is TLS)
     for _ in $(seq 1 40); do
-      code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/health || echo 000)
+      if [[ "${MUXCORE_PROFILE:-}" == "staging" ]]; then
+        code=$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:8080/health || echo 000)
+      else
+        code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/health || echo 000)
+      fi
       [[ "$code" == "200" || "$code" == "503" ]] && break
       sleep 0.5
     done
