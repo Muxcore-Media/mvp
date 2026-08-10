@@ -278,6 +278,22 @@ echo "==> jellyfin soft UpsertItemLink + webhook (no live Jellyfin)"
   -addr "$jf_grpc" \
   -webhook-url "${SMOKE_JELLYFIN_WEBHOOK:-${JELLYFIN_HTTP}/webhook}"
 
+# Live Jellyfin path: opt-in via SMOKE_LIVE_JELLYFIN=1, or auto when both server creds are set
+# (disable with SMOKE_LIVE_JELLYFIN=0). Requires jellyfin module env JELLYFIN_BASE_URL + JELLYFIN_API_KEY.
+live_jellyfin=0
+if [[ "${SMOKE_LIVE_JELLYFIN:-}" == "1" ]]; then
+  live_jellyfin=1
+elif [[ "${SMOKE_LIVE_JELLYFIN:-}" != "0" && -n "${JELLYFIN_BASE_URL:-}" && -n "${JELLYFIN_API_KEY:-}" ]]; then
+  live_jellyfin=1
+fi
+if [[ "$live_jellyfin" == "1" ]]; then
+  build_if_missing jellyfinlive ./cmd/jellyfinlive
+  echo "==> jellyfin LIVE (Status configured + RefreshLibrary + SyncLibrary)"
+  "$BIN/jellyfinstatus" -addr "$jf_grpc" -require-configured
+  "$BIN/jellyfinlive" -addr "$jf_grpc"
+  echo "OK jellyfin live smoke"
+fi
+
 SCANNER_ADDR="${SCANNER_GRPC_CLIENT_ADDR:-127.0.0.1:9470}"
 [[ "$SCANNER_ADDR" == :* ]] && SCANNER_ADDR="127.0.0.1${SCANNER_ADDR}"
 build_if_missing importscan ./cmd/importscan
