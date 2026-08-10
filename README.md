@@ -94,7 +94,9 @@ Automation: soft queue APIs plus **fixture Dispatch** via `DOWNLOADER_ENGINE=fix
 11. Health-monitor `ReportHealth` + HTTP `/status` + mesh fan-out of `module.degraded` (visible on admin-ui `/events?filter=health`)  
 12. Media-ui SPA (`:5173`) auth + shell + `/api/movies` / stream / `/api/tv` via mediauiprox BFF (skip if not running)  
 13. Media-ui → request-media: search + `POST /api/request` (`TMDB_FIXTURE=1` offline Fight Club hit, or live `TMDB_API_KEY`)  
-14. Optional live acquisition (`SMOKE_LIVE_ACQUISITION=1`): Apibay Search + real torrent Dispatch/progress (VPN; set `PIRATEBAY_API_BASE` + `DOWNLOADER_ENGINE=anacrolix`)
+14. Soft `/api/jellyfin/play` (200 linked / 404 unlinked or unconfigured)  
+15. Optional live Jellyfin (`SMOKE_LIVE_JELLYFIN=1`, or auto when `JELLYFIN_BASE_URL` + `JELLYFIN_API_KEY` are set): Status configured + RefreshLibrary + SyncLibrary + sample PlayURL via `cmd/jellyfinlive`  
+16. Optional live acquisition (`SMOKE_LIVE_ACQUISITION=1`): Apibay Search + real torrent Dispatch/progress (VPN; set `PIRATEBAY_API_BASE` + `DOWNLOADER_ENGINE=anacrolix`)
 
 Consumer SPA source/build: **[`../media-ui-app/`](../media-ui-app/)** → org [`Muxcore-Media/media-ui-app`](https://github.com/Muxcore-Media/media-ui-app) (`dist-app`). Build with `(cd ../media-ui-app && npm ci && npm run build)`.
 
