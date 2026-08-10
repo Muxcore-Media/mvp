@@ -17,6 +17,8 @@ Historical wave pins (still accurate as of each wave; later patch tags supersede
 Authoritative docs: [`../core.wiki/Getting-Started.md`](../core.wiki/Getting-Started.md), [`../core.wiki/Deployment.md`](../core.wiki/Deployment.md).  
 Spool presets mirrored: [`../spool/tags/minimal.json`](../spool/tags/minimal.json), [`../spool/tags/media.json`](../spool/tags/media.json), [`../spool/tags/acquisition.json`](../spool/tags/acquisition.json).
 
+Operator references in this repo: [`PORTS.md`](PORTS.md) (default gRPC/HTTP ports), [`LIVE-ACQUISITION.md`](LIVE-ACQUISITION.md) (VPN + live torrent smoke), [`BFF-API.md`](BFF-API.md) (mediauiprox JSON contracts), [`tls/`](tls/) (mTLS staging + secret rotation).
+
 ## Prerequisites
 
 - Docker Compose v2 **or** host Go toolchain (`run-host.sh`)
