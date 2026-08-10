@@ -22,6 +22,18 @@ Spool presets mirrored: [`../spool/tags/minimal.json`](../spool/tags/minimal.jso
 - Org repos cloned as siblings (same layout as this workspace)
 - Dev-only: `MUXCORE_INSECURE_DISABLE_TLS=true` (see wiki Configuration Reference)
 
+## GHCR images (optional)
+
+Default compose builds from sibling trees. To pull prebuilt images instead, use [`docker-compose.ghcr.yml`](docker-compose.ghcr.yml) once `muxcored` (and peers) are published.
+
+Publish `muxcored` from a host with rootless podman (e.g. gringotts):
+
+```bash
+./scripts/publish-muxcored-ghcr.sh v0.5.0
+```
+
+Requires `gh` token scopes `repo` + `write:packages`. Image build is verified locally as `localhost/muxcored:v0.5.0`; GHCR push is blocked until the token has packages write.
+
 ## Quick start
 
 ```bash
