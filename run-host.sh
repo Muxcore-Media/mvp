@@ -273,6 +273,31 @@ case "$cmd" in
       HEALTH_MONITOR_INTERVAL="${HEALTH_MONITOR_INTERVAL:-5s}" \
       "$BIN/health-monitor"
 
+    # Optional metrics/tracing (MVP_ENABLE_OBSERVABILITY=1 or MUXCORE_OBSERVABILITY=1)
+    if [[ "${MVP_ENABLE_OBSERVABILITY:-0}" == "1" || "${MUXCORE_OBSERVABILITY:-0}" == "1" || "${MUXCORE_OBSERVABILITY:-}" == "true" ]]; then
+      if [[ -x "$BIN/metrics-prometheus" ]]; then
+        start_one metrics-prometheus env \
+          MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=metrics-prometheus MUXCORE_INSECURE_DISABLE_TLS=true \
+          METRICS_GRPC_ADDR="${METRICS_GRPC_ADDR:-:9900}" \
+          METRICS_HTTP_ADDR="${METRICS_HTTP_ADDR:-:9901}" \
+          METRICS_PATH="${METRICS_PATH:-/metrics}" \
+          "$BIN/metrics-prometheus"
+      else
+        echo "WARN: metrics-prometheus binary missing at $BIN/metrics-prometheus (skip)" >&2
+      fi
+      if [[ -x "$BIN/tracing-otlp" ]]; then
+        start_one tracing-otlp env \
+          MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=tracing-otlp MUXCORE_INSECURE_DISABLE_TLS=true \
+          TRACING_GRPC_ADDR="${TRACING_GRPC_ADDR:-:9613}" \
+          OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-}" \
+          OTEL_EXPORTER_OTLP_INSECURE="${OTEL_EXPORTER_OTLP_INSECURE:-true}" \
+          "$BIN/tracing-otlp"
+      else
+        echo "WARN: tracing-otlp binary missing at $BIN/tracing-otlp (skip)" >&2
+      fi
+    fi
+
+
     # Keep /status non-idle between module self-reports (local mesh fan-out already allowed).
     if [[ ! -x "$BIN/healthtick" ]]; then
       echo "building healthtick"
