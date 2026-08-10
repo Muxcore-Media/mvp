@@ -105,7 +105,8 @@ func main() {
 	// SPA uses /images/movies/<rel> and /images/tv/<rel>; modules serve under /images/<rel>.
 	mux.Handle("/images/movies/", imagePrefixProxy("/images/movies", "/images", reverseProxy(s.moviesHTTP)))
 	mux.Handle("/images/tv/", imagePrefixProxy("/images/tv", "/images", reverseProxy(s.tvHTTP)))
-	mux.Handle("/stream/", reverseProxy(s.moviesHTTP))
+	mux.Handle("/stream/movies/", reverseProxy(s.moviesHTTP))
+	mux.Handle("/stream/tv/", reverseProxy(s.tvHTTP))
 	mux.HandleFunc("/", s.spa)
 
 	handler := http.Handler(mux)
@@ -473,9 +474,9 @@ func movieJSON(m *mgmntv1.MovieItem) map[string]any {
 	if m == nil {
 		return map[string]any{}
 	}
-	poster := m.GetPosterUrl()
-	if poster == "" {
-		poster = m.GetPosterPath()
+	genres := m.GetGenres()
+	if genres == nil {
+		genres = []string{}
 	}
 	return map[string]any{
 		"id":           m.GetId(),
@@ -485,9 +486,9 @@ func movieJSON(m *mgmntv1.MovieItem) map[string]any {
 		"overview":     m.GetOverview(),
 		"runtime":      m.GetRuntime(),
 		"vote_average": m.GetVoteAverage(),
-		"genres":       m.GetGenres(),
-		"poster_url":   poster,
-		"backdrop_url": firstNonEmpty(m.GetBackdropUrl(), m.GetBackdropPath()),
+		"genres":       genres,
+		"poster_url":   consumerImageURL("movies", firstNonEmpty(m.GetPosterUrl(), m.GetPosterPath())),
+		"backdrop_url": consumerImageURL("movies", firstNonEmpty(m.GetBackdropUrl(), m.GetBackdropPath())),
 		"has_file":     m.GetHasFile(),
 		"status":       m.GetStatus(),
 		"tagline":      m.GetTagline(),
@@ -500,9 +501,43 @@ func tvJSON(m *tvmgmtv1.TVSeries) map[string]any {
 	if m == nil {
 		return map[string]any{}
 	}
-	poster := m.GetPosterUrl()
-	if poster == "" {
-		poster = m.GetPosterPath()
+	genres := m.GetGenres()
+	if genres == nil {
+		genres = []string{}
+	}
+	hasFile := false
+	streamURL := ""
+	seasons := make([]map[string]any, 0, len(m.GetSeasons()))
+	for _, season := range m.GetSeasons() {
+		eps := make([]map[string]any, 0, len(season.GetEpisodes()))
+		for _, ep := range season.GetEpisodes() {
+			epStream := ""
+			if ep.GetHasFile() {
+				hasFile = true
+				epStream = "/stream/tv/" + ep.GetId()
+				if streamURL == "" {
+					streamURL = epStream
+				}
+			}
+			eps = append(eps, map[string]any{
+				"id":             ep.GetId(),
+				"season_number":  ep.GetSeasonNumber(),
+				"episode_number": ep.GetEpisodeNumber(),
+				"title":          ep.GetName(),
+				"overview":       ep.GetOverview(),
+				"air_date":       ep.GetAirDate(),
+				"has_file":       ep.GetHasFile(),
+				"stream_url":     epStream,
+			})
+		}
+		seasons = append(seasons, map[string]any{
+			"id":            season.GetId(),
+			"season_number": season.GetSeasonNumber(),
+			"name":          season.GetName(),
+			"episode_count": season.GetEpisodeCount(),
+			"poster_url":    consumerImageURL("tv", season.GetPosterPath()),
+			"episodes":      eps,
+		})
 	}
 	return map[string]any{
 		"id":           m.GetId(),
@@ -512,13 +547,34 @@ func tvJSON(m *tvmgmtv1.TVSeries) map[string]any {
 		"year":         m.GetYear(),
 		"overview":     m.GetOverview(),
 		"vote_average": m.GetVoteAverage(),
-		"genres":       m.GetGenres(),
-		"poster_url":   poster,
-		"backdrop_url": firstNonEmpty(m.GetBackdropUrl(), m.GetBackdropPath()),
-		"has_file":     false,
+		"genres":       genres,
+		"poster_url":   consumerImageURL("tv", firstNonEmpty(m.GetPosterUrl(), m.GetPosterPath())),
+		"backdrop_url": consumerImageURL("tv", firstNonEmpty(m.GetBackdropUrl(), m.GetBackdropPath())),
+		"has_file":     hasFile,
+		"stream_url":   streamURL,
 		"status":       m.GetStatus(),
 		"created_at":   m.GetCreatedAt(),
+		"seasons":      seasons,
 	}
+}
+
+// consumerImageURL rewrites module-relative artwork paths to SPA-facing /images/{movies|tv}/… URLs.
+func consumerImageURL(kind, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
+		return raw
+	}
+	if strings.HasPrefix(raw, "/images/") || strings.HasPrefix(raw, "/stream/") {
+		return raw
+	}
+	raw = strings.TrimPrefix(raw, "/")
+	if kind == "tv" {
+		return "/images/tv/" + raw
+	}
+	return "/images/movies/" + raw
 }
 
 func pageParams(r *http.Request) (int32, int32) {
