@@ -8,8 +8,8 @@ require (
 	github.com/Muxcore-Media/jellyfin v0.2.3
 	github.com/Muxcore-Media/media-automation v0.1.5
 	github.com/Muxcore-Media/media-movies v0.1.3
-	github.com/Muxcore-Media/media-root-folders v0.1.2
-	github.com/Muxcore-Media/media-scanner v0.1.3
+	github.com/Muxcore-Media/media-root-folders v0.1.3
+	github.com/Muxcore-Media/media-scanner v0.1.4
 	github.com/Muxcore-Media/media-tvshows v0.1.4
 	google.golang.org/grpc v1.82.1
 )
