@@ -45,12 +45,19 @@ build_if_missing() {
   fi
 }
 build_if_missing listmodules ./cmd/listmodules
+# Always rebuild listmodules — tiny helper; carries catalog version checks.
+echo "==> building listmodules"
+(cd "$ROOT" && go build -o "$BIN/listmodules" ./cmd/listmodules)
 build_if_missing gettoken ./cmd/gettoken
 build_if_missing addmovie ./cmd/addmovie
 build_if_missing addtvshow ./cmd/addtvshow
 
 echo "==> resolving modules via core discovery (${MESH})"
-MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules"
+listmods_env=(MUXCORE_GRPC_ADDR="$MESH")
+if [[ -f "${SMOKE_CATALOG:-$ROOT/../spool/catalog.json}" ]]; then
+  listmods_env+=(SMOKE_CATALOG="${SMOKE_CATALOG:-$ROOT/../spool/catalog.json}")
+fi
+env "${listmods_env[@]}" "$BIN/listmodules"
 # Optional workflow engine (MVP_ENABLE_WORKFLOW_TAPESTRY=1)
 if SMOKE_MODULES=workflow-tapestry MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules" >/dev/null 2>&1; then
   if ! ss -lptn 2>/dev/null | grep -q ':9603'; then
