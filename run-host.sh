@@ -253,6 +253,21 @@ case "$cmd" in
       JELLYFIN_WEBHOOK_SECRET="${JELLYFIN_WEBHOOK_SECRET:-}" \
       "$BIN/jellyfin"
 
+    # Optional FFmpeg transcoder (:9525) for media-transcode workflow DAG
+    if [[ "${MVP_ENABLE_MEDIA_TRANSCODER:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/media-transcoder" ]]; then
+        echo "building media-transcoder"
+        (cd "$WS/media-transcoder" && go build -o "$BIN/media-transcoder" ./cmd/module)
+      fi
+      mkdir -p "$DATA/transcoder"
+      start_one media-transcoder env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-transcoder MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        TRANSCODER_GRPC_ADDR=":9525" \
+        TRANSCODER_DB_PATH="$DATA/transcoder/transcoder.db" \
+        TRANSCODER_MAX_CONCURRENT="${TRANSCODER_MAX_CONCURRENT:-2}" \
+        "$BIN/media-transcoder"
+    fi
+
     # Consumer SPA from media-ui-app (clean extract; not the polluted media-ui dump).
     # Disable with MVP_ENABLE_MEDIA_UI=0.
     if [[ "${MVP_ENABLE_MEDIA_UI:-1}" != "0" ]]; then
