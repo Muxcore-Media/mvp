@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-rest
+  labels:
+    app.kubernetes.io/name: api-rest
+    app.kubernetes.io/part-of: muxcore
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-rest
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api-rest
+        app.kubernetes.io/part-of: muxcore
+    spec:
+      containers:
+        - name: api-rest
+          image: ghcr.io/muxcore-media/api-rest:v0.1.6
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MUXCORE_GRPC_ADDR
+              value: muxcored:9090
+            - name: MUXCORE_MODULE_ID
+              value: api-rest
+            - name: MUXCORE_INSECURE_DISABLE_TLS
+              value: "true"
+            - name: API_REST_HTTP_ADDR
+              value: ":8080"
+            - name: API_REST_GRPC_ADDR
+              value: ":9400"
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: grpc
+              containerPort: 9400
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-rest
+  labels:
+    app.kubernetes.io/name: api-rest
+    app.kubernetes.io/part-of: muxcore
+spec:
+  selector:
+    app.kubernetes.io/name: api-rest
+  ports:
+    - name: http
+      port: 18080
+      targetPort: http
+    - name: grpc
+      port: 9400
+      targetPort: grpc

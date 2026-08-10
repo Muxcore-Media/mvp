@@ -1,0 +1,131 @@
+# Production overlay: require mesh TLS (pair with cert injection / staging CA).
+# Images still expect GHCR publish (P0); until then prefer overlays/dev or run-host.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: muxcored
+spec:
+  template:
+    spec:
+      containers:
+        - name: muxcored
+          env:
+            - name: MUXCORE_INSECURE_DISABLE_TLS
+              value: "false"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-rest
+spec:
+  template:
+    spec:
+      containers:
+        - name: api-rest
+          env:
+            - name: MUXCORE_INSECURE_DISABLE_TLS
+              value: "false"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-local
+spec:
+  template:
+    spec:
+      containers:
+        - name: auth-local
+          env:
+            - name: MUXCORE_INSECURE_DISABLE_TLS
+              value: "false"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: database-sqlite
+spec:
+  template:
+    spec:
+      containers:
+        - name: database-sqlite
+          env:
+            - name: MUXCORE_INSECURE_DISABLE_TLS
+              value: "false"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secrets-file
+spec:
+  template:
+    spec:
+      containers:
+        - name: secrets-file
+          env:
+            - name: MUXCORE_INSECURE_DISABLE_TLS
+              value: "false"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: encryption-aesgcm
+spec:
+  template:
+    spec:
+      containers:
+        - name: encryption-aesgcm
+          env:
+            - name: MUXCORE_INSECURE_DISABLE_TLS
+              value: "false"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: call-policy-default
+spec:
+  template:
+    spec:
+      containers:
+        - name: call-policy-default
+          env:
+            - name: MUXCORE_INSECURE_DISABLE_TLS
+              value: "false"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: publish-policy-default
+spec:
+  template:
+    spec:
+      containers:
+        - name: publish-policy-default
+          env:
+            - name: MUXCORE_INSECURE_DISABLE_TLS
+              value: "false"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: health-monitor
+spec:
+  template:
+    spec:
+      containers:
+        - name: health-monitor
+          env:
+            - name: MUXCORE_INSECURE_DISABLE_TLS
+              value: "false"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-ui
+spec:
+  template:
+    spec:
+      containers:
+        - name: admin-ui
+          env:
+            - name: MUXCORE_INSECURE_DISABLE_TLS
+              value: "false"

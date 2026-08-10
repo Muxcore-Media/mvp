@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: encryption-aesgcm
+  labels:
+    app.kubernetes.io/name: encryption-aesgcm
+    app.kubernetes.io/part-of: muxcore
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: encryption-aesgcm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: encryption-aesgcm
+        app.kubernetes.io/part-of: muxcore
+    spec:
+      containers:
+        - name: encryption-aesgcm
+          image: ghcr.io/muxcore-media/encryption-aesgcm:v0.2.6
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MUXCORE_GRPC_ADDR
+              value: muxcored:9090
+            - name: MUXCORE_MODULE_ID
+              value: encryption-aesgcm
+            - name: MUXCORE_INSECURE_DISABLE_TLS
+              value: "true"
+          resources:
+            requests:
+              cpu: 15m
+              memory: 32Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi

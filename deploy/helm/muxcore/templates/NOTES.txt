@@ -1,0 +1,11 @@
+1. Create the auth secret (if not using an external IdP):
+   kubectl -n {{ .Values.namespace }} create secret generic {{ .Values.auth.existingSecret }} \
+     --from-literal={{ .Values.auth.passwordKey }}=CHANGE_ME
+
+2. Images default to ghcr.io/muxcore-media/* — publish is still a P0 (write:packages).
+   Until GHCR is available, build locally and retag, or keep using ./run-host.sh.
+
+3. Mesh address for sidecars is Service DNS muxcored:9090 in namespace {{ .Values.namespace }}.
+
+4. Prefer Kustomize overlays under deploy/kustomize/ when iterating on raw manifests;
+   this chart tracks the same minimal platform slice.
