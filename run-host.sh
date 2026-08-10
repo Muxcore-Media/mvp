@@ -531,7 +531,8 @@ case "$cmd" in
     if [[ -n "${START_ONLY:-}" ]]; then
       echo "restarted $START_ONLY. logs in $RUN/$START_ONLY.log"
     else
-      echo "started. logs in $RUN ; SMOKE_API_URL=http://127.0.0.1:18080 ./smoke.sh"
+      "$ROOT/scripts/write-view-me.sh" || true
+      echo "started. logs in $RUN ; see $RUN/VIEW-ME.txt ; SMOKE_API_URL=http://127.0.0.1:18080 ./smoke.sh"
     fi
     ;;
   *)

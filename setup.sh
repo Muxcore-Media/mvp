@@ -92,26 +92,7 @@ check_siblings() {
 }
 
 write_view_me() {
-  mkdir -p "$ROOT/run"
-  cat >"$ROOT/run/VIEW-ME.txt" <<EOF
-MuxCore MVP — operator URLs
-===========================
-
-Admin UI:     http://127.0.0.1:8082
-Media UI:     http://127.0.0.1:5173
-API (rest):   http://127.0.0.1:18080
-Core health:  http://127.0.0.1:8080/health
-Request UI:   http://127.0.0.1:9380
-
-Admin user:   ${MVP_ADMIN_USER}
-Auth gRPC:    ${AUTH_GRPC_ADDR:-127.0.0.1:9403}
-
-Library dir:  ${LIBRARY_DIR}
-Download dir: ${DOWNLOAD_DIR}
-
-Stop stack:   ./run-host.sh stop
-Smoke test:   ./smoke.sh
-EOF
+  "$ROOT/scripts/write-view-me.sh"
 }
 
 main() {
