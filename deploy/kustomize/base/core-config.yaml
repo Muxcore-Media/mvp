@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: muxcore-core-config
+  labels:
+    app.kubernetes.io/name: muxcored
+    app.kubernetes.io/part-of: muxcore
+data:
+  muxcore.json: |
+    {
+      "server": {
+        "http_addr": ":8080",
+        "grpc_addr": ":9090"
+      },
+      "storage": {
+        "dir": "/app/data/storage"
+      },
+      "log": {
+        "level": "info"
+      }
+    }

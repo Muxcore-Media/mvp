@@ -37,6 +37,18 @@ Publish `muxcored` from a host with rootless podman (e.g. gringotts):
 
 Requires `gh` token scopes `repo` + `write:packages`. Image build is verified locally as `localhost/muxcored:v0.5.0` (rebuild for v0.5.1 before publish); GHCR push is blocked until the token has packages write.
 
+## Kubernetes (Phase 3 scaffold)
+
+Kustomize overlays + Helm chart for the **minimal platform** slice live under [`deploy/`](deploy/README.md):
+
+```bash
+kubectl apply -k deploy/kustomize/overlays/dev
+# or
+helm upgrade --install muxcore deploy/helm/muxcore -n muxcore --create-namespace
+```
+
+Images default to `ghcr.io/muxcore-media/*` (same GHCR P0 dependency). Host `./run-host.sh` remains the verified operator path.
+
 ## Quick start
 
 Guided host setup (recommended):
