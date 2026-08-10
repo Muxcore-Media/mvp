@@ -199,6 +199,22 @@ grep -qi 'jellyfin-page\|Configured\|Item links\|Soft OK' /tmp/muxcore-admin-jel
   head -c 400 /tmp/muxcore-admin-jellyfin.html >&2 || true
   exit 1
 }
+# Optional import-list peer (MVP_ENABLE_MEDIA_LIST_SYNC=1)
+list_sync_ok=""
+if SMOKE_MODULES=media-list-sync MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules" >/dev/null 2>&1; then
+  ls_code=$(curl -s -c "$jar" -b "$jar" -o /tmp/muxcore-admin-list-sync.html -w '%{http_code}' "${ADMIN_URL}/list-sync")
+  [[ "$ls_code" == "200" ]] || {
+    echo "FAIL: /list-sync HTTP $ls_code (media-list-sync registered)" >&2
+    exit 1
+  }
+  grep -qi 'list-sync-page\|List Sync\|Add source' /tmp/muxcore-admin-list-sync.html || {
+    echo "FAIL: /list-sync missing operator surface" >&2
+    head -c 400 /tmp/muxcore-admin-list-sync.html >&2 || true
+    exit 1
+  }
+  echo "OK admin-ui /list-sync (media-list-sync present)"
+  list_sync_ok=" + /list-sync"
+fi
 # Soft SyncLibrary via admin-ui (csrf via cookie + header from csrf.js not available in curl; call gRPC helper already covers Sync).
 grep -qi 'Sync library\|jellyfin-sync' /tmp/muxcore-admin-jellyfin.html || {
   echo "FAIL: /jellyfin missing Sync library action" >&2
@@ -246,7 +262,7 @@ grep -qi 'cluster-update' /tmp/muxcore-admin-sse.txt || {
   head -c 200 /tmp/muxcore-admin-sse.txt >&2 || true
   exit 1
 }
-echo "OK admin-ui session established (+ /modules + health + CSS + cluster SSE + /dashboard/monitor + /automation + /jellyfin)"
+echo "OK admin-ui session established (+ /modules + health + CSS + cluster SSE + /dashboard/monitor + /automation + /jellyfin${list_sync_ok})"
 
 JELLYFIN_HTTP="${SMOKE_JELLYFIN_URL:-http://127.0.0.1:8475}"
 build_if_missing jellyfinstatus ./cmd/jellyfinstatus
