@@ -74,70 +74,146 @@ stop_all() {
   fi
 }
 
+# Graceful stop of a single sidecar (SIGTERM, wait, then SIGKILL). Removes pidfile.
+stop_one() {
+  local name="$1"
+  local pidfile="$RUN/$name.pid"
+  if [[ -f "$pidfile" ]]; then
+    local pid
+    pid=$(cat "$pidfile")
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "stopping $name ($pid)"
+      kill "$pid" 2>/dev/null || true
+      for _ in $(seq 1 20); do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.25
+      done
+      if kill -0 "$pid" 2>/dev/null; then
+        echo "WARN: $name still alive; SIGKILL" >&2
+        kill -9 "$pid" 2>/dev/null || true
+      fi
+    fi
+    rm -f "$pidfile"
+  fi
+  # Orphan process without pidfile (e.g. after manual start).
+  if [[ -x "$BIN/$name" ]] || [[ "$name" == "media-ui" ]]; then
+    local bin_base="$name"
+    [[ "$name" == "core" ]] && bin_base=muxcored
+    [[ "$name" == "media-ui" ]] && bin_base=mediauiprox
+    pkill -x "$bin_base" 2>/dev/null || true
+  fi
+}
+
+unregister_best_effort() {
+  local name="$1"
+  [[ "$name" == "core" || "$name" == "healthtick" || "$name" == "media-ui" || "$name" == "admin-ui" ]] && return 0
+  if [[ ! -x "$BIN/unregistermodule" ]]; then
+    (cd "$ROOT" && go build -o "$BIN/unregistermodule" ./cmd/unregistermodule) || true
+  fi
+  if [[ -x "$BIN/unregistermodule" ]]; then
+    "$BIN/unregistermodule" -addr "$MESH" "$name" 2>/dev/null || true
+  fi
+}
+
+# When START_ONLY is set (restart path), skip launching other modules.
+maybe_start() {
+  local name="$1"
+  shift
+  if [[ -n "${START_ONLY:-}" && "$START_ONLY" != "$name" ]]; then
+    return 0
+  fi
+  start_one "$name" "$@"
+}
+
 cmd="${1:-up}"
 case "$cmd" in
   stop) stop_all; exit 0 ;;
+  stop-one|stop_one)
+    [[ -n "${2:-}" ]] || { echo "usage: $0 stop-one <name>" >&2; exit 2; }
+    stop_one "$2"
+    unregister_best_effort "$2"
+    exit 0
+    ;;
+  unregister)
+    [[ -n "${2:-}" ]] || { echo "usage: $0 unregister <module-id>" >&2; exit 2; }
+    if [[ ! -x "$BIN/unregistermodule" ]]; then
+      (cd "$ROOT" && go build -o "$BIN/unregistermodule" ./cmd/unregistermodule)
+    fi
+    "$BIN/unregistermodule" -addr "$MESH" "$2"
+    exit 0
+    ;;
+  restart)
+    [[ -n "${2:-}" ]] || { echo "usage: $0 restart <name>" >&2; exit 2; }
+    stop_one "$2"
+    unregister_best_effort "$2"
+    sleep 0.5
+    exec env START_ONLY="$2" bash "$0" up
+    ;;
   up)
-    stop_all
-    [[ -x "$BIN/muxcored" ]] || (cd "$WS/core" && go build -o "$BIN/muxcored" ./cmd/muxcored)
-    start_one core env \
-      MUXCORE_CONFIG="$MUXCORE_CONFIG" \
-      MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
-      MUXCORE_STORAGE_DIR="$DATA/storage" \
-      MUXCORE_LOG_LEVEL="${MUXCORE_LOG_LEVEL:-info}" \
-      "$BIN/muxcored"
-    # wait for mesh (prefer HTTP 200 once storage is registered; staging API is TLS)
-    for _ in $(seq 1 40); do
-      if [[ "${MUXCORE_PROFILE:-}" == "staging" ]]; then
-        code=$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:8080/health || echo 000)
-      else
-        code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/health || echo 000)
-      fi
-      [[ "$code" == "200" || "$code" == "503" ]] && break
-      sleep 0.5
-    done
+    if [[ -z "${START_ONLY:-}" ]]; then
+      stop_all
+      [[ -x "$BIN/muxcored" ]] || (cd "$WS/core" && go build -o "$BIN/muxcored" ./cmd/muxcored)
+      start_one core env \
+        MUXCORE_CONFIG="$MUXCORE_CONFIG" \
+        MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        MUXCORE_STORAGE_DIR="$DATA/storage" \
+        MUXCORE_LOG_LEVEL="${MUXCORE_LOG_LEVEL:-info}" \
+        "$BIN/muxcored"
+      # wait for mesh (prefer HTTP 200 once storage is registered; staging API is TLS)
+      for _ in $(seq 1 40); do
+        if [[ "${MUXCORE_PROFILE:-}" == "staging" ]]; then
+          code=$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:8080/health || echo 000)
+        else
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/health || echo 000)
+        fi
+        [[ "$code" == "200" || "$code" == "503" ]] && break
+        sleep 0.5
+      done
+    else
+      echo "restart path: starting only $START_ONLY (core left running)"
+    fi
 
-    start_one api-rest env \
+    maybe_start api-rest env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=api-rest MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
       API_REST_HTTP_ADDR=":18080" API_REST_GRPC_ADDR=":9400" \
       "$BIN/api-rest"
 
-    start_one auth-local env \
+    maybe_start auth-local env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=auth-local MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       AUTH_DB_PATH="$DATA/auth/auth.db" \
       AUTH_GRPC_ADDR=":9403" AUTH_HTTP_ADDR=":9401" \
       "$BIN/auth-local"
 
-    start_one database-sqlite env \
+    maybe_start database-sqlite env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=database-sqlite MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       SQLITE_DB_PATH="$DATA/sqlite/muxcore.db" \
       "$BIN/database-sqlite"
 
     mkdir -p "$DATA/secrets" "$DATA/encryption"
-    start_one secrets-file env \
+    maybe_start secrets-file env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=secrets-file MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       SECRETS_STORE="$DATA/secrets/store.json" \
       SECRETS_KEY_FILE="$DATA/secrets/master.key" \
       SECRETS_GRPC_ADDR="${SECRETS_GRPC_ADDR:-:9550}" \
       "$BIN/secrets-file"
 
-    start_one encryption-aesgcm env \
+    maybe_start encryption-aesgcm env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=encryption-aesgcm MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       ENCRYPTION_KEY_FILE="$DATA/encryption/master.key" \
       "$BIN/encryption-aesgcm"
 
-    start_one call-policy-default env \
+    maybe_start call-policy-default env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=call-policy-default MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       CALL_POLICY_FILE="$WS/call-policy-default/policies.yaml" \
       "$BIN/call-policy-default"
 
-    start_one publish-policy-default env \
+    maybe_start publish-policy-default env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=publish-policy-default MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       PUBLISH_POLICY_FILE="$WS/publish-policy-default/policies.yaml" \
       "$BIN/publish-policy-default"
 
-    start_one health-monitor env \
+    maybe_start health-monitor env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=health-monitor MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
       HEALTH_MONITOR_GRPC_ADDR="${HEALTH_MONITOR_GRPC_ADDR:-:9202}" \
@@ -151,12 +227,12 @@ case "$cmd" in
       (cd "$ROOT" && go build -o "$BIN/healthtick" ./cmd/healthtick) || true
     fi
     if [[ -x "$BIN/healthtick" ]]; then
-      start_one healthtick \
+      maybe_start healthtick \
         "$BIN/healthtick" -addr "127.0.0.1:9202" -interval 30s
     fi
 
     # Public auth URL for browser redirects (Caddy); internal for code exchange.
-    start_one admin-ui env \
+    maybe_start admin-ui env \
       ADMIN_UI_ADDR=":8082" \
       ADMIN_UI_CORE_ADDR="$MESH" \
       ADMIN_UI_INSECURE=true \
@@ -168,28 +244,28 @@ case "$cmd" in
       MUXCORE_MESH_DIAL_LOCAL=true \
       "$BIN/admin-ui"
 
-    start_one metadata-tmdb env \
+    maybe_start metadata-tmdb env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=metadata-tmdb MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       TMDB_API_KEY="${TMDB_API_KEY:-}" \
       MUXCORE_CFG_TMDB_API_KEY="${MUXCORE_CFG_TMDB_API_KEY:-${TMDB_API_KEY:-}}" \
       TMDB_FIXTURE="${TMDB_FIXTURE:-}" \
       "$BIN/metadata-tmdb"
 
-    start_one media-movies env \
+    maybe_start media-movies env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-movies MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
       MOVIES_DB_PATH="$DATA/movies/movies.db" MOVIES_IMAGE_DIR="$DATA/movies/images" \
       MOVIES_HTTP_ADDR=":9430" \
       "$BIN/media-movies"
 
-    start_one media-tvshows env \
+    maybe_start media-tvshows env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-tvshows MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
       TVSHOWS_DB_PATH="$DATA/tvshows/tvshows.db" TVSHOWS_IMAGE_DIR="$DATA/tvshows/images" \
       TVSHOWS_GRPC_ADDR=":9440" TVSHOWS_HTTP_ADDR=":9450" \
       "$BIN/media-tvshows"
 
-    start_one media-automation env \
+    maybe_start media-automation env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-automation MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
       AUTOMATION_DB_PATH="$DATA/automation/automation.db" \
@@ -203,7 +279,7 @@ case "$cmd" in
       echo "building media-custom-formats"
       (cd "$WS/media-custom-formats" && go build -o "$BIN/media-custom-formats" ./cmd/module)
     fi
-    start_one media-custom-formats env \
+    maybe_start media-custom-formats env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-custom-formats MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       FORMATS_DB_PATH="$DATA/formats/formats.db" \
       FORMATS_GRPC_ADDR=":9490" \
@@ -214,7 +290,7 @@ case "$cmd" in
       echo "building media-rename"
       (cd "$WS/media-rename" && go build -o "$BIN/media-rename" ./cmd/module)
     fi
-    start_one media-rename env \
+    maybe_start media-rename env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-rename MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       RENAME_DB_PATH="$DATA/rename/rename.db" \
       RENAME_GRPC_ADDR="${RENAME_GRPC_ADDR:-:9510}" \
@@ -225,7 +301,7 @@ case "$cmd" in
       echo "building media-ffprobe"
       (cd "$WS/media-ffprobe" && go build -o "$BIN/media-ffprobe" ./cmd/module)
     fi
-    start_one media-ffprobe env \
+    maybe_start media-ffprobe env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-ffprobe MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       FFPROBE_DB_PATH="$DATA/ffprobe/cache.db" \
       FFPROBE_GRPC_ADDR="${FFPROBE_GRPC_ADDR:-:9480}" \
@@ -235,7 +311,7 @@ case "$cmd" in
       echo "building media-subtitles"
       (cd "$WS/media-subtitles" && go build -o "$BIN/media-subtitles" ./cmd/module)
     fi
-    start_one media-subtitles env \
+    maybe_start media-subtitles env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-subtitles MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       SUBS_DB_PATH="$DATA/subtitles/subtitles.db" \
       SUBS_DIR="$DATA/subtitles/files" \
@@ -247,7 +323,7 @@ case "$cmd" in
     DOWNLOADS_DIR="${MVP_DOWNLOADS_DIR:-$DATA/downloads}"
     mkdir -p "$LIBRARY_ROOT" "$TV_LIBRARY_ROOT" "$DOWNLOADS_DIR"
 
-    start_one media-scanner env \
+    maybe_start media-scanner env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-scanner MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
       SCANNER_DB_PATH="$DATA/scanner/scanner.db" \
@@ -273,7 +349,7 @@ case "$cmd" in
     elif [[ -z "$WG_CONF_PATH" && -f "$WS/wg.conf" ]]; then
       WG_CONF_PATH="$WS/wg.conf"
     fi
-    start_one downloader-native-torrent env \
+    maybe_start downloader-native-torrent env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=downloader-native-torrent MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       DOWNLOADER_GRPC_ADDR=":9461" \
       DOWNLOAD_DIR="$DOWNLOADS_DIR" \
@@ -288,7 +364,7 @@ case "$cmd" in
 
     # Live Apibay indexer when PIRATEBAY_API_BASE is set (VPN recommended).
     if [[ -n "${PIRATEBAY_API_BASE:-}" ]]; then
-      start_one indexer-piratebay env \
+      maybe_start indexer-piratebay env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=indexer-piratebay MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
         PIRATEBAY_GRPC_ADDR=":9485" \
         PIRATEBAY_API_BASE="$PIRATEBAY_API_BASE" \
@@ -300,7 +376,7 @@ case "$cmd" in
       echo "building indexer-torznab"
       (cd "$WS/indexer-torznab" && go build -o "$BIN/indexer-torznab" ./cmd/module)
     fi
-    start_one indexer-torznab env \
+    maybe_start indexer-torznab env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=indexer-torznab MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       TORZNAB_GRPC_ADDR="${TORZNAB_GRPC_ADDR:-:9486}" \
       TORZNAB_URL="${TORZNAB_URL:-}" \
@@ -308,12 +384,12 @@ case "$cmd" in
       TORZNAB_NAME="${TORZNAB_NAME:-Torznab}" \
       "$BIN/indexer-torznab"
 
-    start_one media-root-folders env \
+    maybe_start media-root-folders env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-root-folders MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       ROOTS_DB_PATH="$DATA/roots/roots.db" \
       "$BIN/media-root-folders"
 
-    start_one request-media env \
+    maybe_start request-media env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=request-media MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
       REQUEST_GRPC_ADDR=":9481" \
@@ -326,14 +402,14 @@ case "$cmd" in
       echo "building notification-default"
       (cd "$WS/notification-default" && go build -o "$BIN/notification-default" ./cmd/module)
     fi
-    start_one notification-default env \
+    maybe_start notification-default env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=notification-default MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       NOTIFY_GRPC_ADDR=":9441" \
       WEBHOOK_URL="${NOTIFY_WEBHOOK_URL:-http://127.0.0.1:9/muxcore-notify-sink}" \
       "$BIN/notification-default"
 
     # Soft-config OK without live Jellyfin; set JELLYFIN_BASE_URL + JELLYFIN_API_KEY for sync.
-    start_one jellyfin env \
+    maybe_start jellyfin env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=jellyfin MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       JELLYFIN_GRPC_ADDR=":9475" JELLYFIN_HTTP_ADDR=":8475" \
       JELLYFIN_DATA_DIR="$DATA/jellyfin" \
@@ -348,7 +424,7 @@ case "$cmd" in
         echo "building workflow-tapestry"
         (cd "$WS/workflow-tapestry" && go build -o "$BIN/workflow-tapestry" ./cmd/module)
       fi
-      start_one workflow-tapestry env \
+      maybe_start workflow-tapestry env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=workflow-tapestry MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
         WORKFLOW_GRPC_ADDR=":9603" \
         "$BIN/workflow-tapestry"
@@ -361,7 +437,7 @@ case "$cmd" in
         (cd "$WS/media-list-sync" && go build -o "$BIN/media-list-sync" ./cmd/module)
       fi
       mkdir -p "$DATA/listsync"
-      start_one media-list-sync env \
+      maybe_start media-list-sync env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-list-sync MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
         LISTSYNC_GRPC_ADDR=":9530" \
         LISTSYNC_DB_PATH="$DATA/listsync/listsync.db" \
@@ -375,7 +451,7 @@ case "$cmd" in
         (cd "$WS/media-transcoder" && go build -o "$BIN/media-transcoder" ./cmd/module)
       fi
       mkdir -p "$DATA/transcoder"
-      start_one media-transcoder env \
+      maybe_start media-transcoder env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-transcoder MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
         TRANSCODER_GRPC_ADDR=":9525" \
         TRANSCODER_DB_PATH="$DATA/transcoder/transcoder.db" \
@@ -390,7 +466,7 @@ case "$cmd" in
         echo "building notification-apprise"
         (cd "$WS/notification-apprise" && go build -o "$BIN/notification-apprise" ./cmd/module)
       fi
-      start_one notification-apprise env \
+      maybe_start notification-apprise env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=notification-apprise MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
         NOTIFY_GRPC_ADDR=":9445" \
         APPRISE_URL="${APPRISE_URL:-}" \
@@ -413,7 +489,7 @@ case "$cmd" in
           echo "building mediauiprox"
           (cd "$ROOT" && go build -o "$BIN/mediauiprox" ./cmd/mediauiprox)
         fi
-        start_one media-ui env \
+        maybe_start media-ui env \
           MEDIA_UI_LISTEN="${MEDIA_UI_LISTEN:-:5173}" \
           MEDIA_UI_DIST="$UI_DIST" \
           MEDIA_UI_REQUIRE_AUTH="${MEDIA_UI_REQUIRE_AUTH:-1}" \
@@ -435,10 +511,14 @@ case "$cmd" in
       fi
     fi
 
-    echo "started. logs in $RUN ; SMOKE_API_URL=http://127.0.0.1:18080 ./smoke.sh"
+    if [[ -n "${START_ONLY:-}" ]]; then
+      echo "restarted $START_ONLY. logs in $RUN/$START_ONLY.log"
+    else
+      echo "started. logs in $RUN ; SMOKE_API_URL=http://127.0.0.1:18080 ./smoke.sh"
+    fi
     ;;
   *)
-    echo "usage: $0 {up|stop}" >&2
+    echo "usage: $0 {up|stop|stop-one <name>|restart <name>|unregister <id>}" >&2
     exit 2
     ;;
 esac
