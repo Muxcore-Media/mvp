@@ -68,6 +68,14 @@ if SMOKE_MODULES=cache-redis MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules" >/dev/
   fi
   echo "OK cache-redis listening on :9600"
 fi
+# Optional FFmpeg transcoder (MVP_ENABLE_MEDIA_TRANSCODER=1)
+if SMOKE_MODULES=media-transcoder MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules" >/dev/null 2>&1; then
+  if ! ss -lptn 2>/dev/null | grep -q ':9525'; then
+    echo "FAIL: media-transcoder registered but not listening on :9525" >&2
+    exit 1
+  fi
+  echo "OK media-transcoder listening on :9525"
+fi
 
 if [[ ! -f "$TOKEN_FILE" ]]; then
   echo "==> no token file; running bootstrap-auth.sh"
