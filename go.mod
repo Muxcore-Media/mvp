@@ -5,7 +5,7 @@ go 1.26.4
 require (
 	github.com/Muxcore-Media/contracts-downloader v0.1.0
 	github.com/Muxcore-Media/contracts-indexer v0.1.0
-	github.com/Muxcore-Media/core v0.5.1
+	github.com/Muxcore-Media/core v0.5.2
 	github.com/Muxcore-Media/core/sdk/go/client v0.5.2
 	github.com/Muxcore-Media/jellyfin v0.2.1
 	github.com/Muxcore-Media/media-automation v0.1.0
