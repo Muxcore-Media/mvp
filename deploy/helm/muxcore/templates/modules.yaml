@@ -1,0 +1,108 @@
+{{- /* Sidecar modules — minimal platform slice */ -}}
+{{- $root := . -}}
+{{- $modules := list
+  (dict "name" "api-rest" "image" .Values.images.apiRest "http" 8080 "svcHttp" 18080 "grpc" 9400 "health" "/api/v1/health" "extra" (list (dict "name" "API_REST_HTTP_ADDR" "value" ":8080") (dict "name" "API_REST_GRPC_ADDR" "value" ":9400")))
+  (dict "name" "auth-local" "image" .Values.images.authLocal "http" 9401 "svcHttp" 9401 "grpc" 9403 "health" "/health" "pvc" "auth-local-data" "pvcSize" .Values.persistence.authSize "extra" (list (dict "name" "AUTH_DB_PATH" "value" "/data/auth.db") (dict "name" "AUTH_GRPC_ADDR" "value" ":9403") (dict "name" "AUTH_HTTP_ADDR" "value" ":9401")))
+  (dict "name" "database-sqlite" "image" .Values.images.databaseSqlite "pvc" "database-sqlite-data" "pvcSize" .Values.persistence.sqliteSize)
+  (dict "name" "secrets-file" "image" .Values.images.secretsFile "pvc" "secrets-file-data" "pvcSize" .Values.persistence.secretsSize)
+  (dict "name" "encryption-aesgcm" "image" .Values.images.encryptionAesgcm)
+  (dict "name" "call-policy-default" "image" .Values.images.callPolicy)
+  (dict "name" "publish-policy-default" "image" .Values.images.publishPolicy)
+  (dict "name" "health-monitor" "image" .Values.images.healthMonitor "http" 9203 "svcHttp" 9203 "grpc" 9202 "health" "/status" "extra" (list (dict "name" "HEALTH_MONITOR_GRPC_ADDR" "value" ":9202") (dict "name" "HEALTH_MONITOR_HTTP_ADDR" "value" ":9203")))
+  (dict "name" "admin-ui" "image" .Values.images.adminUi "http" 8082 "svcHttp" 8082 "health" "/health" "extra" (list (dict "name" "ADMIN_UI_ADDR" "value" ":8082") (dict "name" "ADMIN_UI_AUTH_ADDR" "value" "http://auth-local:9401") (dict "name" "ADMIN_UI_HEALTH_MONITOR_URL" "value" "http://health-monitor:9203")))
+-}}
+{{- range $m := $modules }}
+{{- if $m.pvc }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $m.pvc }}
+  namespace: {{ $root.Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $m.name }}
+    {{- include "muxcore.labels" $root | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ $m.pvcSize }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $m.name }}
+  namespace: {{ $root.Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $m.name }}
+    {{- include "muxcore.labels" $root | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $m.name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $m.name }}
+        {{- include "muxcore.labels" $root | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ $m.name }}
+          image: {{ $m.image }}
+          imagePullPolicy: {{ $root.Values.images.pullPolicy }}
+          env:
+            - name: MUXCORE_GRPC_ADDR
+              value: muxcored:9090
+            - name: MUXCORE_MODULE_ID
+              value: {{ $m.name }}
+            {{- include "muxcore.tlsEnv" $root | nindent 12 }}
+            {{- range $e := $m.extra }}
+            - name: {{ $e.name }}
+              value: {{ $e.value | quote }}
+            {{- end }}
+          {{- if $m.http }}
+          ports:
+            - { name: http, containerPort: {{ $m.http }} }
+            {{- if $m.grpc }}
+            - { name: grpc, containerPort: {{ $m.grpc }} }
+            {{- end }}
+          readinessProbe:
+            httpGet: { path: {{ $m.health | quote }}, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          {{- end }}
+          {{- if $m.pvc }}
+          volumeMounts:
+            - { name: data, mountPath: /data }
+          {{- end }}
+          resources:
+            {{- toYaml $root.Values.resources | nindent 12 }}
+      {{- if $m.pvc }}
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: {{ $m.pvc }} }
+      {{- end }}
+{{- if or $m.svcHttp $m.grpc }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $m.name }}
+  namespace: {{ $root.Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $m.name }}
+    {{- include "muxcore.labels" $root | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ $m.name }}
+  ports:
+    {{- if $m.svcHttp }}
+    - { name: http, port: {{ $m.svcHttp }}, targetPort: http }
+    {{- end }}
+    {{- if $m.grpc }}
+    - { name: grpc, port: {{ $m.grpc }}, targetPort: grpc }
+    {{- end }}
+{{- end }}
+{{- end }}

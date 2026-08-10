@@ -286,7 +286,7 @@ case "$cmd" in
     # Public auth URL for browser redirects (Caddy); internal for code exchange.
     if [[ ! -x "$BIN/admin-ui" ]]; then
       echo "building admin-ui"
-      ver="${ADMIN_UI_VERSION:-0.1.8}"
+      ver="${ADMIN_UI_VERSION:-0.1.10}"
       (cd "$WS/admin-ui" && go build -ldflags="-s -w -X main.version=${ver}" -o "$BIN/admin-ui" .)
     fi
     maybe_start admin-ui env \

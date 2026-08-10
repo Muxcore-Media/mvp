@@ -1,0 +1,104 @@
+{{- if .Values.createNamespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace }}
+  labels:
+    {{- include "muxcore.labels" . | nindent 4 }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: muxcore-core-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: muxcored
+    {{- include "muxcore.labels" . | nindent 4 }}
+data:
+  muxcore.json: |
+    {
+      "server": { "http_addr": ":8080", "grpc_addr": ":9090" },
+      "storage": { "dir": "/app/data/storage" },
+      "log": { "level": "info" }
+    }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: muxcored-data
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: muxcored
+    {{- include "muxcore.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ .Values.persistence.coreSize }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: muxcored
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: muxcored
+    {{- include "muxcore.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: muxcored
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: muxcored
+        {{- include "muxcore.labels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: muxcored
+          image: {{ .Values.images.muxcored }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          env:
+            - name: MUXCORE_CONFIG
+              value: /app/muxcore.json
+            - name: MUXCORE_SERVER_ADDR
+              value: ":8080"
+            {{- include "muxcore.tlsEnv" . | nindent 12 }}
+            - name: MUXCORE_LOG_LEVEL
+              value: info
+            - name: MUXCORE_STORAGE_DIR
+              value: /app/data/storage
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: grpc, containerPort: 9090 }
+          volumeMounts:
+            - { name: config, mountPath: /app/muxcore.json, subPath: muxcore.json, readOnly: true }
+            - { name: data, mountPath: /app/data }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap: { name: muxcore-core-config }
+        - name: data
+          persistentVolumeClaim: { claimName: muxcored-data }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: muxcored
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: muxcored
+    {{- include "muxcore.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: muxcored
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+    - { name: grpc, port: 9090, targetPort: grpc }

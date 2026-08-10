@@ -1,0 +1,39 @@
+# Default values for the MuxCore minimal platform chart.
+# Image tags track spool catalog pins where possible; muxcored tracks core releases.
+
+namespace: muxcore
+createNamespace: true
+
+insecureDisableTLS: true
+
+images:
+  pullPolicy: IfNotPresent
+  muxcored: ghcr.io/muxcore-media/muxcored:v0.5.2
+  apiRest: ghcr.io/muxcore-media/api-rest:v0.1.6
+  authLocal: ghcr.io/muxcore-media/auth-local:v0.1.5
+  databaseSqlite: ghcr.io/muxcore-media/database-sqlite:v0.1.5
+  secretsFile: ghcr.io/muxcore-media/secrets-file:v0.1.6
+  encryptionAesgcm: ghcr.io/muxcore-media/encryption-aesgcm:v0.2.6
+  callPolicy: ghcr.io/muxcore-media/call-policy-default:v0.3.3
+  publishPolicy: ghcr.io/muxcore-media/publish-policy-default:v0.2.2
+  healthMonitor: ghcr.io/muxcore-media/health-monitor:v0.1.5
+  adminUi: ghcr.io/muxcore-media/admin-ui:v0.1.10
+
+persistence:
+  coreSize: 5Gi
+  authSize: 1Gi
+  sqliteSize: 5Gi
+  secretsSize: 1Gi
+
+auth:
+  # Create separately: kubectl -n muxcore create secret generic muxcore-auth --from-literal=admin-password=...
+  existingSecret: muxcore-auth
+  passwordKey: admin-password
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

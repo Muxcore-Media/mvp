@@ -1,0 +1,12 @@
+apiVersion: v2
+name: muxcore
+description: MuxCore MVP minimal platform (core + gateway + auth + storage/secrets/policies + admin-ui)
+type: application
+version: 0.1.0
+appVersion: "0.5.2"
+keywords:
+  - muxcore
+  - media
+home: https://github.com/Muxcore-Media/mvp
+sources:
+  - https://github.com/Muxcore-Media/mvp
