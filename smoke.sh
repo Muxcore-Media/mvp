@@ -409,8 +409,19 @@ if curl -sf "${MEDIA_UI_URL}/healthz" >/dev/null 2>&1; then
     echo "$movies_json" | head -c 400 >&2
     exit 1
   }
-  stream_path=$(echo "$movies_json" | sed -n 's/.*"stream_url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
-  [[ -n "$stream_path" ]] || { echo "FAIL: missing stream_url" >&2; exit 1; }
+  stream_path=""
+  if command -v jq >/dev/null 2>&1; then
+    stream_path=$(echo "$movies_json" | jq -r '.items[]? | select(.has_file==true) | .stream_url // empty' | head -1)
+  elif command -v python3 >/dev/null 2>&1; then
+    stream_path=$(echo "$movies_json" | python3 -c 'import json,sys
+d=json.load(sys.stdin)
+for it in d.get("items") or []:
+  if it.get("has_file") and it.get("stream_url"):
+    print(it["stream_url"]); break')
+  else
+    stream_path=$(echo "$movies_json" | tr '{' '\n' | awk '/"has_file"[[:space:]]*:[[:space:]]*true/{f=1} f&&/"stream_url"/{match($0,/"stream_url"[[:space:]]*:[[:space:]]*"([^"]*)"/,a); print a[1]; exit}')
+  fi
+  [[ -n "$stream_path" && "$stream_path" != null ]] || { echo "FAIL: missing stream_url for has_file item" >&2; exit 1; }
   stream_code=$(curl -s -c "$media_cj" -b "$media_cj" -o /dev/null -w '%{http_code}' -r 0-1023 "${MEDIA_UI_URL}${stream_path}")
   [[ "$stream_code" == "200" || "$stream_code" == "206" ]] || {
     echo "FAIL: stream ${stream_path} HTTP $stream_code" >&2
