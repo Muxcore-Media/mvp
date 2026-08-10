@@ -60,6 +60,14 @@ if SMOKE_MODULES=workflow-tapestry MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules" 
   fi
   echo "OK workflow-tapestry listening on :9603"
 fi
+# Optional spool-default cache peer (MVP_ENABLE_CACHE_REDIS=1 / REDIS_ADDR)
+if SMOKE_MODULES=cache-redis MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules" >/dev/null 2>&1; then
+  if ! ss -lptn 2>/dev/null | grep -q ':9600'; then
+    echo "FAIL: cache-redis registered but not listening on :9600" >&2
+    exit 1
+  fi
+  echo "OK cache-redis listening on :9600"
+fi
 
 if [[ ! -f "$TOKEN_FILE" ]]; then
   echo "==> no token file; running bootstrap-auth.sh"
