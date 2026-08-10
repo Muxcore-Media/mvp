@@ -344,6 +344,25 @@ services:
     volumes:
       - jellyfin-data:/data
 
+  # Optional FFmpeg transcoder — profile: transcoder
+  media-transcoder:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-transcoder }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-transcoder
+      TRANSCODER_DB_PATH: /data/transcoder.db
+      TRANSCODER_GRPC_ADDR: ":9525"
+      TRANSCODER_MAX_CONCURRENT: ${TRANSCODER_MAX_CONCURRENT:-2}
+    ports:
+      - "${TRANSCODER_GRPC_PORT:-9525}:9525"
+    volumes:
+      - transcoder-data:/data
+    profiles: ["transcoder"]
+
   # Consumer SPA — media-ui-app clean extract (not polluted media-ui dump). Profile: media-ui
   media-ui:
     build:
@@ -382,3 +401,4 @@ volumes:
   downloads-data:
   jellyfin-data:
   request-data:
+  transcoder-data:
