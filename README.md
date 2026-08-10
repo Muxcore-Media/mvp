@@ -4,7 +4,7 @@ Local reference compose for the media MVP path. Sibling clones under `/home/user
 
 **P0 Media MVP status: met** (Wave 21 stack + smoke; Wave 22 packaging freeze). Operator URLs after `./run-host.sh up`: [`run/VIEW-ME.txt`](run/VIEW-ME.txt).
 
-**Core pin:** published [`v0.5.1`](https://github.com/Muxcore-Media/core/releases/tag/v0.5.1) (mTLS dial; Wave 24 baseline was v0.5.0). Nested SDK tags: `pkg/contracts` / `sdk/go/module` / `sdk/go/client` @ **v0.5.1–v0.5.2** (`RegisterSettings`, chunked `Storage.Put`). Modules pinning without `replace` (`GOPRIVATE=github.com/Muxcore-Media/*`, `gh` HTTPS):
+**Core pin:** published [`v0.5.2`](https://github.com/Muxcore-Media/core/releases/tag/v0.5.2) (Settings mesh + chunked Put; mTLS dial from v0.5.1). Nested SDK tags: `pkg/contracts` / `sdk/go/module` / `sdk/go/client` @ **v0.5.2**. Modules pinning without `replace` (`GOPRIVATE=github.com/Muxcore-Media/*`, `gh` HTTPS):
 
 Historical wave pins (still accurate as of each wave; later patch tags supersede — see spool catalog **2.3.3**):
 - **Waves 25–26 (core-adjacent):** `auth-local`, `call-policy-default`, `publish-policy-default`, `secrets-file`, `encryption-aesgcm`, `api-rest`, `jellyfin@v0.2.1`, `media-root-folders@v0.1.1`, `health-monitor`, `metadata-tmdb@v0.1.1`, `database-sqlite`, `secrets-vault`
@@ -30,7 +30,7 @@ Default compose builds from sibling trees. To pull prebuilt images instead, use 
 Publish `muxcored` from a host with rootless podman (e.g. gringotts):
 
 ```bash
-./scripts/publish-muxcored-ghcr.sh v0.5.1
+./scripts/publish-muxcored-ghcr.sh v0.5.2
 ```
 
 Requires `gh` token scopes `repo` + `write:packages`. Image build is verified locally as `localhost/muxcored:v0.5.0` (rebuild for v0.5.1 before publish); GHCR push is blocked until the token has packages write.
