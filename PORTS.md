@@ -32,6 +32,7 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9600 | cache-redis | optional (`MVP_ENABLE_CACHE_REDIS=1` or `REDIS_ADDR`) |
 | 9601 | encryption-aesgcm | |
 | 9603 | workflow-tapestry | optional (`MVP_ENABLE_WORKFLOW_TAPESTRY=1`) |
+| 9610 / 9611 | storage-s3 | optional S3/MinIO StorageProvider (gRPC / health) |
 | 9800 | ratelimit-tokenbucket | spool `default` (fail-open until `RATELIMIT_ENABLED`) |
 | 18080 | api-rest HTTP | |
 
