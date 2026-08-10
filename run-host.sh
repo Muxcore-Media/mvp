@@ -334,56 +334,6 @@ case "$cmd" in
       SCANNER_MIN_VIDEO_BYTES=0 \
       "$BIN/media-scanner"
 
-    # DOWNLOADER_ENGINE=fixture (default) for offline smoke; set to empty/anacrolix for live torrents.
-    # WireGuard needs CAP_NET_ADMIN (setcap below). NAT-PMP auto-starts when WG conf comments say
-    # "NAT-PMP ... = on" or NAT_PMP_PORT is set (maps UDP+TCP on the torrent listen port).
-    if [[ -x "$BIN/downloader-native-torrent" ]] && command -v setcap >/dev/null 2>&1; then
-      if ! getcap "$BIN/downloader-native-torrent" 2>/dev/null | grep -q 'cap_net_admin'; then
-        sudo setcap 'cap_net_admin,cap_net_raw+ep' "$BIN/downloader-native-torrent" 2>/dev/null \
-          || echo "WARN: setcap failed — WireGuard auto-start needs CAP_NET_ADMIN" >&2
-      fi
-    fi
-    WG_CONF_PATH="${WG_CONF:-}"
-    if [[ -z "$WG_CONF_PATH" && -f "$WS/wg-mux.conf" ]]; then
-      WG_CONF_PATH="$WS/wg-mux.conf"
-    elif [[ -z "$WG_CONF_PATH" && -f "$WS/wg.conf" ]]; then
-      WG_CONF_PATH="$WS/wg.conf"
-    fi
-    maybe_start downloader-native-torrent env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=downloader-native-torrent MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
-      DOWNLOADER_GRPC_ADDR=":9461" \
-      DOWNLOAD_DIR="$DOWNLOADS_DIR" \
-      DOWNLOADER_ENGINE="${DOWNLOADER_ENGINE:-fixture}" \
-      SEED_MINUTES=1 \
-      SEED_RATIO=1.0 \
-      WG_CONF="${WG_CONF_PATH}" \
-      WG_KILL_SWITCH="${WG_KILL_SWITCH:-false}" \
-      TORRENT_LISTEN_PORT="${TORRENT_LISTEN_PORT:-6881}" \
-      NAT_PMP_PORT="${NAT_PMP_PORT:-${TORRENT_LISTEN_PORT:-6881}}" \
-      "$BIN/downloader-native-torrent"
-
-    # Live Apibay indexer when PIRATEBAY_API_BASE is set (VPN recommended).
-    if [[ -n "${PIRATEBAY_API_BASE:-}" ]]; then
-      maybe_start indexer-piratebay env \
-        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=indexer-piratebay MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
-        PIRATEBAY_GRPC_ADDR=":9485" \
-        PIRATEBAY_API_BASE="$PIRATEBAY_API_BASE" \
-        "$BIN/indexer-piratebay"
-    fi
-
-    # Torznab aggregator (Prowlarr/Jackett). Soft-empty when TORZNAB_URL unset.
-    if [[ ! -x "$BIN/indexer-torznab" ]]; then
-      echo "building indexer-torznab"
-      (cd "$WS/indexer-torznab" && go build -o "$BIN/indexer-torznab" ./cmd/module)
-    fi
-    maybe_start indexer-torznab env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=indexer-torznab MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
-      TORZNAB_GRPC_ADDR="${TORZNAB_GRPC_ADDR:-:9486}" \
-      TORZNAB_URL="${TORZNAB_URL:-}" \
-      TORZNAB_API_KEY="${TORZNAB_API_KEY:-}" \
-      TORZNAB_NAME="${TORZNAB_NAME:-Torznab}" \
-      "$BIN/indexer-torznab"
-
     maybe_start media-root-folders env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-root-folders MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       ROOTS_DB_PATH="$DATA/roots/roots.db" \
