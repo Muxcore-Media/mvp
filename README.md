@@ -32,7 +32,7 @@ Default compose builds from sibling trees. To pull prebuilt images instead, use 
 Publish `muxcored` from a host with rootless podman (e.g. gringotts):
 
 ```bash
-./scripts/publish-muxcored-ghcr.sh v0.5.3
+./scripts/publish-muxcored-ghcr.sh v0.5.4
 ```
 
 Requires `gh` token scopes `repo` + `write:packages`. Image build is verified locally as `localhost/muxcored:v0.5.0` (rebuild for v0.5.1 before publish); GHCR push is blocked until the token has packages write.
