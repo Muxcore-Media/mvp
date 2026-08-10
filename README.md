@@ -63,6 +63,10 @@ docker compose up --build -d
 (cd ../downloader-native-torrent && go build -o ../_mvp/bin/downloader-native-torrent ./cmd/module)
 
 ./run-host.sh up
+# Single-module ops (core stays up; clears stale mesh registration on stop/restart):
+# ./run-host.sh stop-one media-scanner
+# ./run-host.sh restart admin-ui
+# ./run-host.sh unregister media-scanner
 ./bootstrap-auth.sh
 ./smoke.sh
 ./run-host.sh stop
