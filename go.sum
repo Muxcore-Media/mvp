@@ -1,7 +1,3 @@
-github.com/Muxcore-Media/contracts-downloader v0.1.0 h1:rs2ITkYFlE3EIxfPhWUfQa8jGo9r32V5ud3qGwZ7tLs=
-github.com/Muxcore-Media/contracts-downloader v0.1.0/go.mod h1:1ER35JwAuibGgDh8k7l6cdnDA3TM4GZoILIG9QX0III=
-github.com/Muxcore-Media/contracts-indexer v0.1.0 h1:LFBFdvyiQlI7u1DP0/kneSm+PpBEEsU31+M1nfI0ugc=
-github.com/Muxcore-Media/contracts-indexer v0.1.0/go.mod h1:e2vy6l8mQPoCAi9kvWdfUkEcRz3M5LDMVk8/xqu+CtE=
 github.com/Muxcore-Media/jellyfin v0.2.3 h1:Z4OUIZCa9gnKUtkEcRoJ4oWt5U5IooywSeOEc8c73RI=
 github.com/Muxcore-Media/jellyfin v0.2.3/go.mod h1:KumEr7+rXt7ZttI8i8vHp2eRLUuFJ5Zg4shoJOQv6Fs=
 github.com/Muxcore-Media/media-automation v0.1.5 h1:SPEENv8Q+Hg5uxU1XsmH8yGYOH3yKEuT6cASR4z5i4w=

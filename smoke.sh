@@ -298,7 +298,7 @@ SCANNER_ADDR="${SCANNER_GRPC_CLIENT_ADDR:-127.0.0.1:9470}"
 [[ "$SCANNER_ADDR" == :* ]] && SCANNER_ADDR="127.0.0.1${SCANNER_ADDR}"
 build_if_missing importscan ./cmd/importscan
 
-echo "==> scanner ImportPath fixture (no indexer/torrent)"
+echo "==> scanner ImportPath fixture"
 "$BIN/importscan" \
   -addr "$SCANNER_ADDR" \
   -watch "${MVP_DOWNLOADS_DIR:-$ROOT/data/downloads}" \
@@ -308,22 +308,8 @@ AUTOMATION_ADDR="${AUTOMATION_GRPC_CLIENT_ADDR:-127.0.0.1:9460}"
 [[ "$AUTOMATION_ADDR" == :* ]] && AUTOMATION_ADDR="127.0.0.1${AUTOMATION_ADDR}"
 build_if_missing automationqueue ./cmd/automationqueue
 
-echo "==> automation queue soft (no indexer)"
+echo "==> automation queue soft"
 "$BIN/automationqueue" -addr "$AUTOMATION_ADDR"
-
-build_if_missing automationdispatch ./cmd/automationdispatch
-# Fixture Dispatch only works with DOWNLOADER_ENGINE=fixture. Live/anacrolix stacks skip it
-# (covered by SMOKE_LIVE_ACQUISITION + liveacquisition instead).
-if [[ "${DOWNLOADER_ENGINE:-fixture}" == "fixture" ]]; then
-  echo "==> automation Dispatch fixture (no pirate indexer / no BitTorrent network)"
-  # Wait for automation event subscriptions (AUTOMATION_EVENT_SUBSCRIBE_DELAY).
-  sleep 2
-  "$BIN/automationdispatch" \
-    -addr "$AUTOMATION_ADDR" \
-    -library "${MVP_LIBRARY_ROOT:-$ROOT/data/library}"
-else
-  echo "==> automation Dispatch fixture SKIPPED (DOWNLOADER_ENGINE=${DOWNLOADER_ENGINE}; use fixture for offline complete path)"
-fi
 
 HM_ADDR="${HEALTH_MONITOR_GRPC_CLIENT_ADDR:-127.0.0.1:9202}"
 [[ "$HM_ADDR" == :* ]] && HM_ADDR="127.0.0.1${HM_ADDR}"
@@ -460,24 +446,4 @@ else
   echo "==> media-ui not running (set MVP_ENABLE_MEDIA_UI=1 / build dist-app); skipping"
 fi
 
-if [[ "${SMOKE_LIVE_ACQUISITION:-}" == "1" ]]; then
-  build_if_missing liveacquisition ./cmd/liveacquisition
-  echo "==> LIVE acquisition (Apibay search + real torrent dispatch)"
-  INDEXER_ADDR="${INDEXER_PIRATEBAY_GRPC_CLIENT_ADDR:-127.0.0.1:9485}"
-  [[ "$INDEXER_ADDR" == :* ]] && INDEXER_ADDR="127.0.0.1${INDEXER_ADDR}"
-  DL_ADDR="${DOWNLOADER_GRPC_CLIENT_ADDR:-127.0.0.1:9461}"
-  [[ "$DL_ADDR" == :* ]] && DL_ADDR="127.0.0.1${DL_ADDR}"
-  "$BIN/liveacquisition" \
-    -indexer "$INDEXER_ADDR" \
-    -automation "$AUTOMATION_ADDR" \
-    -downloader "$DL_ADDR" \
-    -timeout "${SMOKE_LIVE_TIMEOUT:-3m}" \
-    -min-seeders "${SMOKE_LIVE_MIN_SEEDERS:-3}" \
-    -min-bytes "${SMOKE_LIVE_MIN_BYTES:-131072}"
-fi
-
-live_note=""
-if [[ "${SMOKE_LIVE_ACQUISITION:-}" == "1" ]]; then
-  live_note=" + live acquisition"
-fi
-echo "PASS: MVP smoke (auth + movies + tv + admin-ui + jellyfin + scanner + automation + health-monitor + media-ui + request-media${live_note})"
+echo "PASS: MVP smoke (auth + movies + tv + admin-ui + jellyfin + scanner + automation + health-monitor + media-ui + request-media)"

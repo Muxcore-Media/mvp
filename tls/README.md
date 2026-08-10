@@ -45,7 +45,7 @@ NixOS: after install, `imports = [ ./muxcore-mesh-trust.nix ];` and `nixos-rebui
 
 Dev login: `admin` / `admin-dev-only` (see `mvp/.env`).
 
-## WireGuard / torrent VPN (gringotts)
+## WireGuard VPN (gringotts)
 
 Downloader uses **source-routed** WireGuard (`WG_CONF`, interface from conf basename, e.g. `wg-mux`).
 Only traffic from the tunnel address (e.g. `10.2.0.2`) exits via Proton; mesh `wg0` stays intact.

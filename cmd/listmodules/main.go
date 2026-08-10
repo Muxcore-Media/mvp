@@ -19,10 +19,7 @@ func main() {
 		"api-rest", "auth-local", "database-sqlite", "secrets-file", "encryption-aesgcm",
 		"call-policy-default", "publish-policy-default", "metadata-tmdb", "media-movies",
 		"media-tvshows", "media-automation", "media-scanner", "media-root-folders", "jellyfin",
-		"downloader-native-torrent", "request-media", "notification-default",
-	}
-	if os.Getenv("PIRATEBAY_API_BASE") != "" || os.Getenv("SMOKE_LIVE_ACQUISITION") == "1" {
-		need = append(need, "indexer-piratebay")
+		"request-media", "notification-default",
 	}
 	if v := os.Getenv("SMOKE_MODULES"); v != "" {
 		need = strings.Split(v, ",")

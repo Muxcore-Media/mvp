@@ -1,6 +1,6 @@
 # MuxCore MVP reference stack (local sibling clones).
 # Docs: ../core.wiki/Getting-Started.md, ../core.wiki/Deployment.md
-# Spool tags mirrored: minimal + media (+ acquisition modules).
+# Spool tags mirrored: minimal + media.
 #
 # From this directory:
 #   docker compose up --build -d
@@ -268,42 +268,6 @@ services:
     volumes:
       - roots-data:/data
       - library-data:/library
-
-  # --- fixture downloader (no BitTorrent network; pirate indexer stays on acquisition) ---
-  downloader-native-torrent:
-    <<: *module
-    build:
-      context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
-      args: { MODULE: downloader-native-torrent }
-    environment:
-      <<: *module_env
-      MUXCORE_MODULE_ID: downloader-native-torrent
-      DOWNLOADER_GRPC_ADDR: ":9461"
-      DOWNLOAD_DIR: /downloads
-      DOWNLOADER_ENGINE: ${DOWNLOADER_ENGINE:-fixture}
-      SEED_MINUTES: "1"
-      SEED_RATIO: "1.0"
-    ports:
-      - "${DOWNLOADER_GRPC_PORT:-9461}:9461"
-    volumes:
-      - downloads-data:/downloads
-
-  # --- acquisition (spool tag: acquisition) — live indexer only; downloader is fixture by default ---
-  indexer-piratebay:
-    <<: *module
-    build:
-      context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
-      args: { MODULE: indexer-piratebay }
-    environment:
-      <<: *module_env
-      MUXCORE_MODULE_ID: indexer-piratebay
-      PIRATEBAY_GRPC_ADDR: ":9485"
-      PIRATEBAY_API_BASE: ${PIRATEBAY_API_BASE:-https://apibay.org}
-    ports:
-      - "${INDEXER_PIRATEBAY_GRPC_PORT:-9485}:9485"
-    profiles: ["acquisition"]
 
   request-media:
     <<: *module

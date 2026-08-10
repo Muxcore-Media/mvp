@@ -23,7 +23,7 @@ Exposed chat/history values for **TMDB** and **Proton WireGuard** must be rotate
 1. Proton Account → WireGuard → **create a new peer** (do not reuse the chat-exposed private key).
 2. Download the new conf; install as `~/Projects/muxcore/wg-mux.conf` mode `600`.
 3. Ensure Interface has `DNS = 10.2.0.1` (NAT-PMP gateway) and leave kill-switch **off** on gringotts.
-4. Point `WG_CONF` in `mvp/.env` at that path; restart `downloader-native-torrent` only (or full `./run-host.sh up`).
+4. Point `WG_CONF` in `mvp/.env` at that path; restart affected media peers (or full `./run-host.sh up`).
 5. Delete or shred the old conf (`shred -u wg.conf` / remove `.bak`).
 
 ## VPN policy (never on mesh hub)
