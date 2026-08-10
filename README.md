@@ -6,18 +6,18 @@ Local reference compose for the media MVP path. Sibling clones under `/home/user
 
 **Core pin:** published [`v0.5.3`](https://github.com/Muxcore-Media/core/releases/tag/v0.5.3) (Settings mesh + chunked Put; mTLS dial from v0.5.1). Nested SDK tags: `pkg/contracts` / `sdk/go/module` / `sdk/go/client` @ **v0.5.3**. Modules pinning without `replace` (`GOPRIVATE=github.com/Muxcore-Media/*`, `gh` HTTPS):
 
-Historical wave pins (still accurate as of each wave; later patch tags supersede — see spool catalog **2.3.12**):
+Historical wave pins (still accurate as of each wave; later patch tags supersede — see spool catalog **2.4.0**):
 - **Waves 25–26 (core-adjacent):** `auth-local`, `call-policy-default`, `publish-policy-default`, `secrets-file`, `encryption-aesgcm`, `api-rest`, `jellyfin@v0.2.1`, `media-root-folders@v0.1.1`, `health-monitor`, `metadata-tmdb@v0.1.1`, `database-sqlite`, `secrets-vault`
-- **Wave 27 (native media stack):** `contracts-{media-admin,downloader,indexer}@v0.1.0`, `contracts-notification@v0.1.1`, `downloader-native-torrent@v0.2.1`, `media-movies@v0.1.1`, `media-tvshows@v0.1.1`, `media-scanner@v0.1.1`, `media-automation@v0.1.0`, `request-media@v0.2.2`, `notification-default@v0.1.0`, `admin-ui@v0.1.3`
-- **Wave 28 (leaves + indexer + smoke helpers):** `media-rename@v0.2.2`, `media-ffprobe@v0.1.2`, `media-subtitles@v0.4.2`, `media-custom-formats@v0.1.2`, `indexer-piratebay@v0.1.1`. Host [`go.mod`](go.mod) smoke helpers pin those published module tags (sibling replaces removed); local `replace => ../core*` kept for host convenience.
+- **Wave 27 (native media stack):** `contracts-media-admin@v0.1.0`, `contracts-notification@v0.1.1`, `media-movies@v0.1.1`, `media-tvshows@v0.1.1`, `media-scanner@v0.1.1`, `media-automation@v0.1.0`, `request-media@v0.2.2`, `notification-default@v0.1.0`, `admin-ui@v0.1.3`
+- **Wave 28 (leaves + smoke helpers):** `media-rename@v0.2.2`, `media-ffprobe@v0.1.2`, `media-subtitles@v0.4.2`, `media-custom-formats@v0.1.2`. Host [`go.mod`](go.mod) smoke helpers pin published module tags (sibling replaces removed); local `replace => ../core*` kept for host convenience.
 - **Wave 29 (non-host sibling pins):** `media-list-sync@v0.1.1`, `notification-apprise@v0.1.1`, `workflow-tapestry@v0.1.0` (not started by default `run-host.sh`). Polluted org `media-ui` dump archived; use `media-ui-app`.
 
 **Consumer SPA:** [`Muxcore-Media/media-ui-app`](https://github.com/Muxcore-Media/media-ui-app) (private; host uses sibling `../media-ui-app/dist-app`).
 
 Authoritative docs: [`../core.wiki/Getting-Started.md`](../core.wiki/Getting-Started.md), [`../core.wiki/Deployment.md`](../core.wiki/Deployment.md).  
-Spool presets mirrored: [`../spool/tags/minimal.json`](../spool/tags/minimal.json), [`../spool/tags/media.json`](../spool/tags/media.json), [`../spool/tags/acquisition.json`](../spool/tags/acquisition.json).
+Spool presets mirrored: [`../spool/tags/minimal.json`](../spool/tags/minimal.json), [`../spool/tags/media.json`](../spool/tags/media.json).
 
-Operator references in this repo: [`PORTS.md`](PORTS.md) (default gRPC/HTTP ports), [`LIVE-ACQUISITION.md`](LIVE-ACQUISITION.md) (VPN + live torrent smoke), [`BFF-API.md`](BFF-API.md) (mediauiprox JSON contracts), [`tls/`](tls/) (mTLS staging + secret rotation).
+Operator references in this repo: [`PORTS.md`](PORTS.md) (default gRPC/HTTP ports), [`BFF-API.md`](BFF-API.md) (mediauiprox JSON contracts), [`tls/`](tls/) (mTLS staging + secret rotation).
 
 ## Prerequisites
 
@@ -75,7 +75,6 @@ docker compose up --build -d
 (cd ../jellyfin && go build -o ../_mvp/bin/jellyfin ./cmd/module)
 (cd ../media-scanner && go build -o ../_mvp/bin/media-scanner ./cmd/module)
 (cd ../media-automation && go build -o ../_mvp/bin/media-automation ./cmd/module)
-(cd ../downloader-native-torrent && go build -o ../_mvp/bin/downloader-native-torrent ./cmd/module)
 
 ./run-host.sh up
 # Single-module ops (core stays up; clears stale mesh registration on stop/restart):
@@ -91,26 +90,24 @@ Admin UI: `http://localhost:8082`. Jellyfin bridge HTTP: `http://127.0.0.1:8475/
 
 Scanner watches `_mvp/data/downloads` and imports into `_mvp/data/library` (`SCANNER_IMPORT_MODE=copy`).
 
-Automation: soft queue APIs plus **fixture Dispatch** via `DOWNLOADER_ENGINE=fixture` (default; writes a local `.mkv`, no BitTorrent). Admin UI `/automation` can Dispatch fixture or Search→best. For live torrents set `DOWNLOADER_ENGINE=anacrolix` + `PIRATEBAY_API_BASE` (VPN); smoke then skips fixture Dispatch and uses `liveacquisition` when `SMOKE_LIVE_ACQUISITION=1`. Host stack sets `MUXCORE_MESH_DIAL_LOCAL=true` and absolute `PUBLISH_POLICY_FILE` / `CALL_POLICY_FILE`.
+Automation: soft queue APIs (`AddToQueue` / `GetQueue` / Search). Host stack sets `MUXCORE_MESH_DIAL_LOCAL=true` and absolute `PUBLISH_POLICY_FILE` / `CALL_POLICY_FILE`.
 
 ### Smoke checks
 
 1. Core `/health` 200  
-2. Discovery resolve (incl. `media-tvshows`, `jellyfin`, `media-scanner`, `media-automation`, `downloader-native-torrent`)  
+2. Discovery resolve (incl. `media-tvshows`, `jellyfin`, `media-scanner`, `media-automation`)  
 3. Bearer `/api/v1/modules`  
 4. AddMovie / AddTVShow  
 5. Admin UI login via auth-local + `/modules` + `/dashboard/monitor` + `/automation` + `/jellyfin`  
 6. Jellyfin `/healthz` + gRPC `Status` (soft OK when unconfigured)  
 7. Jellyfin soft `UpsertItemLink` / `ListItemLinks` / `SyncLibrary` skip + fixture `POST /webhook` PlaybackStart  
 8. Scanner `ImportPath` fixture → organized library file under `data/library/Movies/...`  
-9. Automation queue soft (`AddToQueue` / `GetQueue`; `SearchItem` empty without indexer)  
-10. Automation `Dispatch` → fixture download.completed → scanner import → history `completed`  
+9. Automation queue soft (`AddToQueue` / `GetQueue`)
 11. Health-monitor `ReportHealth` + HTTP `/status` + mesh fan-out of `module.degraded` (visible on admin-ui `/events?filter=health`)  
 12. Media-ui SPA (`:5173`) auth + shell + `/api/movies` / stream / `/api/tv` via mediauiprox BFF (skip if not running)  
 13. Media-ui → request-media: search + `POST /api/request` (`TMDB_FIXTURE=1` offline Fight Club hit, or live `TMDB_API_KEY`)  
 14. Soft `/api/jellyfin/play` (200 linked / 404 unlinked or unconfigured)  
 15. Optional live Jellyfin (`SMOKE_LIVE_JELLYFIN=1`, or auto when `JELLYFIN_BASE_URL` + `JELLYFIN_API_KEY` are set): Status configured + RefreshLibrary + SyncLibrary + sample PlayURL via `cmd/jellyfinlive`  
-16. Optional live acquisition (`SMOKE_LIVE_ACQUISITION=1`): Apibay Search + real torrent Dispatch/progress (VPN; set `PIRATEBAY_API_BASE` + `DOWNLOADER_ENGINE=anacrolix`)
 
 Consumer SPA source/build: **[`../media-ui-app/`](../media-ui-app/)** → org [`Muxcore-Media/media-ui-app`](https://github.com/Muxcore-Media/media-ui-app) (`dist-app`). Build with `(cd ../media-ui-app && npm ci && npm run build)`.
 
@@ -118,9 +115,8 @@ Consumer SPA source/build: **[`../media-ui-app/`](../media-ui-app/)** → org [`
 
 | Profile | Extra services |
 |---------|----------------|
-| *(default)* | platform + media path + admin-ui + jellyfin + scanner + downloader + automation + request-media + **media-ui** (host); indexer when `PIRATEBAY_API_BASE` set |
+| *(default)* | platform + media path + admin-ui + jellyfin + scanner + automation + request-media + **media-ui** (host) |
 | `media-ui` | compose-only: consumer SPA + BFF on `:5173` |
-| `acquisition` | indexer-piratebay (`PIRATEBAY_API_BASE`, default `https://apibay.org`) |
 
 Polluted `media-ui/` dump is quarantined — shippable SPA is **`media-ui-app/`**. Operator admin remains `admin-ui`.
 
