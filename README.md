@@ -6,7 +6,7 @@ Local reference compose for the media MVP path. Sibling clones under `/home/user
 
 **Core pin:** published [`v0.5.3`](https://github.com/Muxcore-Media/core/releases/tag/v0.5.3) (Settings mesh + chunked Put; mTLS dial from v0.5.1). Nested SDK tags: `pkg/contracts` / `sdk/go/module` / `sdk/go/client` @ **v0.5.3**. Modules pinning without `replace` (`GOPRIVATE=github.com/Muxcore-Media/*`, `gh` HTTPS):
 
-Historical wave pins (still accurate as of each wave; later patch tags supersede — see spool catalog **2.4.12**):
+Historical wave pins (still accurate as of each wave; later patch tags supersede — see spool catalog **2.4.13**):
 - **Waves 25–26 (core-adjacent):** `auth-local`, `call-policy-default`, `publish-policy-default`, `secrets-file`, `encryption-aesgcm`, `api-rest`, `jellyfin@v0.2.1`, `media-root-folders@v0.1.1`, `health-monitor`, `metadata-tmdb@v0.1.1`, `database-sqlite`, `secrets-vault`
 - **Wave 27 (native media stack):** `contracts-media-admin@v0.1.0`, `contracts-notification@v0.1.1`, `media-movies@v0.1.1`, `media-tvshows@v0.1.1`, `media-scanner@v0.1.1`, `media-automation@v0.1.0`, `request-media@v0.2.2`, `notification-default@v0.1.0`, `admin-ui@v0.1.3`
 - **Wave 28 (leaves + smoke helpers):** `media-rename@v0.2.2`, `media-ffprobe@v0.1.2`, `media-subtitles@v0.4.2`, `media-custom-formats@v0.1.2`. Host [`go.mod`](go.mod) smoke helpers pin published module tags (sibling replaces removed); local `replace => ../core*` kept for host convenience.
