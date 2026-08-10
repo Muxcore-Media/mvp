@@ -74,6 +74,7 @@ docker compose up --build -d
 (cd ../auth-local && go build -o ../_mvp/bin/auth-local ./cmd/module)
 (cd ../jellyfin && go build -o ../_mvp/bin/jellyfin ./cmd/module)
 (cd ../media-scanner && go build -o ../_mvp/bin/media-scanner ./cmd/module)
+# Or rebuild many peers to spool catalog tags: ./scripts/rebuild-catalog-peers.sh media-scanner api-rest
 (cd ../media-automation && go build -o ../_mvp/bin/media-automation ./cmd/module)
 
 ./run-host.sh up
