@@ -10,7 +10,7 @@ require (
 	github.com/Muxcore-Media/media-movies v0.1.7
 	github.com/Muxcore-Media/media-root-folders v0.1.4
 	github.com/Muxcore-Media/media-scanner v0.1.6
-	github.com/Muxcore-Media/media-tvshows v0.1.6
+	github.com/Muxcore-Media/media-tvshows v0.1.7
 	google.golang.org/grpc v1.82.1
 )
 
