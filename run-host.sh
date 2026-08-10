@@ -226,18 +226,28 @@ case "$cmd" in
       "$BIN/ratelimit-tokenbucket"
 
     # Spool `default` required cache peer. Needs Redis; enable with MVP_ENABLE_CACHE_REDIS=1
-    # (starts a local redis:7 container if REDIS_ADDR unset) or set REDIS_ADDR yourself.
+    # Bootstrap order when REDIS_ADDR unset: existing :6379 → podman redis:7-alpine → redis-server on PATH.
     if [[ "${MVP_ENABLE_CACHE_REDIS:-0}" == "1" || -n "${REDIS_ADDR:-}" ]]; then
       if [[ -z "${REDIS_ADDR:-}" ]]; then
-        if command -v podman >/dev/null 2>&1; then
+        if ss -lptn 2>/dev/null | grep -q ':6379'; then
+          REDIS_ADDR="127.0.0.1:6379"
+        elif command -v podman >/dev/null 2>&1; then
           if ! podman ps --format '{{.Names}}' 2>/dev/null | grep -qx 'muxcore-redis'; then
             echo "starting muxcore-redis (podman redis:7-alpine)"
             podman rm -f muxcore-redis >/dev/null 2>&1 || true
             podman run -d --name muxcore-redis -p 6379:6379 redis:7-alpine >/dev/null
           fi
           REDIS_ADDR="127.0.0.1:6379"
+        elif command -v redis-server >/dev/null 2>&1; then
+          echo "starting redis-server on 127.0.0.1:6379"
+          mkdir -p "$DATA/redis"
+          if [[ ! -f "$RUN/redis-server.pid" ]] || ! kill -0 "$(cat "$RUN/redis-server.pid")" 2>/dev/null; then
+            redis-server --bind 127.0.0.1 --port 6379 --dir "$DATA/redis" --daemonize yes --pidfile "$RUN/redis-server.pid" \
+              --logfile "$RUN/redis-server.log" >/dev/null
+          fi
+          REDIS_ADDR="127.0.0.1:6379"
         else
-          echo "WARN: MVP_ENABLE_CACHE_REDIS=1 but no REDIS_ADDR and no podman; skipping cache-redis" >&2
+          echo "WARN: MVP_ENABLE_CACHE_REDIS=1 but no REDIS_ADDR, no listener on :6379, no podman, no redis-server; skipping cache-redis" >&2
         fi
       fi
       if [[ -n "${REDIS_ADDR:-}" ]]; then
