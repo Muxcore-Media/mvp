@@ -213,6 +213,48 @@ case "$cmd" in
       PUBLISH_POLICY_FILE="$WS/publish-policy-default/policies.yaml" \
       "$BIN/publish-policy-default"
 
+    # Spool `default` required: fail-open until RATELIMIT_ENABLED=true.
+    if [[ ! -x "$BIN/ratelimit-tokenbucket" ]]; then
+      echo "building ratelimit-tokenbucket"
+      (cd "$WS/ratelimit-tokenbucket" && go build -o "$BIN/ratelimit-tokenbucket" ./cmd/module)
+    fi
+    maybe_start ratelimit-tokenbucket env \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=ratelimit-tokenbucket MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+      RATELIMIT_ENABLED="${RATELIMIT_ENABLED:-false}" \
+      RATELIMIT_RATE="${RATELIMIT_RATE:-100}" \
+      RATELIMIT_BURST="${RATELIMIT_BURST:-200}" \
+      "$BIN/ratelimit-tokenbucket"
+
+    # Spool `default` required cache peer. Needs Redis; enable with MVP_ENABLE_CACHE_REDIS=1
+    # (starts a local redis:7 container if REDIS_ADDR unset) or set REDIS_ADDR yourself.
+    if [[ "${MVP_ENABLE_CACHE_REDIS:-0}" == "1" || -n "${REDIS_ADDR:-}" ]]; then
+      if [[ -z "${REDIS_ADDR:-}" ]]; then
+        if command -v podman >/dev/null 2>&1; then
+          if ! podman ps --format '{{.Names}}' 2>/dev/null | grep -qx 'muxcore-redis'; then
+            echo "starting muxcore-redis (podman redis:7-alpine)"
+            podman rm -f muxcore-redis >/dev/null 2>&1 || true
+            podman run -d --name muxcore-redis -p 6379:6379 redis:7-alpine >/dev/null
+          fi
+          REDIS_ADDR="127.0.0.1:6379"
+        else
+          echo "WARN: MVP_ENABLE_CACHE_REDIS=1 but no REDIS_ADDR and no podman; skipping cache-redis" >&2
+        fi
+      fi
+      if [[ -n "${REDIS_ADDR:-}" ]]; then
+        if [[ ! -x "$BIN/cache-redis" ]]; then
+          echo "building cache-redis"
+          (cd "$WS/cache-redis" && go build -o "$BIN/cache-redis" ./cmd/module)
+        fi
+        maybe_start cache-redis env \
+          MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=cache-redis MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+          REDIS_ADDR="$REDIS_ADDR" \
+          REDIS_PASSWORD="${REDIS_PASSWORD:-}" \
+          REDIS_DB="${REDIS_DB:-0}" \
+          CACHE_GRPC_ADDR="${CACHE_GRPC_ADDR:-:9600}" \
+          "$BIN/cache-redis"
+      fi
+    fi
+
     maybe_start health-monitor env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=health-monitor MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
