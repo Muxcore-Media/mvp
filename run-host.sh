@@ -498,6 +498,7 @@ case "$cmd" in
           AUTH_HTTP_INTERNAL_URL="${AUTH_HTTP_INTERNAL_URL:-http://127.0.0.1:9401}" \
           MOVIES_GRPC_CLIENT_ADDR="127.0.0.1:9420" \
           TVSHOWS_GRPC_CLIENT_ADDR="127.0.0.1:9440" \
+          JELLYFIN_GRPC_CLIENT_ADDR="127.0.0.1:9475" \
           MOVIES_HTTP_URL="http://127.0.0.1:9430" \
           TVSHOWS_HTTP_URL="http://127.0.0.1:9450" \
           REQUEST_MEDIA_HTTP_URL="http://127.0.0.1:9380" \
