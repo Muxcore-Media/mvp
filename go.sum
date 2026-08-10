@@ -8,8 +8,8 @@ github.com/Muxcore-Media/media-root-folders v0.1.4 h1:f0FCpt7BvsfmQIYwZQaeilgsiR
 github.com/Muxcore-Media/media-root-folders v0.1.4/go.mod h1:hNDCCQh33OfsLWahbdAirdO2XU0IwApVHETVJtYQzW4=
 github.com/Muxcore-Media/media-scanner v0.1.6 h1:d/bapN0ZByrnwl9iPTxx7AUF6SSfcttfgVCJVDE4MIs=
 github.com/Muxcore-Media/media-scanner v0.1.6/go.mod h1:Mcq9yHuyB74Mm+MfvbfccxM8Qa01/TviyHnQbJfUli4=
-github.com/Muxcore-Media/media-tvshows v0.1.6 h1:0/0jLCq7Q7TJbN/zPNbHFjam8dhgAECJ3yqgVN8XO9c=
-github.com/Muxcore-Media/media-tvshows v0.1.6/go.mod h1:EF2inTXgmF1WncbVGgUrk3I6Hm8BT1mCsT3sP3Mk8tE=
+github.com/Muxcore-Media/media-tvshows v0.1.7 h1:NOlacB6Bf1OiUWW4bHDQgBAz3J95o0DJypBGlPphmrw=
+github.com/Muxcore-Media/media-tvshows v0.1.7/go.mod h1:EF2inTXgmF1WncbVGgUrk3I6Hm8BT1mCsT3sP3Mk8tE=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/go-logr/logr v1.4.3 h1:CjnDlHq8ikf6E492q6eKboGOC0T8CDaOvkHCIg8idEI=
