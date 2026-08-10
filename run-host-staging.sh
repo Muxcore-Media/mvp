@@ -15,7 +15,11 @@ if [[ "${1:-}" == "up" ]]; then
   fi
   mkdir -p "$ROOT/tls/ca-mesh"
   chmod 700 "$ROOT/tls/ca-mesh" || true
+  chmod 600 "$MUXCORE_CONFIG" 2>/dev/null || true
+  # Resolve relative ca_cert_dir against mvp root so muxcored finds it regardless of cwd.
+  export MUXCORE_GRPC_CA_CERT_DIR="${MUXCORE_GRPC_CA_CERT_DIR:-$ROOT/tls/ca-mesh}"
   echo "staging: MUXCORE_CONFIG=$MUXCORE_CONFIG (mTLS; insecure TLS disabled)"
+  echo "staging: MUXCORE_GRPC_CA_CERT_DIR=$MUXCORE_GRPC_CA_CERT_DIR"
   echo "NOTE: host binaries still need bootstrap certs or core --tag spawn; see tls/MTLS-STAGING.md"
 fi
 
