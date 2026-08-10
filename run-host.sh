@@ -284,6 +284,11 @@ case "$cmd" in
     fi
 
     # Public auth URL for browser redirects (Caddy); internal for code exchange.
+    if [[ ! -x "$BIN/admin-ui" ]]; then
+      echo "building admin-ui"
+      ver="${ADMIN_UI_VERSION:-0.1.8}"
+      (cd "$WS/admin-ui" && go build -ldflags="-s -w -X main.version=${ver}" -o "$BIN/admin-ui" .)
+    fi
     maybe_start admin-ui env \
       ADMIN_UI_ADDR=":8082" \
       ADMIN_UI_CORE_ADDR="$MESH" \
