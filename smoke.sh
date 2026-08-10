@@ -51,6 +51,15 @@ build_if_missing addtvshow ./cmd/addtvshow
 
 echo "==> resolving modules via core discovery (${MESH})"
 MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules"
+# Optional workflow engine (MVP_ENABLE_WORKFLOW_TAPESTRY=1)
+if SMOKE_MODULES=workflow-tapestry MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules" >/dev/null 2>&1; then
+  if ! ss -lptn 2>/dev/null | grep -q ':9603'; then
+    echo "FAIL: workflow-tapestry registered but not listening on :9603" >&2
+    ss -lptn 2>/dev/null | grep -E 'workflow|9603' || true
+    exit 1
+  fi
+  echo "OK workflow-tapestry listening on :9603"
+fi
 
 if [[ ! -f "$TOKEN_FILE" ]]; then
   echo "==> no token file; running bootstrap-auth.sh"
