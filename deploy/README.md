@@ -38,5 +38,8 @@ Override image tags / `insecureDisableTLS` via `--set` or a values overlay.
 ## Not in scope yet
 
 - Full media stack (movies/TV/automation/scanner/…)
-- Operator / CRDs (separate §4.1 item)
 - mTLS cert injection matching `run-host-staging.sh`
+
+## Operator (CRDs)
+
+Early scaffold: [`Muxcore-Media/muxcore-operator`](https://github.com/Muxcore-Media/muxcore-operator) **v0.1.0** — `MuxCorePlatform` CR reconciles muxcored + sidecar Deployments/Services. Install CRD/RBAC/manager from that repo’s `config/`; sample CR mirrors this minimal platform module set. GHCR operator image publish still P0-blocked.
