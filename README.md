@@ -4,8 +4,9 @@ Local reference compose for the media MVP path. Sibling clones under `/home/user
 
 **P0 Media MVP status: met** (Wave 21 stack + smoke; Wave 22 packaging freeze). Operator URLs after `./run-host.sh up`: [`run/VIEW-ME.txt`](run/VIEW-ME.txt).
 
-**Core pin:** published [`v0.5.0`](https://github.com/Muxcore-Media/core/releases/tag/v0.5.0) (Wave 24; nested tags `pkg/contracts|sdk/go/module|sdk/go/client` @ v0.5.0). Modules pinning without `replace` (`GOPRIVATE=github.com/Muxcore-Media/*`, `gh` HTTPS):
+**Core pin:** published [`v0.5.1`](https://github.com/Muxcore-Media/core/releases/tag/v0.5.1) (mTLS dial; Wave 24 baseline was v0.5.0). Nested SDK tags: `pkg/contracts` / `sdk/go/module` / `sdk/go/client` @ **v0.5.1–v0.5.2** (`RegisterSettings`, chunked `Storage.Put`). Modules pinning without `replace` (`GOPRIVATE=github.com/Muxcore-Media/*`, `gh` HTTPS):
 
+Historical wave pins (still accurate as of each wave; later patch tags supersede — see spool catalog **2.3.3**):
 - **Waves 25–26 (core-adjacent):** `auth-local`, `call-policy-default`, `publish-policy-default`, `secrets-file`, `encryption-aesgcm`, `api-rest`, `jellyfin@v0.2.1`, `media-root-folders@v0.1.1`, `health-monitor`, `metadata-tmdb@v0.1.1`, `database-sqlite`, `secrets-vault`
 - **Wave 27 (native media stack):** `contracts-{media-admin,downloader,indexer}@v0.1.0`, `contracts-notification@v0.1.1`, `downloader-native-torrent@v0.2.1`, `media-movies@v0.1.1`, `media-tvshows@v0.1.1`, `media-scanner@v0.1.1`, `media-automation@v0.1.0`, `request-media@v0.2.2`, `notification-default@v0.1.0`, `admin-ui@v0.1.3`
 - **Wave 28 (leaves + indexer + smoke helpers):** `media-rename@v0.2.2`, `media-ffprobe@v0.1.2`, `media-subtitles@v0.4.2`, `media-custom-formats@v0.1.2`, `indexer-piratebay@v0.1.1`. Host [`go.mod`](go.mod) smoke helpers pin those published module tags (sibling replaces removed); local `replace => ../core*` kept for host convenience.
@@ -29,10 +30,10 @@ Default compose builds from sibling trees. To pull prebuilt images instead, use 
 Publish `muxcored` from a host with rootless podman (e.g. gringotts):
 
 ```bash
-./scripts/publish-muxcored-ghcr.sh v0.5.0
+./scripts/publish-muxcored-ghcr.sh v0.5.1
 ```
 
-Requires `gh` token scopes `repo` + `write:packages`. Image build is verified locally as `localhost/muxcored:v0.5.0`; GHCR push is blocked until the token has packages write.
+Requires `gh` token scopes `repo` + `write:packages`. Image build is verified locally as `localhost/muxcored:v0.5.0` (rebuild for v0.5.1 before publish); GHCR push is blocked until the token has packages write.
 
 ## Quick start
 
