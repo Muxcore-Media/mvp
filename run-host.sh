@@ -18,8 +18,9 @@ fi
 export MUXCORE_LOG_LEVEL="${MUXCORE_LOG_LEVEL:-info}"
 export MUXCORE_CONFIG="${MUXCORE_CONFIG:-$ROOT/muxcore.json}"
 MESH="${MUXCORE_MESH_ADDR:-127.0.0.1:9090}"
+MODULE_CERT_ROOT="${MUXCORE_MODULE_CERT_DIR:-$ROOT/tls/module-certs}"
 
-mkdir -p "$BIN" "$RUN" "$DATA"/{movies,tvshows,automation,scanner,roots,sqlite,secrets,library/tv,storage,auth,jellyfin,downloads,request}
+mkdir -p "$BIN" "$RUN" "$DATA"/{movies,tvshows,automation,scanner,roots,sqlite,secrets,library/tv,storage,auth,jellyfin,downloads,request,formats,rename,ffprobe,subtitles}
 
 start_one() {
   local name="$1"; shift
@@ -30,7 +31,23 @@ start_one() {
     return 0
   fi
   echo "starting $name -> $logfile"
-  nohup "$@" >"$logfile" 2>&1 &
+  local -a tls_env=()
+  if [[ "${MUXCORE_PROFILE:-}" == "staging" ]]; then
+    local dir="$MODULE_CERT_ROOT/$name"
+    if [[ -f "$dir/module.crt" && -f "$dir/module.key" && -f "$dir/ca.crt" ]]; then
+      tls_env=(
+        "MUXCORE_TLS_CERT=$dir/module.crt"
+        "MUXCORE_TLS_KEY=$dir/module.key"
+        "MUXCORE_TLS_CA=$dir/ca.crt"
+      )
+    fi
+  fi
+  if [[ "${1:-}" == "env" ]]; then
+    shift
+    nohup env "${tls_env[@]}" "$@" >"$logfile" 2>&1 &
+  else
+    nohup env "${tls_env[@]}" "$@" >"$logfile" 2>&1 &
+  fi
   echo $! >"$pidfile"
 }
 
@@ -46,6 +63,15 @@ stop_all() {
     fi
     rm -f "$f"
   done
+  # Sweep orphan host binaries that outlived their pidfiles (port collisions otherwise).
+  if [[ -d "$BIN" ]]; then
+    for bin in "$BIN"/*; do
+      [[ -x "$bin" && -f "$bin" ]] || continue
+      base=$(basename "$bin")
+      pkill -x "$base" 2>/dev/null || true
+    done
+    sleep 0.5
+  fi
 }
 
 cmd="${1:-up}"
@@ -89,6 +115,7 @@ case "$cmd" in
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=secrets-file MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       SECRETS_STORE="$DATA/secrets/store.json" \
       SECRETS_KEY_FILE="$DATA/secrets/master.key" \
+      SECRETS_GRPC_ADDR="${SECRETS_GRPC_ADDR:-:9550}" \
       "$BIN/secrets-file"
 
     start_one encryption-aesgcm env \
@@ -166,6 +193,51 @@ case "$cmd" in
       AUTOMATION_EVENT_SUBSCRIBE_DELAY=1s \
       "$BIN/media-automation"
 
+    # Scoring + naming + analyze peers (default host).
+    mkdir -p "$DATA/formats" "$DATA/rename" "$DATA/ffprobe" "$DATA/subtitles/files"
+    if [[ ! -x "$BIN/media-custom-formats" ]]; then
+      echo "building media-custom-formats"
+      (cd "$WS/media-custom-formats" && go build -o "$BIN/media-custom-formats" ./cmd/module)
+    fi
+    start_one media-custom-formats env \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-custom-formats MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+      FORMATS_DB_PATH="$DATA/formats/formats.db" \
+      FORMATS_GRPC_ADDR=":9490" \
+      FORMATS_SEED_DEFAULTS=true \
+      "$BIN/media-custom-formats"
+
+    if [[ ! -x "$BIN/media-rename" ]]; then
+      echo "building media-rename"
+      (cd "$WS/media-rename" && go build -o "$BIN/media-rename" ./cmd/module)
+    fi
+    start_one media-rename env \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-rename MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+      RENAME_DB_PATH="$DATA/rename/rename.db" \
+      RENAME_GRPC_ADDR="${RENAME_GRPC_ADDR:-:9510}" \
+      RENAME_IMPORT_MODE=copy \
+      "$BIN/media-rename"
+
+    if [[ ! -x "$BIN/media-ffprobe" ]]; then
+      echo "building media-ffprobe"
+      (cd "$WS/media-ffprobe" && go build -o "$BIN/media-ffprobe" ./cmd/module)
+    fi
+    start_one media-ffprobe env \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-ffprobe MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+      FFPROBE_DB_PATH="$DATA/ffprobe/cache.db" \
+      FFPROBE_GRPC_ADDR="${FFPROBE_GRPC_ADDR:-:9480}" \
+      "$BIN/media-ffprobe"
+
+    if [[ ! -x "$BIN/media-subtitles" ]]; then
+      echo "building media-subtitles"
+      (cd "$WS/media-subtitles" && go build -o "$BIN/media-subtitles" ./cmd/module)
+    fi
+    start_one media-subtitles env \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-subtitles MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+      SUBS_DB_PATH="$DATA/subtitles/subtitles.db" \
+      SUBS_DIR="$DATA/subtitles/files" \
+      SUBS_GRPC_ADDR="${SUBS_GRPC_ADDR:-:9520}" \
+      "$BIN/media-subtitles"
+
     LIBRARY_ROOT="${MVP_LIBRARY_ROOT:-$DATA/library}"
     TV_LIBRARY_ROOT="${MVP_TV_LIBRARY_ROOT:-$DATA/library/tv}"
     DOWNLOADS_DIR="${MVP_DOWNLOADS_DIR:-$DATA/downloads}"
@@ -219,6 +291,19 @@ case "$cmd" in
         "$BIN/indexer-piratebay"
     fi
 
+    # Torznab aggregator (Prowlarr/Jackett). Soft-empty when TORZNAB_URL unset.
+    if [[ ! -x "$BIN/indexer-torznab" ]]; then
+      echo "building indexer-torznab"
+      (cd "$WS/indexer-torznab" && go build -o "$BIN/indexer-torznab" ./cmd/module)
+    fi
+    start_one indexer-torznab env \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=indexer-torznab MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+      TORZNAB_GRPC_ADDR="${TORZNAB_GRPC_ADDR:-:9486}" \
+      TORZNAB_URL="${TORZNAB_URL:-}" \
+      TORZNAB_API_KEY="${TORZNAB_API_KEY:-}" \
+      TORZNAB_NAME="${TORZNAB_NAME:-Torznab}" \
+      "$BIN/indexer-torznab"
+
     start_one media-root-folders env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-root-folders MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       ROOTS_DB_PATH="$DATA/roots/roots.db" \
@@ -253,6 +338,32 @@ case "$cmd" in
       JELLYFIN_WEBHOOK_SECRET="${JELLYFIN_WEBHOOK_SECRET:-}" \
       "$BIN/jellyfin"
 
+    # Optional DAG engine (movie-request / tv-request → real mesh RPCs via meta.method).
+    if [[ "${MVP_ENABLE_WORKFLOW_TAPESTRY:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/workflow-tapestry" ]]; then
+        echo "building workflow-tapestry"
+        (cd "$WS/workflow-tapestry" && go build -o "$BIN/workflow-tapestry" ./cmd/module)
+      fi
+      start_one workflow-tapestry env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=workflow-tapestry MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        WORKFLOW_GRPC_ADDR=":9603" \
+        "$BIN/workflow-tapestry"
+    fi
+
+    # Optional import-list sync (Trakt/IMDb/Plex/Jellyfin/Radarr/Sonarr) — :9530
+    if [[ "${MVP_ENABLE_MEDIA_LIST_SYNC:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/media-list-sync" ]]; then
+        echo "building media-list-sync"
+        (cd "$WS/media-list-sync" && go build -o "$BIN/media-list-sync" ./cmd/module)
+      fi
+      mkdir -p "$DATA/listsync"
+      start_one media-list-sync env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-list-sync MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        LISTSYNC_GRPC_ADDR=":9530" \
+        LISTSYNC_DB_PATH="$DATA/listsync/listsync.db" \
+        "$BIN/media-list-sync"
+    fi
+
     # Optional FFmpeg transcoder (:9525) for media-transcode workflow DAG
     if [[ "${MVP_ENABLE_MEDIA_TRANSCODER:-0}" == "1" ]]; then
       if [[ ! -x "$BIN/media-transcoder" ]]; then
@@ -266,6 +377,25 @@ case "$cmd" in
         TRANSCODER_DB_PATH="$DATA/transcoder/transcoder.db" \
         TRANSCODER_MAX_CONCURRENT="${TRANSCODER_MAX_CONCURRENT:-2}" \
         "$BIN/media-transcoder"
+    fi
+
+    # Optional Apprise notification peer (:9445). Soft sink via WEBHOOK_URL when no Apprise URLs set
+    # (health requires ≥1 channel). Does not replace notification-default.
+    if [[ "${MVP_ENABLE_NOTIFICATION_APPRISE:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/notification-apprise" ]]; then
+        echo "building notification-apprise"
+        (cd "$WS/notification-apprise" && go build -o "$BIN/notification-apprise" ./cmd/module)
+      fi
+      start_one notification-apprise env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=notification-apprise MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        NOTIFY_GRPC_ADDR=":9445" \
+        APPRISE_URL="${APPRISE_URL:-}" \
+        APPRISE_URLS="${APPRISE_URLS:-}" \
+        APPRISE_TOKEN="${APPRISE_TOKEN:-}" \
+        DISCORD_WEBHOOK="${DISCORD_WEBHOOK:-}" \
+        SLACK_WEBHOOK="${SLACK_WEBHOOK:-}" \
+        WEBHOOK_URL="${APPRISE_WEBHOOK_URL:-${NOTIFY_WEBHOOK_URL:-http://127.0.0.1:9/muxcore-apprise-sink}}" \
+        "$BIN/notification-apprise"
     fi
 
     # Consumer SPA from media-ui-app (clean extract; not the polluted media-ui dump).
