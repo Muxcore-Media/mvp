@@ -19,12 +19,9 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9441 | notification-default | |
 | 9445 | notification-apprise | optional (`MVP_ENABLE_NOTIFICATION_APPRISE=1` / compose `apprise`) |
 | 9460 | media-automation | |
-| 9461 | downloader-native-torrent | |
 | 9470 | media-scanner | |
 | 9475 / 8475 | jellyfin gRPC / HTTP | |
 | 9480 | media-ffprobe | |
-| 9485 | indexer-piratebay | |
-| 9486 | indexer-torznab | |
 | 9490 | media-custom-formats | |
 | 9510 | media-rename | |
 | 9520 | media-subtitles | |
