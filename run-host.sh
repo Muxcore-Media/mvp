@@ -494,6 +494,38 @@ case "$cmd" in
         "$BIN/notification-apprise"
     fi
 
+    # Optional unified media graph (:9730) — SQLite-backed cross-media nodes/edges
+    if [[ "${MVP_ENABLE_MEDIA_GRAPH:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/media-graph" ]]; then
+        echo "building media-graph"
+        (cd "$WS/media-graph" && go build -o "$BIN/media-graph" ./cmd/module)
+      fi
+      mkdir -p "$DATA/graph"
+      maybe_start media-graph env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-graph MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        GRAPH_GRPC_ADDR=":9730" \
+        MUXCORE_HTTP_ADDR=":9731" \
+        GRAPH_DB_PATH="$DATA/graph/graph.db" \
+        GRAPH_AUTO_LINK="${GRAPH_AUTO_LINK:-true}" \
+        GRAPH_INGEST_ENABLED="${GRAPH_INGEST_ENABLED:-true}" \
+        GRAPH_INGEST_INTERVAL="${GRAPH_INGEST_INTERVAL:-15m}" \
+        MUXCORE_MESH_DIAL_LOCAL=true \
+        "$BIN/media-graph"
+    fi
+
+    # Optional content tagging (:9700)
+    if [[ "${MVP_ENABLE_MEDIA_TAGGING:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/media-tagging" ]]; then
+        echo "building media-tagging"
+        (cd "$WS/media-tagging" && go build -o "$BIN/media-tagging" ./cmd/module)
+      fi
+      maybe_start media-tagging env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-tagging MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        TAGGING_GRPC_ADDR=":9740" \
+        MUXCORE_HTTP_ADDR=":9741" \
+        "$BIN/media-tagging"
+    fi
+
     # Consumer SPA from media-ui-app (clean extract; not the polluted media-ui dump).
     # Disable with MVP_ENABLE_MEDIA_UI=0.
     if [[ "${MVP_ENABLE_MEDIA_UI:-1}" != "0" ]]; then
