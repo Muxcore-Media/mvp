@@ -76,6 +76,14 @@ if SMOKE_MODULES=media-transcoder MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules" >
   fi
   echo "OK media-transcoder listening on :9525"
 fi
+# Optional Apprise notification peer (MVP_ENABLE_NOTIFICATION_APPRISE=1)
+if SMOKE_MODULES=notification-apprise MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules" >/dev/null 2>&1; then
+  if ! ss -lptn 2>/dev/null | grep -q ':9445'; then
+    echo "FAIL: notification-apprise registered but not listening on :9445" >&2
+    exit 1
+  fi
+  echo "OK notification-apprise listening on :9445"
+fi
 
 if [[ ! -f "$TOKEN_FILE" ]]; then
   echo "==> no token file; running bootstrap-auth.sh"
