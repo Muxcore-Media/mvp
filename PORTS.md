@@ -35,6 +35,7 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9610 / 9611 | storage-s3 | optional S3/MinIO StorageProvider (gRPC / health) |
 | 9620 / 9621 | downloader-sabnzbd | optional SABnzbd usenet bridge (gRPC / health) |
 | 9630 / 9631 | downloader-debrid | optional Real-Debrid/AllDebrid bridge (gRPC / health) |
+| 9640 / 9641 | media-music | optional Lidarr-class music manager (gRPC / health) |
 | 9800 | ratelimit-tokenbucket | spool `default` (fail-open until `RATELIMIT_ENABLED`) |
 | 18080 | api-rest HTTP | |
 
