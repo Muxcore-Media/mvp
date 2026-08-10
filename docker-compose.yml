@@ -154,6 +154,43 @@ services:
       - "${HEALTH_MONITOR_HTTP_PORT:-9203}:9203"
       - "${HEALTH_MONITOR_GRPC_PORT:-9202}:9202"
 
+  # Optional observability — compose profile: observability
+  #   docker compose --profile observability up -d
+  metrics-prometheus:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: metrics-prometheus }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: metrics-prometheus
+      METRICS_GRPC_ADDR: ":9900"
+      METRICS_HTTP_ADDR: ":9901"
+      METRICS_PATH: /metrics
+    ports:
+      - "${METRICS_HTTP_PORT:-9901}:9901"
+      - "${METRICS_GRPC_PORT:-9900}:9900"
+    profiles: ["observability"]
+
+  tracing-otlp:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: tracing-otlp }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: tracing-otlp
+      TRACING_GRPC_ADDR: ":9613"
+      # Leave OTEL_EXPORTER_OTLP_ENDPOINT unset for slog fallback unless a collector is running.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_INSECURE: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
+    ports:
+      - "${TRACING_GRPC_PORT:-9613}:9613"
+    profiles: ["observability"]
+
+
   admin-ui:
     <<: *module
     build:
