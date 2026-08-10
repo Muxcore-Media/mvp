@@ -29,8 +29,10 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9530 | media-list-sync | optional (`MVP_ENABLE_MEDIA_LIST_SYNC=1` / compose `list-sync`) |
 | 9540 | media-root-folders | |
 | 9550 / 9551 | secrets-file / secrets-vault | |
+| 9600 | cache-redis | optional (`MVP_ENABLE_CACHE_REDIS=1` or `REDIS_ADDR`) |
 | 9601 | encryption-aesgcm | |
 | 9603 | workflow-tapestry | optional (`MVP_ENABLE_WORKFLOW_TAPESTRY=1`) |
+| 9800 | ratelimit-tokenbucket | spool `default` (fail-open until `RATELIMIT_ENABLED`) |
 | 18080 | api-rest HTTP | |
 
 When adding a module, pick a free port and update this table.
