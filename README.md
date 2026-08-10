@@ -21,7 +21,7 @@ Spool presets mirrored: [`../spool/tags/minimal.json`](../spool/tags/minimal.jso
 
 - Docker Compose v2 **or** host Go toolchain (`run-host.sh`)
 - Org repos cloned as siblings (same layout as this workspace)
-- Dev-only: `MUXCORE_INSECURE_DISABLE_TLS=true` (see wiki Configuration Reference)
+- Dev default: `MUXCORE_INSECURE_DISABLE_TLS=true` via `./run-host.sh`. Staging mTLS: `./run-host-staging.sh` (see [`tls/MTLS-STAGING.md`](tls/MTLS-STAGING.md)).
 
 ## GHCR images (optional)
 
