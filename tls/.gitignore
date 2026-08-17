@@ -8,3 +8,4 @@ certs/*.csr
 certs/*.ext
 *.pem
 !ca/ca.crt.example
+module-certs/

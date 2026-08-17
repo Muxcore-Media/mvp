@@ -7,7 +7,11 @@ BIN="$ROOT/bin"
 RUN="$ROOT/run"
 DATA="$ROOT/data"
 # shellcheck disable=SC1091
-[[ -f "$ROOT/.env" ]] && source "$ROOT/.env" || true
+if [[ -f "$ROOT/.env" ]]; then
+  set -a
+  source "$ROOT/.env"
+  set +a
+fi
 
 # Dev default is insecure mesh TLS. Staging profile (run-host-staging.sh) leaves this unset.
 if [[ "${MUXCORE_PROFILE:-}" == "staging" ]]; then
@@ -64,10 +68,14 @@ stop_all() {
     rm -f "$f"
   done
   # Sweep orphan host binaries that outlived their pidfiles (port collisions otherwise).
+  # Skip edge/VPN peers managed by separate units (Caddy, indexer+torrent in muxcore-vpn).
   if [[ -d "$BIN" ]]; then
     for bin in "$BIN"/*; do
       [[ -x "$bin" && -f "$bin" ]] || continue
       base=$(basename "$bin")
+      case "$base" in
+        caddy|indexer-piratebay|downloader-native-torrent) continue ;;
+      esac
       pkill -x "$base" 2>/dev/null || true
     done
     sleep 0.5
@@ -183,6 +191,9 @@ case "$cmd" in
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=auth-local MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       AUTH_DB_PATH="$DATA/auth/auth.db" \
       AUTH_GRPC_ADDR=":9403" AUTH_HTTP_ADDR=":9401" \
+      ADMIN_UI_PUBLIC_URL="${ADMIN_UI_PUBLIC_URL:-}" \
+      MEDIA_UI_PUBLIC_URL="${MEDIA_UI_PUBLIC_URL:-}" \
+      AUTH_ALLOWED_REDIRECT_HOSTS="${AUTH_ALLOWED_REDIRECT_HOSTS:-}" \
       "$BIN/auth-local"
 
     maybe_start database-sqlite env \
@@ -272,31 +283,6 @@ case "$cmd" in
       HEALTH_MONITOR_HTTP_ADDR="${HEALTH_MONITOR_HTTP_ADDR:-:9203}" \
       HEALTH_MONITOR_INTERVAL="${HEALTH_MONITOR_INTERVAL:-5s}" \
       "$BIN/health-monitor"
-
-    # Optional metrics/tracing (MVP_ENABLE_OBSERVABILITY=1 or MUXCORE_OBSERVABILITY=1)
-    if [[ "${MVP_ENABLE_OBSERVABILITY:-0}" == "1" || "${MUXCORE_OBSERVABILITY:-0}" == "1" || "${MUXCORE_OBSERVABILITY:-}" == "true" ]]; then
-      if [[ -x "$BIN/metrics-prometheus" ]]; then
-        start_one metrics-prometheus env \
-          MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=metrics-prometheus MUXCORE_INSECURE_DISABLE_TLS=true \
-          METRICS_GRPC_ADDR="${METRICS_GRPC_ADDR:-:9900}" \
-          METRICS_HTTP_ADDR="${METRICS_HTTP_ADDR:-:9901}" \
-          METRICS_PATH="${METRICS_PATH:-/metrics}" \
-          "$BIN/metrics-prometheus"
-      else
-        echo "WARN: metrics-prometheus binary missing at $BIN/metrics-prometheus (skip)" >&2
-      fi
-      if [[ -x "$BIN/tracing-otlp" ]]; then
-        start_one tracing-otlp env \
-          MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=tracing-otlp MUXCORE_INSECURE_DISABLE_TLS=true \
-          TRACING_GRPC_ADDR="${TRACING_GRPC_ADDR:-:9613}" \
-          OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-}" \
-          OTEL_EXPORTER_OTLP_INSECURE="${OTEL_EXPORTER_OTLP_INSECURE:-true}" \
-          "$BIN/tracing-otlp"
-      else
-        echo "WARN: tracing-otlp binary missing at $BIN/tracing-otlp (skip)" >&2
-      fi
-    fi
-
 
     # Keep /status non-idle between module self-reports (local mesh fan-out already allowed).
     if [[ ! -x "$BIN/healthtick" ]]; then
@@ -410,6 +396,7 @@ case "$cmd" in
       MUXCORE_MESH_DIAL_LOCAL=true \
       SCANNER_DB_PATH="$DATA/scanner/scanner.db" \
       SCANNER_LIBRARY_ROOT="$LIBRARY_ROOT" \
+      SCANNER_TV_LIBRARY_ROOT="$TV_LIBRARY_ROOT" \
       SCANNER_DEFAULT_WATCH_DIR="$DOWNLOADS_DIR" \
       SCANNER_GRPC_ADDR=":9470" \
       SCANNER_IMPORT_MODE=copy \
