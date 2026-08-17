@@ -1,0 +1,20 @@
+[Unit]
+Description=MuxCore MVP host stack (muxcored + media peers via run-host.sh)
+Documentation=file:///home/ender/Projects/muxcore/TASKS-INDEXER-TORRENT.md
+After=network-online.target
+Wants=network-online.target
+# Keep WG/mesh untouched: run-host.sh sources mvp/.env (WG_USE_WG_QUICK=0, WG_KILL_SWITCH=false).
+# Do not set MVP_ENABLE_JELLYFIN here; .env must keep MVP_ENABLE_JELLYFIN=0.
+# Caddy is a separate unit (muxcore-caddy.service); run-host.sh must not pkill bin/caddy.
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/Projects/muxcore/mvp
+Environment=PATH=%h/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/usr/bin:/bin
+ExecStart=%h/Projects/muxcore/mvp/run-host.sh up
+ExecStop=%h/Projects/muxcore/mvp/run-host.sh stop
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

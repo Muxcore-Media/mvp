@@ -26,6 +26,29 @@ Exposed chat/history values for **TMDB** and **Proton WireGuard** must be rotate
 4. Point `WG_CONF` in `mvp/.env` at that path; restart affected media peers (or full `./run-host.sh up`).
 5. Delete or shred the old conf (`shred -u wg.conf` / remove `.bak`).
 
+### Rotation drill (verify egress IP change)
+
+```bash
+# 1) Note current egress via wg-mux
+cd ~/Projects/muxcore/mvp
+./scripts/check-vpn-up.sh   # record egress_ip=...
+
+# 2) Create new Proton peer; save conf somewhere absolute, e.g. /tmp/wg-mux-new.conf
+export NEW_TMDB_API_KEY='…'   # required by helper even if only WG changed; or edit .env WG only
+export NEW_WG_CONF_PATH=/tmp/wg-mux-new.conf
+./tls/apply-rotated-secrets.sh
+# Installs mode-600 ~/Projects/muxcore/wg-mux.conf and sets WG_CONF=…; forces WG_USE_WG_QUICK=0
+
+# 3) Restart downloader only (leave mesh up)
+./run-host.sh restart downloader-native-torrent
+# or: stop/start the module process your host runner uses
+
+# 4) Confirm tunnel + new public IP
+./scripts/check-vpn-up.sh   # egress_ip should differ from step 1
+
+# 5) Shred the old peer conf / revoke old Proton peer in the account UI
+```
+
 ## VPN policy (never on mesh hub)
 
 - Default: **source-routed** `wg-mux` (see README in this directory).

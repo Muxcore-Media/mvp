@@ -68,3 +68,26 @@ Typical HTTP status: `400` / `401` / `404` / `502` / `503` from gRPC code mappin
 Resolves a MuxCore library id through jellyfin item links → `{ "url": "https://…/web/index.html#!/details?id=…" }`.
 
 `404` when unlinked or Jellyfin base URL unset; `503` when the jellyfin bridge is unreachable.
+
+## Optional library-plus sections
+
+Proxied from module health HTTP (defaults `:9641` music, `:9651` books, `:9661` comics, `:9671` audiobooks). Soft when the module is down — **HTTP 200** with an honest payload (SPA shows “Coming soon” after calling the API):
+
+### `GET /api/music` → media-music `GET /api/artists`
+### `GET /api/books` → media-books `GET /api/authors`
+### `GET /api/comics` → media-comics `GET /api/series`
+### `GET /api/audiobooks` → media-audiobooks `GET /api/audiobooks`
+
+```json
+{
+  "items": [],
+  "total": 0,
+  "available": false,
+  "coming_soon": true,
+  "library": "music",
+  "code": "music.unavailable",
+  "message": "Coming soon — enable the library-plus spool tag…"
+}
+```
+
+When the module responds, `available: true` and `items` are the upstream JSON array rows.

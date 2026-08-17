@@ -34,6 +34,10 @@ func main() {
 	moviesHTTP := flag.String("movies-http", envOr("MOVIES_HTTP_URL", "http://127.0.0.1:9430"), "media-movies HTTP (images/stream)")
 	tvHTTP := flag.String("tv-http", envOr("TVSHOWS_HTTP_URL", "http://127.0.0.1:9450"), "media-tvshows HTTP (images)")
 	requestHTTP := flag.String("request-http", envOr("REQUEST_MEDIA_HTTP_URL", "http://127.0.0.1:9380"), "request-media HTTP (search/request)")
+	musicHTTP := flag.String("music-http", envOr("MUSIC_HTTP_URL", "http://127.0.0.1:9641"), "media-music HTTP (optional library-plus)")
+	booksHTTP := flag.String("books-http", envOr("BOOKS_HTTP_URL", "http://127.0.0.1:9651"), "media-books HTTP (optional library-plus)")
+	comicsHTTP := flag.String("comics-http", envOr("COMICS_HTTP_URL", "http://127.0.0.1:9661"), "media-comics HTTP (optional library-plus)")
+	audiobooksHTTP := flag.String("audiobooks-http", envOr("AUDIOBOOKS_HTTP_URL", "http://127.0.0.1:9671"), "media-audiobooks HTTP (optional library-plus)")
 	authHTTP := flag.String("auth-http", envOr("AUTH_HTTP_URL", "http://127.0.0.1:9401"), "browser-facing auth-local URL (login redirects)")
 	authInternal := flag.String("auth-http-internal", envOr("AUTH_HTTP_INTERNAL_URL", ""), "server-side auth-local URL for code exchange (defaults to auth-http)")
 	publicURL := flag.String("public-url", envOr("MEDIA_UI_PUBLIC_URL", ""), "public origin for OAuth callbacks (e.g. https://media.gringotts)")
@@ -76,6 +80,10 @@ func main() {
 		moviesHTTP:     mustURL(*moviesHTTP),
 		tvHTTP:         mustURL(*tvHTTP),
 		requestHTTP:    mustURL(*requestHTTP),
+		musicHTTP:      mustURL(*musicHTTP),
+		booksHTTP:      mustURL(*booksHTTP),
+		comicsHTTP:     mustURL(*comicsHTTP),
+		audiobooksHTTP: mustURL(*audiobooksHTTP),
 		authHTTP:       authPublic,
 		authInternal:   authInt,
 		publicURL:      strings.TrimRight(*publicURL, "/"),
@@ -97,6 +105,7 @@ func main() {
 	mux.HandleFunc("/api/movies/", s.handleMovieByID)
 	mux.HandleFunc("/api/tv", s.handleListTV)
 	mux.HandleFunc("/api/tv/", s.handleTVByID)
+	s.registerLibraryRoutes(mux)
 	mux.HandleFunc("/api/jellyfin/play", s.handleJellyfinPlay)
 	reqProxy := reverseProxy(s.requestHTTP)
 	mux.Handle("/api/search", reqProxy)
@@ -173,18 +182,22 @@ func (s *sessionStore) Delete(tok string) {
 }
 
 type server struct {
-	movies       mgmntv1.MovieManagementServiceClient
-	tv           tvmgmtv1.TvManagementServiceClient
-	jellyfin     jellyfinv1.JellyfinBridgeClient
-	moviesHTTP   *url.URL
-	tvHTTP       *url.URL
-	requestHTTP  *url.URL
-	authHTTP     string // browser redirects
-	authInternal string // server-side code exchange
-	publicURL    string // optional fixed public origin
-	dist         string
-	requireAuth  bool
-	sessions     *sessionStore
+	movies         mgmntv1.MovieManagementServiceClient
+	tv             tvmgmtv1.TvManagementServiceClient
+	jellyfin       jellyfinv1.JellyfinBridgeClient
+	moviesHTTP     *url.URL
+	tvHTTP         *url.URL
+	requestHTTP    *url.URL
+	musicHTTP      *url.URL
+	booksHTTP      *url.URL
+	comicsHTTP     *url.URL
+	audiobooksHTTP *url.URL
+	authHTTP       string // browser redirects
+	authInternal   string // server-side code exchange
+	publicURL      string // optional fixed public origin
+	dist           string
+	requireAuth    bool
+	sessions       *sessionStore
 }
 
 func (s *server) withAuth(next http.Handler) http.Handler {
