@@ -119,6 +119,23 @@ Live torrent engine: set `DOWNLOADER_ENGINE` to something other than `fixture`/`
 
 ---
 
+## Pin live binaries to origin
+
+Do not `scp` an unpublished binary onto the vault host. `media-scanner`, `media-automation`, and `downloader-native-torrent` must match `origin/main` (`muxcore.json` version + `Info()` Version, HEAD == origin).
+
+```bash
+cd mvp   # or _mvp
+./scripts/install-origin-module.sh media-scanner --verify-only
+./scripts/install-origin-module.sh media-automation --dest ./bin
+# stop the peer, mv bin/<name>.new bin/<name>, chmod +x, restart
+MVP_DEPLOY_SSH=ender@vault ./scripts/install-origin-module.sh --verify-live
+# appends run/ORIGIN-BINARIES.log (sha + version) when live logs match origin
+```
+
+Refuse cases: dirty `muxcore.json`, HEAD not pushed, requested version string not on origin, `Info()` Version ≠ `muxcore.json`.
+
+---
+
 ## Disable live acquisition instantly
 
 Flip flags off (or force fixtures) and restart. Do **not** touch `WG_*` or re-enable jellyfin.

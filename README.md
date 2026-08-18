@@ -94,6 +94,8 @@ docker compose up --build -d
 # ./run-host.sh stop-one media-scanner
 # ./run-host.sh restart admin-ui
 # ./run-host.sh unregister media-scanner
+# Pin scanner/automation/downloader to origin/main (refuses unpublished versions):
+# ./scripts/install-origin-module.sh media-scanner --verify-only
 ./bootstrap-auth.sh
 ./smoke.sh
 ./run-host.sh stop
