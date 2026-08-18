@@ -134,6 +134,13 @@ MVP_DEPLOY_SSH=ender@vault ./scripts/install-origin-module.sh --verify-live
 
 Refuse cases: dirty `muxcore.json`, HEAD not pushed, requested version string not on origin, `Info()` Version ≠ `muxcore.json`.
 
+After a vault deploy, force one wanted-search pass (do not wait 15 minutes for RSS):
+
+```bash
+./scripts/search-now.sh
+# or: grpcurl -plaintext -d '{}' 127.0.0.1:9460 muxcore.automation.v1.AutomationService/SearchNow
+```
+
 ---
 
 ## Disable live acquisition instantly
