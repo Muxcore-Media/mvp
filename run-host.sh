@@ -339,6 +339,9 @@ case "$cmd" in
       AUTOMATION_DB_PATH="$DATA/automation/automation.db" \
       AUTOMATION_GRPC_ADDR=":9460" \
       AUTOMATION_EVENT_SUBSCRIBE_DELAY=1s \
+      AUTOMATION_KEEP_STALLED_PARTIALS="${AUTOMATION_KEEP_STALLED_PARTIALS:-false}" \
+      AUTOMATION_DOWNLOAD_DIR="${MVP_DOWNLOADS_DIR:-$DATA/downloads}" \
+      MVP_DOWNLOADS_DIR="${MVP_DOWNLOADS_DIR:-$DATA/downloads}" \
       "$BIN/media-automation"
 
     # Scoring + naming + analyze peers (default host).
@@ -386,6 +389,8 @@ case "$cmd" in
       SUBS_GRPC_ADDR="${SUBS_GRPC_ADDR:-:9520}" \
       "$BIN/media-subtitles"
 
+    # Movie dest for the downloads watch dir. TV dest is separate — never nest
+    # shows under SCANNER_LIBRARY_ROOT (that produced movies/TV and movies/Other).
     LIBRARY_ROOT="${MVP_LIBRARY_ROOT:-$DATA/library}"
     TV_LIBRARY_ROOT="${MVP_TV_LIBRARY_ROOT:-$DATA/library/tv}"
     DOWNLOADS_DIR="${MVP_DOWNLOADS_DIR:-$DATA/downloads}"
