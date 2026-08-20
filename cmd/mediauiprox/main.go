@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -38,11 +39,22 @@ func main() {
 	booksHTTP := flag.String("books-http", envOr("BOOKS_HTTP_URL", "http://127.0.0.1:9651"), "media-books HTTP (optional library-plus)")
 	comicsHTTP := flag.String("comics-http", envOr("COMICS_HTTP_URL", "http://127.0.0.1:9661"), "media-comics HTTP (optional library-plus)")
 	audiobooksHTTP := flag.String("audiobooks-http", envOr("AUDIOBOOKS_HTTP_URL", "http://127.0.0.1:9671"), "media-audiobooks HTTP (optional library-plus)")
+	transcoderHTTP := flag.String("transcoder-http", envOr("TRANSCODER_HTTP_URL", "http://127.0.0.1:9525"), "media-transcoder HTTP (optional playback remux)")
 	authHTTP := flag.String("auth-http", envOr("AUTH_HTTP_URL", "http://127.0.0.1:9401"), "browser-facing auth-local URL (login redirects)")
 	authInternal := flag.String("auth-http-internal", envOr("AUTH_HTTP_INTERNAL_URL", ""), "server-side auth-local URL for code exchange (defaults to auth-http)")
 	publicURL := flag.String("public-url", envOr("MEDIA_UI_PUBLIC_URL", ""), "public origin for OAuth callbacks (e.g. https://media.gringotts)")
 	requireAuth := flag.Bool("require-auth", envOr("MEDIA_UI_REQUIRE_AUTH", "1") != "0", "require auth-local login")
+	userdataDir := flag.String("userdata-dir", envOr("MEDIA_UI_USERDATA_DIR", ""), "durable userdata JSON dir (progress/favorites/prefs)")
+	livetvFile := flag.String("livetv-file", envOr("MEDIA_UI_LIVETV_FILE", ""), "Live TV channels/guide JSON (shared with admin-ui ADMIN_UI_LIVETV_FILE)")
+	libraryPathsFile := flag.String("library-paths-file", envOr("MEDIA_UI_LIBRARY_PATHS_FILE", ""), "JSON map of musicvideos/homevideos path prefixes")
+	passwordResetFile := flag.String("password-reset-file", envOr("MEDIA_UI_PASSWORD_RESET_FILE", ""), "password reset request JSON (shared with admin-ui ADMIN_UI_PASSWORD_RESET_FILE)")
 	flag.Parse()
+	if *livetvFile == "" && *userdataDir != "" {
+		*livetvFile = filepath.Join(*userdataDir, "livetv.json")
+	}
+	if *libraryPathsFile == "" && *userdataDir != "" {
+		*libraryPathsFile = filepath.Join(*userdataDir, "library-paths.json")
+	}
 	if *dist == "" {
 		fmt.Fprintln(os.Stderr, "-dist / MEDIA_UI_DIST is required (path to media-ui/ui/dist-app)")
 		os.Exit(1)
@@ -84,12 +96,18 @@ func main() {
 		booksHTTP:      mustURL(*booksHTTP),
 		comicsHTTP:     mustURL(*comicsHTTP),
 		audiobooksHTTP: mustURL(*audiobooksHTTP),
+		transcoderHTTP: optionalURL(*transcoderHTTP),
 		authHTTP:       authPublic,
 		authInternal:   authInt,
 		publicURL:      strings.TrimRight(*publicURL, "/"),
 		dist:           *dist,
 		requireAuth:    *requireAuth,
 		sessions:       newSessionStore(24 * time.Hour),
+		userdata:       newServerUserdata(*userdataDir),
+		livetv:         newLiveTVStore(*livetvFile, *userdataDir),
+		libraryPaths:   newLibraryPathsStore(*libraryPathsFile, *userdataDir),
+		quickconnect:   newQuickConnectStore(*userdataDir),
+		passwordResets: newPasswordResetStore(*passwordResetFile, *userdataDir),
 	}
 
 	mux := http.NewServeMux()
@@ -103,13 +121,33 @@ func main() {
 
 	mux.HandleFunc("/api/movies", s.handleListMovies)
 	mux.HandleFunc("/api/movies/", s.handleMovieByID)
+	mux.HandleFunc("GET /api/collections", s.handleListCollections)
+	mux.HandleFunc("GET /api/collections/", s.handleCollectionByID)
 	mux.HandleFunc("/api/tv", s.handleListTV)
 	mux.HandleFunc("/api/tv/", s.handleTVByID)
 	s.registerLibraryRoutes(mux)
 	mux.HandleFunc("/api/jellyfin/play", s.handleJellyfinPlay)
+	mux.HandleFunc("GET /api/playback/resolve", s.handlePlaybackResolve)
+	mux.HandleFunc("GET /stream/transcode", s.handleTranscodeStream)
+	mux.HandleFunc("GET /api/livetv", s.handleLiveTV)
+	mux.HandleFunc("POST /api/livetv/timers", s.handleLiveTVTimer)
+	mux.HandleFunc("/api/quickconnect", s.handleQuickConnect)
+	mux.HandleFunc("/api/password-reset", s.handlePasswordReset)
+	mux.HandleFunc("GET /api/music/tracks/", s.handleTrackLyrics)
+	mux.HandleFunc("/api/userdata", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			s.handleUserdataGet(w, r)
+		case http.MethodPut, http.MethodPost:
+			s.handleUserdataPut(w, r)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
 	reqProxy := reverseProxy(s.requestHTTP)
 	mux.Handle("/api/search", reqProxy)
 	mux.Handle("/api/request", reqProxy)
+	mux.Handle("/api/requests/", reqProxy)
 	mux.Handle("/api/requests", reqProxy)
 	// SPA uses /images/movies/<rel> and /images/tv/<rel>; modules serve under /images/<rel>.
 	mux.Handle("/images/movies/", imagePrefixProxy("/images/movies", "/images", reverseProxy(s.moviesHTTP)))
@@ -139,6 +177,7 @@ type sessionStore struct {
 type sessionEntry struct {
 	userID   string
 	username string
+	tenantID string
 	expiry   time.Time
 }
 
@@ -147,13 +186,20 @@ func newSessionStore(ttl time.Duration) *sessionStore {
 }
 
 func (s *sessionStore) Create(userID, username string) (string, error) {
+	return s.CreateWithTenant(userID, username, "")
+}
+
+func (s *sessionStore) CreateWithTenant(userID, username, tenantID string) (string, error) {
 	var b [32]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", err
 	}
 	tok := hex.EncodeToString(b[:])
 	s.mu.Lock()
-	s.byID[tok] = sessionEntry{userID: userID, username: username, expiry: time.Now().Add(s.ttl)}
+	s.byID[tok] = sessionEntry{
+		userID: userID, username: username, tenantID: strings.TrimSpace(tenantID),
+		expiry: time.Now().Add(s.ttl),
+	}
 	s.mu.Unlock()
 	return tok, nil
 }
@@ -192,18 +238,24 @@ type server struct {
 	booksHTTP      *url.URL
 	comicsHTTP     *url.URL
 	audiobooksHTTP *url.URL
+	transcoderHTTP *url.URL
 	authHTTP       string // browser redirects
 	authInternal   string // server-side code exchange
 	publicURL      string // optional fixed public origin
 	dist           string
 	requireAuth    bool
 	sessions       *sessionStore
+	userdata       *serverUserdata
+	livetv         *liveTVStore
+	libraryPaths   *libraryPathsStore
+	quickconnect   *quickConnectStore
+	passwordResets *passwordResetStore
 }
 
 func (s *server) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/healthz", "/login", "/auth/callback", "/logout":
+		case "/healthz", "/login", "/auth/callback", "/logout", "/api/password-reset":
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -262,15 +314,23 @@ func (s *server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var result struct {
-		Token    string `json:"token"`
-		UserID   string `json:"user_id"`
-		Username string `json:"username"`
+		Token    string         `json:"token"`
+		UserID   string         `json:"user_id"`
+		Username string         `json:"username"`
+		TenantID string         `json:"tenant_id"`
+		Claims   map[string]any `json:"claims"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		http.Error(w, "invalid response", http.StatusInternalServerError)
 		return
 	}
-	sess, err := s.sessions.Create(result.UserID, result.Username)
+	tenantID := strings.TrimSpace(result.TenantID)
+	if tenantID == "" && result.Claims != nil {
+		if v, ok := result.Claims["tenant_id"].(string); ok {
+			tenantID = strings.TrimSpace(v)
+		}
+	}
+	sess, err := s.sessions.CreateWithTenant(result.UserID, result.Username, tenantID)
 	if err != nil {
 		http.Error(w, "session error", http.StatusInternalServerError)
 		return
@@ -333,6 +393,10 @@ func (s *server) spa(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleListMovies(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if lib := normalizeLibraryKey(r.URL.Query().Get("library")); lib != "" {
+		s.handleLibraryMovies(w, r, lib)
 		return
 	}
 	page, pageSize := pageParams(r)
@@ -492,23 +556,28 @@ func movieJSON(m *mgmntv1.MovieItem) map[string]any {
 		genres = []string{}
 	}
 	out := map[string]any{
-		"id":           m.GetId(),
-		"tmdb_id":      m.GetTmdbId(),
-		"title":        m.GetTitle(),
-		"year":         m.GetYear(),
-		"overview":     m.GetOverview(),
-		"runtime":      m.GetRuntime(),
-		"vote_average": m.GetVoteAverage(),
-		"genres":       genres,
-		"poster_url":   consumerImageURL("movies", firstNonEmpty(m.GetPosterUrl(), m.GetPosterPath())),
-		"backdrop_url": consumerImageURL("movies", firstNonEmpty(m.GetBackdropUrl(), m.GetBackdropPath())),
-		"has_file":     m.GetHasFile(),
-		"status":       m.GetStatus(),
-		"tagline":      m.GetTagline(),
-		"created_at":   m.GetCreatedAt(),
+		"id":               m.GetId(),
+		"tmdb_id":          m.GetTmdbId(),
+		"title":            m.GetTitle(),
+		"year":             m.GetYear(),
+		"overview":         m.GetOverview(),
+		"runtime":          m.GetRuntime(),
+		"vote_average":     m.GetVoteAverage(),
+		"genres":           genres,
+		"poster_url":       consumerImageURL("movies", firstNonEmpty(m.GetPosterUrl(), m.GetPosterPath())),
+		"backdrop_url":     consumerImageURL("movies", firstNonEmpty(m.GetBackdropUrl(), m.GetBackdropPath())),
+		"has_file":         m.GetHasFile(),
+		"status":           m.GetStatus(),
+		"tagline":          m.GetTagline(),
+		"created_at":       m.GetCreatedAt(),
+		"root_folder_path": m.GetRootFolderPath(),
 	}
 	if m.GetHasFile() && m.GetId() != "" {
 		out["stream_url"] = "/stream/movies/" + url.PathEscape(m.GetId())
+	}
+	if m.GetCollectionId() != 0 {
+		out["collection_id"] = m.GetCollectionId()
+		out["collection_name"] = m.GetCollectionName()
 	}
 	return out
 }
@@ -654,6 +723,19 @@ func mustURL(raw string) *url.URL {
 	u, err := url.Parse(raw)
 	if err != nil {
 		log.Fatalf("bad url %q: %v", raw, err)
+	}
+	return u
+}
+
+func optionalURL(raw string) *url.URL {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		log.Printf("optional url ignored %q: %v", raw, err)
+		return nil
 	}
 	return u
 }

@@ -25,17 +25,28 @@ Operator references in this repo: [`PORTS.md`](PORTS.md) (default gRPC/HTTP port
 - Org repos cloned as siblings (same layout as this workspace)
 - Dev default: `MUXCORE_INSECURE_DISABLE_TLS=true` via `./run-host.sh`. Staging mTLS: `./run-host-staging.sh` (see [`tls/MTLS-STAGING.md`](tls/MTLS-STAGING.md)).
 
-## GHCR images (optional)
+## Non-developer install (Forgejo / LAN registry)
 
-Default compose builds from sibling trees. To pull prebuilt images instead, use [`docker-compose.ghcr.yml`](docker-compose.ghcr.yml) once `muxcored` (and peers) are published.
-
-Publish `muxcored` from a host with rootless podman (e.g. gringotts):
+**Primary non-dev path:** [`docker-compose.registry.yml`](docker-compose.registry.yml) pulls prebuilt images from `${MUXCORE_REGISTRY}` (default `localhost:5000/muxcore`, or `git.zem.systems/muxcore`). No sibling Go builds; no GHCR `write:packages`. Step-by-step: [`docs/PUBLIC-INSTALL.md`](docs/PUBLIC-INSTALL.md).
 
 ```bash
-./scripts/publish-muxcored-ghcr.sh v0.5.4
+export MUXCORE_REGISTRY=localhost:5000/muxcore   # or git.zem.systems/muxcore
+export MUXCORE_IMAGE_TAG=v0.5.4
+export DOWNLOADER_ENGINE=fixture
+docker compose -f docker-compose.registry.yml pull
+docker compose -f docker-compose.registry.yml up -d
+./smoke.sh
 ```
 
-Requires `gh` token scopes `repo` + `write:packages`. Image build is verified locally as `localhost/muxcored:v0.5.0` (rebuild for v0.5.1 before publish); GHCR push is blocked until the token has packages write.
+Publish `muxcored` (podman or docker):
+
+```bash
+./scripts/publish-muxcored-local.sh v0.5.4
+# or: MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-muxcored-local.sh v0.5.4
+# LAN helper: ./local-registry.sh start
+```
+
+Default compose (`docker compose up --build`) and `./run-host.sh` remain the developer paths. [`docker-compose.ghcr.yml`](docker-compose.ghcr.yml) / `publish-muxcored-ghcr.sh` are a **future public GHCR mirror** when packages write exists.
 
 ## Kubernetes (Phase 3 scaffold)
 

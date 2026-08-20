@@ -11,6 +11,7 @@ require (
 	github.com/Muxcore-Media/media-root-folders v0.1.4
 	github.com/Muxcore-Media/media-scanner v0.1.7
 	github.com/Muxcore-Media/media-tvshows v0.1.7
+	github.com/Muxcore-Media/userdata-local v0.1.0
 	google.golang.org/grpc v1.82.1
 )
 
@@ -27,3 +28,5 @@ replace github.com/Muxcore-Media/core => ../core
 replace github.com/Muxcore-Media/core/sdk/go/client => ../core/sdk/go/client
 
 replace github.com/Muxcore-Media/core/pkg/contracts => ../core/pkg/contracts
+
+replace github.com/Muxcore-Media/userdata-local => ../userdata-local

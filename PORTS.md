@@ -38,6 +38,9 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9700 | database-sqlite | SQLite DatabaseProvider (gRPC) |
 | 9730 / 9731 | media-graph | optional unified media graph (gRPC / health) |
 | 9740 / 9741 | media-tagging | optional content tagging / classification (gRPC / health) |
+| 9461 | downloader-native-torrent | native torrent engine (gRPC) |
+| 9462 / 9463 | downloader-qbittorrent | optional qBittorrent WebUI bridge (gRPC / health) |
+| 9672 / 9673 | userdata-local | optional household userdata (HTTP / gRPC); `MVP_ENABLE_USERDATA_LOCAL=1` |
 | 9620 / 9621 | downloader-sabnzbd | optional SABnzbd usenet bridge (gRPC / health) |
 | 9630 / 9631 | downloader-debrid | optional Real-Debrid/AllDebrid bridge (gRPC / health) |
 | 9640 / 9641 | media-music | optional Lidarr-class music manager (gRPC / health) |
