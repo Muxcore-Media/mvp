@@ -64,7 +64,7 @@ func (s *server) handlePlaybackResolve(w http.ResponseWriter, r *http.Request) {
 	}
 	src := strings.TrimSpace(r.URL.Query().Get("src"))
 	if src == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "src required", "code": "playback.src_required"})
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "src required", "code": "playback.src_required"})
 		return
 	}
 	pol := loadPlaybackPolicy()
@@ -75,7 +75,7 @@ func (s *server) handlePlaybackResolve(w http.ResponseWriter, r *http.Request) {
 		mode = "transcode"
 		streamURL = "/stream/transcode?src=" + url.QueryEscape(src)
 	}
-	writeJSON(w, http.StatusOK, playbackResolveResponse{
+	writeJSONStatus(w, http.StatusOK, playbackResolveResponse{
 		StreamURL:           streamURL,
 		Mode:                mode,
 		ResumeEnabled:       pol.EnableResume,
