@@ -164,7 +164,7 @@ case "$cmd" in
       start_one core env \
         MUXCORE_CONFIG="$MUXCORE_CONFIG" \
         MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
-        MUXCORE_STORAGE_DIR="$DATA/storage" \
+        MUXCORE_STORAGE_DIR="${MUXCORE_STORAGE_DIR:-$DATA/storage}" \
         MUXCORE_LOG_LEVEL="${MUXCORE_LOG_LEVEL:-info}" \
         "$BIN/muxcored"
       # wait for mesh (prefer HTTP 200 once storage is registered; staging API is TLS)
@@ -300,6 +300,7 @@ case "$cmd" in
       ver="${ADMIN_UI_VERSION:-0.1.10}"
       (cd "$WS/admin-ui" && go build -ldflags="-s -w -X main.version=${ver}" -o "$BIN/admin-ui" .)
     fi
+    mkdir -p "$DATA/media-ui"
     maybe_start admin-ui env \
       ADMIN_UI_ADDR=":8082" \
       ADMIN_UI_CORE_ADDR="$MESH" \
@@ -309,6 +310,8 @@ case "$cmd" in
       ADMIN_UI_PUBLIC_URL="${ADMIN_UI_PUBLIC_URL:-https://admin.gringotts}" \
       ADMIN_UI_TRUSTED_PROXIES="${ADMIN_UI_TRUSTED_PROXIES:-127.0.0.1/32,::1/128}" \
       ADMIN_UI_HEALTH_MONITOR_URL="${ADMIN_UI_HEALTH_MONITOR_URL:-http://127.0.0.1:9203}" \
+      ADMIN_UI_LIVETV_FILE="${ADMIN_UI_LIVETV_FILE:-$DATA/media-ui/livetv.json}" \
+      ADMIN_UI_BRANDING_FILE="${ADMIN_UI_BRANDING_FILE:-$DATA/media-ui/branding.json}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
       "$BIN/admin-ui"
 
@@ -355,6 +358,12 @@ case "$cmd" in
       FORMATS_DB_PATH="$DATA/formats/formats.db" \
       FORMATS_GRPC_ADDR=":9490" \
       FORMATS_SEED_DEFAULTS=true \
+      FORMATS_TRASH_SYNC="${FORMATS_TRASH_SYNC:-true}" \
+      FORMATS_TRASH_IMPORT_PROFILES="${FORMATS_TRASH_IMPORT_PROFILES:-true}" \
+      FORMATS_TRASH_CACHE_DIR="${FORMATS_TRASH_CACHE_DIR:-$DATA/formats/trash-guides}" \
+      FORMATS_TRASH_GUIDES_PATH="${FORMATS_TRASH_GUIDES_PATH:-}" \
+      FORMATS_TRASH_SCORE_SET="${FORMATS_TRASH_SCORE_SET:-default}" \
+      FORMATS_TRASH_SERVICES="${FORMATS_TRASH_SERVICES:-radarr,sonarr}" \
       "$BIN/media-custom-formats"
 
     if [[ ! -x "$BIN/media-rename" ]]; then
@@ -440,7 +449,43 @@ case "$cmd" in
       JELLYFIN_BASE_URL="${JELLYFIN_BASE_URL:-}" \
       JELLYFIN_API_KEY="${JELLYFIN_API_KEY:-}" \
       JELLYFIN_WEBHOOK_SECRET="${JELLYFIN_WEBHOOK_SECRET:-}" \
+      USERDATA_SYNC="${USERDATA_SYNC:-0}" \
+      USERDATA_LOCAL_URL="${USERDATA_LOCAL_URL:-}" \
+      USERDATA_PUSH_TO_JELLYFIN="${USERDATA_PUSH_TO_JELLYFIN:-0}" \
       "$BIN/jellyfin"
+
+    # Optional household userdata mesh (HTTP :9672) — prefer with USERDATA_LOCAL_URL for mediauiprox/jellyfin.
+    if [[ "${MVP_ENABLE_USERDATA_LOCAL:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/userdata-local" ]]; then
+        echo "building userdata-local"
+        (cd "$WS/userdata-local" && go build -o "$BIN/userdata-local" ./cmd/module)
+      fi
+      mkdir -p "$DATA/userdata"
+      maybe_start userdata-local env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=userdata-local MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        USERDATA_LOCAL_HTTP_ADDR=":9672" \
+        USERDATA_LOCAL_GRPC_ADDR=":9673" \
+        USERDATA_LOCAL_DATA_DIR="$DATA/userdata" \
+        "$BIN/userdata-local"
+      export USERDATA_LOCAL_URL="${USERDATA_LOCAL_URL:-http://127.0.0.1:9672}"
+    fi
+
+    # Optional qBittorrent WebUI peer (:9462) — fixture by default; set QBIT_URL for live.
+    if [[ "${MVP_ENABLE_DOWNLOADER_QBITTORRENT:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/downloader-qbittorrent" ]]; then
+        echo "building downloader-qbittorrent"
+        (cd "$WS/downloader-qbittorrent" && go build -o "$BIN/downloader-qbittorrent" ./cmd/module)
+      fi
+      maybe_start downloader-qbittorrent env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=downloader-qbittorrent MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        QBIT_GRPC_ADDR=":9462" QBIT_HTTP_ADDR=":9463" \
+        DOWNLOADER_ENGINE="${DOWNLOADER_ENGINE:-fixture}" \
+        QBIT_FIXTURE="${QBIT_FIXTURE:-1}" \
+        QBIT_URL="${QBIT_URL:-}" \
+        QBIT_USERNAME="${QBIT_USERNAME:-}" \
+        QBIT_PASSWORD="${QBIT_PASSWORD:-}" \
+        "$BIN/downloader-qbittorrent"
+    fi
 
     # Optional DAG engine (movie-request / tv-request → real mesh RPCs via meta.method).
     if [[ "${MVP_ENABLE_WORKFLOW_TAPESTRY:-0}" == "1" ]]; then
@@ -559,8 +604,12 @@ case "$cmd" in
           MEDIA_UI_DIST="$UI_DIST" \
           MEDIA_UI_REQUIRE_AUTH="${MEDIA_UI_REQUIRE_AUTH:-1}" \
           MEDIA_UI_PUBLIC_URL="${MEDIA_UI_PUBLIC_URL:-https://media.gringotts}" \
+          MEDIA_UI_USERDATA_DIR="${MEDIA_UI_USERDATA_DIR:-$DATA/media-ui}" \
+          MEDIA_UI_LIVETV_FILE="${MEDIA_UI_LIVETV_FILE:-$DATA/media-ui/livetv.json}" \
+          MEDIA_UI_LIBRARY_PATHS_FILE="${MEDIA_UI_LIBRARY_PATHS_FILE:-$DATA/media-ui/library-paths.json}" \
           AUTH_HTTP_URL="${AUTH_HTTP_URL:-https://auth.gringotts}" \
           AUTH_HTTP_INTERNAL_URL="${AUTH_HTTP_INTERNAL_URL:-http://127.0.0.1:9401}" \
+          USERDATA_LOCAL_URL="${USERDATA_LOCAL_URL:-}" \
           MOVIES_GRPC_CLIENT_ADDR="127.0.0.1:9420" \
           TVSHOWS_GRPC_CLIENT_ADDR="127.0.0.1:9440" \
           JELLYFIN_GRPC_CLIENT_ADDR="127.0.0.1:9475" \
@@ -570,6 +619,9 @@ case "$cmd" in
           "$BIN/mediauiprox" \
             -listen "${MEDIA_UI_LISTEN:-:5173}" \
             -dist "$UI_DIST" \
+            -userdata-dir "${MEDIA_UI_USERDATA_DIR:-$DATA/media-ui}" \
+            -livetv-file "${MEDIA_UI_LIVETV_FILE:-$DATA/media-ui/livetv.json}" \
+            -library-paths-file "${MEDIA_UI_LIBRARY_PATHS_FILE:-$DATA/media-ui/library-paths.json}" \
             -request-http "http://127.0.0.1:9380" \
             -auth-http "${AUTH_HTTP_URL:-https://auth.gringotts}" \
             -auth-http-internal "${AUTH_HTTP_INTERNAL_URL:-http://127.0.0.1:9401}" \

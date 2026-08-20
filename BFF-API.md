@@ -4,7 +4,16 @@ Consumer SPA (`media-ui-app`) talks to `mvp/cmd/mediauiprox` on `:5173`.
 
 ## List endpoints
 
-### `GET /api/movies?page=&page_size=`
+### `GET /api/movies?page=&page_size=&library=`
+
+Optional `library=musicvideos|homevideos` filters the movie catalog for companion pages:
+
+- Path prefixes from `MEDIA_UI_LIBRARY_PATHS_FILE` / `-library-paths-file` (JSON `{ "musicvideos": ["/…"], "homevideos": ["/…"] }`)
+- Root-folder name / genre tags `musicvideo` / `homevideo` when present
+- Title/genre heuristic only when the config prefixes for that library are empty (`filter_mode: "heuristic"`)
+
+Success includes `library` and `filter_mode` (`config` | `heuristic`). Movie rows may include `root_folder_path` and `library_type`.
+
 ### `GET /api/tv?page=&page_size=`
 
 Success (`200`):
@@ -39,6 +48,8 @@ Success (`200`):
 | `tagline` | string | |
 | `created_at` | string | |
 | `stream_url` | string | `/stream/movies/{id}` |
+| `root_folder_path` | string | library root when set |
+| `library_type` | string | set when `?library=` filtered |
 
 ### TV show item fields
 
@@ -50,6 +61,29 @@ Same poster/backdrop/stream conventions under `/images/tv/` and `/stream/tv/{epi
 - `GET /api/tv/{id}` → `{ "show": {…} }`
 
 Missing entity → `404` with `{ "error": "…", "code": "movies.not_found" | "tv.not_found" }`.
+
+## Live TV (file-backed companion)
+
+### `GET /api/livetv`
+
+Reads durable JSON (`MEDIA_UI_LIVETV_FILE`, shared with admin `ADMIN_UI_LIVETV_FILE`):
+
+```json
+{
+  "channels": [{ "id": "ch1", "name": "…", "number": "1", "now_playing": { "title": "…", "start": "…", "end": "…" } }],
+  "guide": [{ "channel_id": "ch1", "title": "…", "start": "…", "end": "…" }],
+  "recordings": [],
+  "timers": [],
+  "available": true,
+  "source": "MEDIA_UI_LIVETV_FILE"
+}
+```
+
+`now_playing` is derived from in-window `guide` rows. Physical tuners / EPG grabbers are out of scope (decision B waiver).
+
+### `POST /api/livetv/timers`
+
+Appends a timer to the same JSON file.
 
 ## Errors
 
@@ -68,6 +102,27 @@ Typical HTTP status: `400` / `401` / `404` / `502` / `503` from gRPC code mappin
 Resolves a MuxCore library id through jellyfin item links → `{ "url": "https://…/web/index.html#!/details?id=…" }`.
 
 `404` when unlinked or Jellyfin base URL unset; `503` when the jellyfin bridge is unreachable.
+
+## Playback resolve (native player)
+
+### `GET /api/playback/resolve?src=`
+
+Reads shared admin playback policy (`ADMIN_UI_PLAYBACK_FILE`) and returns the stream URL the SPA should use:
+
+```json
+{
+  "stream_url": "/stream/movies/{id}",
+  "mode": "direct",
+  "resume_enabled": true,
+  "transcoder_enabled": true,
+  "prefer_direct_play": true,
+  "max_bitrate_mbps": "80",
+  "trickplay_enabled": false,
+  "transcoder_available": false
+}
+```
+
+When transcoding is enabled and direct play is not preferred, `mode` is `transcode` and `stream_url` is `/stream/transcode?src=…` (BFF proxies the underlying module stream).
 
 ## Optional library-plus sections
 

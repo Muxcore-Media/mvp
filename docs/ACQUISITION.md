@@ -103,6 +103,13 @@ INDEXER_FIXTURE=1
 MVP_ENABLE_DOWNLOADER_TORRENT=1
 DOWNLOADER_ENGINE=fixture   # switch to live engine only after VPN check
 # DOWNLOAD_DIR=/mnt/mass-storage/media/torrents   # optional; defaults via MVP_DOWNLOADS_DIR
+
+# Optional external clients (not default host):
+# MVP_ENABLE_DOWNLOADER_QBITTORRENT=1
+# QBIT_FIXTURE=1                  # CI / offline — no live qBit
+# # QBITTORRENT_URL=http://127.0.0.1:8080
+# MVP_ENABLE_DOWNLOADER_SABNZBD=1
+# # SABNZBD_URL=… SABNZBD_API_KEY=…
 ```
 
 Restart only the peers you enabled:

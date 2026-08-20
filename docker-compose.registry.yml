@@ -1,0 +1,201 @@
+# MuxCore MVP — pull prebuilt images from Forgejo or a LAN registry (no sibling Go builds).
+# Does not require GHCR write:packages. See scripts/publish-muxcored-local.sh and docs/PUBLIC-INSTALL.md.
+#
+# Usage (from this directory):
+#   export MUXCORE_REGISTRY=localhost:5000/muxcore          # or git.zem.systems/muxcore
+#   export MUXCORE_IMAGE_TAG=v0.5.4
+#   export DOWNLOADER_ENGINE=fixture
+#   docker compose -f docker-compose.registry.yml pull
+#   docker compose -f docker-compose.registry.yml up -d
+#   ./smoke.sh
+#
+# Publish muxcored (operator / origin host):
+#   MUXCORE_REGISTRY=… ./scripts/publish-muxcored-local.sh v0.5.4
+# Module images must be tagged under the same MUXCORE_REGISTRY prefix.
+#
+# Prefer ./run-host.sh when developing from sibling clones.
+# GHCR (docker-compose.ghcr.yml) remains a future public mirror when packages write exists.
+
+name: muxcore-mvp-registry
+
+x-image: &image
+  image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/${MUXCORE_SERVICE:-muxcored}:${MUXCORE_IMAGE_TAG:-v0.5.4}
+  restart: unless-stopped
+  networks: [muxcore]
+  environment: &module_env
+    MUXCORE_GRPC_ADDR: core:9090
+    MUXCORE_INSECURE_DISABLE_TLS: "true"
+    MUXCORE_LOG_LEVEL: ${MUXCORE_LOG_LEVEL:-info}
+
+services:
+  core:
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/muxcored:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      MUXCORE_CONFIG: /app/muxcore.json
+      MUXCORE_SERVER_ADDR: ":8080"
+      MUXCORE_INSECURE_DISABLE_TLS: "true"
+      MUXCORE_LOG_LEVEL: ${MUXCORE_LOG_LEVEL:-info}
+      MUXCORE_STORAGE_DIR: /app/data/storage
+    ports:
+      - "${MUXCORE_HTTP_PORT:-8080}:8080"
+      - "${MUXCORE_GRPC_PORT:-9090}:9090"
+    volumes:
+      - core-data:/app/data
+      - ./muxcore.json:/app/muxcore.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+    networks: [muxcore]
+
+  api-rest:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/api-rest:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: api-rest
+      API_REST_HTTP_ADDR: ":8080"
+      API_REST_GRPC_ADDR: ":9400"
+    ports:
+      - "${API_REST_HTTP_PORT:-18080}:8080"
+      - "${API_REST_GRPC_PORT:-9400}:9400"
+    depends_on:
+      core:
+        condition: service_healthy
+
+  auth-local:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/auth-local:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: auth-local
+      AUTH_DB_PATH: /data/auth.db
+      AUTH_GRPC_ADDR: ":9403"
+      AUTH_HTTP_ADDR: ":9401"
+    ports:
+      - "${AUTH_LOCAL_PORT:-9403}:9403"
+      - "${AUTH_HTTP_PORT:-9401}:9401"
+    volumes:
+      - auth-data:/data
+    depends_on:
+      core:
+        condition: service_healthy
+
+  database-sqlite:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/database-sqlite:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: database-sqlite
+    volumes:
+      - sqlite-data:/data
+    depends_on:
+      core:
+        condition: service_healthy
+
+  admin-ui:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/admin-ui:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: admin-ui
+      ADMIN_UI_HTTP_ADDR: ":8080"
+    ports:
+      - "${ADMIN_UI_PORT:-9080}:8080"
+    depends_on:
+      core:
+        condition: service_healthy
+      auth-local:
+        condition: service_started
+
+  media-movies:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-movies:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-movies
+    depends_on:
+      core:
+        condition: service_healthy
+
+  media-tvshows:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-tvshows:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-tvshows
+    depends_on:
+      core:
+        condition: service_healthy
+
+  media-automation:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-automation:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-automation
+      DOWNLOADER_ENGINE: ${DOWNLOADER_ENGINE:-fixture}
+      AUTOMATION_DOWNLOAD_DIR: /data/downloads
+      MVP_DOWNLOADS_DIR: /data/downloads
+    volumes:
+      - downloads:/data/downloads
+    depends_on:
+      core:
+        condition: service_healthy
+
+  media-scanner:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-scanner:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-scanner
+      SCANNER_LIBRARY_ROOT: /data/movies
+      SCANNER_TV_LIBRARY_ROOT: /data/shows
+    volumes:
+      - downloads:/data/downloads
+      - movies:/data/movies
+      - shows:/data/shows
+    depends_on:
+      core:
+        condition: service_healthy
+
+  request-media:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/request-media:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: request-media
+      REQUEST_REQUIRE_APPROVAL: ${REQUEST_REQUIRE_APPROVAL:-false}
+    depends_on:
+      core:
+        condition: service_healthy
+
+  jellyfin-bridge:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/jellyfin:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: jellyfin
+      JELLYFIN_BASE_URL: ${JELLYFIN_BASE_URL:-}
+      JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
+      USERDATA_SYNC: ${USERDATA_SYNC:-0}
+      USERDATA_SYNC_INTERVAL_SECONDS: ${USERDATA_SYNC_INTERVAL_SECONDS:-300}
+      USERDATA_LOCAL_URL: ${USERDATA_LOCAL_URL:-}
+      USERDATA_PUSH_TO_JELLYFIN: ${USERDATA_PUSH_TO_JELLYFIN:-0}
+    depends_on:
+      core:
+        condition: service_healthy
+
+networks:
+  muxcore:
+
+volumes:
+  core-data:
+  auth-data:
+  sqlite-data:
+  downloads:
+  movies:
+  shows:
