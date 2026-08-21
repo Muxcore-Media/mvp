@@ -1,0 +1,13 @@
+---
+description: MuxCore workspace agent entrypoint
+alwaysApply: true
+---
+
+# MuxCore workspace
+
+- Homelab deploy, SSH, edge routing: `AGENTS.md` (workspace root)
+- Module ports: `_mvp/PORTS.md`
+- Architecture audit: `AGENT-MODULE-AUDIT-2026-08-21.md`
+- Polluted dumps (do not edit): `MASTER-ROADMAP.md` Appendix H
+- Domain events canonical source: `contracts-media/events`
+- Per-module rules: each repo's `AGENTS.md`
