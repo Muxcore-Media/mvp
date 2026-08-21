@@ -552,3 +552,23 @@ Also added **Known default-port collisions** section to `_mvp/PORTS.md` document
 | **AGENTS.md** | 88 repos now have AGENTS.md (generator + bespoke core/_mvp/admin-ui/cli/starter); `.cursor/rules/muxcore-workspace.mdc` |
 | **Contract splits** | muxcore.json updated for scanner/automation/metadata; reconciler canonical registry extended |
 | **Playback events** | `contracts-playback` created; `playback-monitor` subscribes via constants |
+
+---
+
+## Resolution Log — Wave 3 (2026-08-21)
+
+| Area | Done |
+|------|------|
+| **Proto codegen** | `make proto` on contracts-scanner, contracts-automation, contracts-metadata; generated code committed |
+| **Contract tags** | `v0.1.0` tagged and pushed to GitHub for all 5 contract repos |
+| **Playback migration** | jellyfin, emby, plex, playback-guard (+ jellyfin library catalog) use `contracts-playback/events` |
+| **Dump vendor trees** | Nested gitlink copies removed from 5 dumps; only README + ARCHIVED.md remain |
+| **Workspace muxidx** | Restored to `scripts/muxidx/`; copy tracked in `_mvp/scripts/muxidx/` |
+
+### Still blocked (needs you or vault admin)
+
+| Item | Blocker |
+|------|---------|
+| **Forgejo mirrors for 8 GitHub-only repos** | Create org repos on vault Forgejo, then `git push origin main` |
+| **Publish `contracts-media` nested tag from core** | Requires core release cut with `go.mod` using tagged module, not monorepo replace |
+| **admin-ui sibling `replace => ../module`** | Left for monorepo dev workflow |
