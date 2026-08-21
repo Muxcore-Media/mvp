@@ -6,12 +6,31 @@ WS="$(cd "$ROOT/.." && pwd)"
 BIN="$ROOT/bin"
 RUN="$ROOT/run"
 DATA="$ROOT/data"
-# shellcheck disable=SC1091
-if [[ -f "$ROOT/.env" ]]; then
-  set -a
-  source "$ROOT/.env"
-  set +a
-fi
+
+# Load $ROOT/.env defaults without clobbering env already set (systemd/nix on vault).
+load_env_file() {
+  local f="$1"
+  [[ -f "$f" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%%#*}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [[ -z "$line" ]] && continue
+    [[ "$line" != *=* ]] && continue
+    local key="${line%%=*}"
+    local val="${line#*=}"
+    key="${key%"${key##*[![:space:]]}"}"
+    val="${val#"${val%%[![:space:]]*}"}"
+    val="${val%"${val##*[![:space:]]}"}"
+    val="${val%\"}"; val="${val#\"}"
+    val="${val%\'}"; val="${val#\'}"
+    [[ -z "$key" ]] && continue
+    if [[ -z "${!key:-}" ]]; then
+      export "$key=$val"
+    fi
+  done <"$f"
+}
+load_env_file "$ROOT/.env"
 
 # Dev default is insecure mesh TLS. Staging profile (run-host-staging.sh) leaves this unset.
 if [[ "${MUXCORE_PROFILE:-}" == "staging" ]]; then
@@ -336,6 +355,19 @@ case "$cmd" in
       TVSHOWS_GRPC_ADDR=":9440" TVSHOWS_HTTP_ADDR=":9450" \
       "$BIN/media-tvshows"
 
+    MUSIC_LIBRARY_ROOT="${MVP_MUSIC_LIBRARY_ROOT:-$DATA/library/music}"
+    mkdir -p "$DATA/music" "$MUSIC_LIBRARY_ROOT"
+    if [[ ! -x "$BIN/media-music" ]]; then
+      echo "building media-music"
+      (cd "$WS/media-music" && go build -o "$BIN/media-music" ./cmd/module)
+    fi
+    maybe_start media-music env \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-music MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+      MUXCORE_MESH_DIAL_LOCAL=true \
+      MUSIC_DATA_DIR="$DATA/music" MUSIC_LIBRARY_DIR="$MUSIC_LIBRARY_ROOT" \
+      MUSIC_GRPC_ADDR=":9640" MUXCORE_HTTP_ADDR=":9641" \
+      "$BIN/media-music"
+
     maybe_start media-automation env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-automation MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
@@ -513,8 +545,12 @@ case "$cmd" in
         "$BIN/media-list-sync"
     fi
 
-    # Optional FFmpeg transcoder (:9525) for media-transcode workflow DAG
-    if [[ "${MVP_ENABLE_MEDIA_TRANSCODER:-0}" == "1" ]]; then
+    # Optional FFmpeg transcoder (gRPC :9525, playback HTTP :9526) for library DAG + media-ui on-the-fly playback
+    _enable_transcoder="${MVP_ENABLE_MEDIA_TRANSCODER:-}"
+    if [[ -z "$_enable_transcoder" && "${MVP_ENABLE_MEDIA_UI:-1}" != "0" ]]; then
+      _enable_transcoder=1
+    fi
+    if [[ "$_enable_transcoder" == "1" ]]; then
       if [[ ! -x "$BIN/media-transcoder" ]]; then
         echo "building media-transcoder"
         (cd "$WS/media-transcoder" && go build -o "$BIN/media-transcoder" ./cmd/module)
@@ -532,9 +568,30 @@ case "$cmd" in
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-transcoder MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
         PATH="$BIN:${PATH}" \
         TRANSCODER_GRPC_ADDR=":9525" \
+        TRANSCODER_HTTP_ADDR=":9526" \
         TRANSCODER_DB_PATH="$DATA/transcoder/transcoder.db" \
         TRANSCODER_MAX_CONCURRENT="${TRANSCODER_MAX_CONCURRENT:-2}" \
         "$BIN/media-transcoder"
+    fi
+
+    # Optional DLNA/UPnP media server (:9750 HTTP, gRPC :9751, health :8751).
+    # Serves MVP library paths to smart TVs and DLNA renderers on the LAN.
+    if [[ "${MVP_ENABLE_MEDIA_DLNA:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/media-dlna" ]]; then
+        echo "building media-dlna"
+        (cd "$WS/media-dlna" && go build -o "$BIN/media-dlna" ./cmd/module)
+      fi
+      mkdir -p "$DATA/dlna"
+      maybe_start media-dlna env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-dlna MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        PATH="$BIN:${PATH}" \
+        DLNA_GRPC_ADDR=":9751" \
+        DLNA_HEALTH_HTTP_ADDR=":8751" \
+        DLNA_HTTP_ADDR=":9750" \
+        DLNA_MEDIA_PATH="${DLNA_MEDIA_PATH:-$LIBRARY_ROOT}" \
+        DLNA_FRIENDLY_NAME="${DLNA_FRIENDLY_NAME:-MuxCore DLNA}" \
+        DLNA_PROBE_CACHE_PATH="$DATA/dlna/ffprobe-cache.json" \
+        "$BIN/media-dlna"
     fi
 
     # Optional Apprise notification peer (:9445). Soft sink via WEBHOOK_URL when no Apprise URLs set
@@ -616,6 +673,9 @@ case "$cmd" in
           MOVIES_HTTP_URL="http://127.0.0.1:9430" \
           TVSHOWS_HTTP_URL="http://127.0.0.1:9450" \
           REQUEST_MEDIA_HTTP_URL="http://127.0.0.1:9380" \
+          SUBTITLES_GRPC_CLIENT_ADDR="127.0.0.1:9520" \
+          SUBTITLES_HTTP_URL="http://127.0.0.1:9521" \
+          TRANSCODER_HTTP_URL="http://127.0.0.1:9526" \
           "$BIN/mediauiprox" \
             -listen "${MEDIA_UI_LISTEN:-:5173}" \
             -dist "$UI_DIST" \
@@ -625,7 +685,8 @@ case "$cmd" in
             -request-http "http://127.0.0.1:9380" \
             -auth-http "${AUTH_HTTP_URL:-https://auth.gringotts}" \
             -auth-http-internal "${AUTH_HTTP_INTERNAL_URL:-http://127.0.0.1:9401}" \
-            -public-url "${MEDIA_UI_PUBLIC_URL:-https://media.gringotts}"
+            -public-url "${MEDIA_UI_PUBLIC_URL:-https://media.gringotts}" \
+            -transcoder-http "http://127.0.0.1:9526"
       fi
     fi
 

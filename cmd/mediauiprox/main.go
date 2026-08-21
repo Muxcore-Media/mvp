@@ -21,7 +21,9 @@ import (
 
 	jellyfinv1 "github.com/Muxcore-Media/jellyfin/proto/jellyfinv1"
 	mgmntv1 "github.com/Muxcore-Media/media-movies/proto/mgmntv1"
+	subtv1 "github.com/Muxcore-Media/media-subtitles/proto/subtv1"
 	tvmgmtv1 "github.com/Muxcore-Media/media-tvshows/proto/tvmgmtv1"
+	metadatav1 "github.com/Muxcore-Media/metadata-tmdb/proto/metadatav1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -39,7 +41,10 @@ func main() {
 	booksHTTP := flag.String("books-http", envOr("BOOKS_HTTP_URL", "http://127.0.0.1:9651"), "media-books HTTP (optional library-plus)")
 	comicsHTTP := flag.String("comics-http", envOr("COMICS_HTTP_URL", "http://127.0.0.1:9661"), "media-comics HTTP (optional library-plus)")
 	audiobooksHTTP := flag.String("audiobooks-http", envOr("AUDIOBOOKS_HTTP_URL", "http://127.0.0.1:9671"), "media-audiobooks HTTP (optional library-plus)")
-	transcoderHTTP := flag.String("transcoder-http", envOr("TRANSCODER_HTTP_URL", "http://127.0.0.1:9525"), "media-transcoder HTTP (optional playback remux)")
+	transcoderHTTP := flag.String("transcoder-http", envOr("TRANSCODER_HTTP_URL", "http://127.0.0.1:9526"), "media-transcoder playback HTTP (on-the-fly transcode)")
+	subtitlesGRPC := flag.String("subtitles-grpc", envOr("SUBTITLES_GRPC_CLIENT_ADDR", "127.0.0.1:9520"), "media-subtitles gRPC (optional)")
+	subtitlesHTTP := flag.String("subtitles-http", envOr("SUBTITLES_HTTP_URL", "http://127.0.0.1:9521"), "media-subtitles HTTP (optional subtitle files)")
+	metadataGRPC := flag.String("metadata-grpc", envOr("METADATA_TMDB_GRPC_ADDR", "127.0.0.1:9411"), "metadata-tmdb gRPC")
 	authHTTP := flag.String("auth-http", envOr("AUTH_HTTP_URL", "http://127.0.0.1:9401"), "browser-facing auth-local URL (login redirects)")
 	authInternal := flag.String("auth-http-internal", envOr("AUTH_HTTP_INTERNAL_URL", ""), "server-side auth-local URL for code exchange (defaults to auth-http)")
 	publicURL := flag.String("public-url", envOr("MEDIA_UI_PUBLIC_URL", ""), "public origin for OAuth callbacks (e.g. https://media.gringotts)")
@@ -80,6 +85,28 @@ func main() {
 	}
 	defer jellyfinConn.Close()
 
+	var subtitlesClient subtv1.SubtitleServiceClient
+	if addr := strings.TrimSpace(*subtitlesGRPC); addr != "" {
+		subtitlesConn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Printf("warn: dial subtitles grpc %s: %v (subtitle tracks disabled)", addr, err)
+		} else {
+			defer subtitlesConn.Close()
+			subtitlesClient = subtv1.NewSubtitleServiceClient(subtitlesConn)
+		}
+	}
+
+	var metadataClient metadatav1.MetadataServiceClient
+	if addr := strings.TrimSpace(*metadataGRPC); addr != "" {
+		metadataConn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Printf("warn: dial metadata grpc %s: %v (discover details disabled)", addr, err)
+		} else {
+			defer metadataConn.Close()
+			metadataClient = metadatav1.NewMetadataServiceClient(metadataConn)
+		}
+	}
+
 	authPublic := strings.TrimRight(*authHTTP, "/")
 	authInt := strings.TrimRight(*authInternal, "/")
 	if authInt == "" {
@@ -97,6 +124,9 @@ func main() {
 		comicsHTTP:     mustURL(*comicsHTTP),
 		audiobooksHTTP: mustURL(*audiobooksHTTP),
 		transcoderHTTP: optionalURL(*transcoderHTTP),
+		subtitles:      subtitlesClient,
+		subtitlesHTTP:  optionalURL(*subtitlesHTTP),
+		metadata:       metadataClient,
 		authHTTP:       authPublic,
 		authInternal:   authInt,
 		publicURL:      strings.TrimRight(*publicURL, "/"),
@@ -119,6 +149,7 @@ func main() {
 	mux.HandleFunc("/auth/callback", s.handleAuthCallback)
 	mux.HandleFunc("/logout", s.handleLogout)
 
+	mux.HandleFunc("GET /api/capabilities", s.handleCapabilities)
 	mux.HandleFunc("/api/movies", s.handleListMovies)
 	mux.HandleFunc("/api/movies/", s.handleMovieByID)
 	mux.HandleFunc("GET /api/collections", s.handleListCollections)
@@ -128,6 +159,8 @@ func main() {
 	s.registerLibraryRoutes(mux)
 	mux.HandleFunc("/api/jellyfin/play", s.handleJellyfinPlay)
 	mux.HandleFunc("GET /api/playback/resolve", s.handlePlaybackResolve)
+	mux.HandleFunc("GET /api/playback/subtitles", s.handlePlaybackSubtitlesList)
+	mux.HandleFunc("GET /api/playback/subtitles/{id}", s.handlePlaybackSubtitleServe)
 	mux.HandleFunc("GET /stream/transcode", s.handleTranscodeStream)
 	mux.HandleFunc("GET /api/livetv", s.handleLiveTV)
 	mux.HandleFunc("POST /api/livetv/timers", s.handleLiveTVTimer)
@@ -146,6 +179,7 @@ func main() {
 	})
 	reqProxy := reverseProxy(s.requestHTTP)
 	mux.Handle("/api/search", reqProxy)
+	mux.HandleFunc("/api/discover/", s.handleDiscover)
 	mux.Handle("/api/request", reqProxy)
 	mux.Handle("/api/requests/", reqProxy)
 	mux.Handle("/api/requests", reqProxy)
@@ -239,6 +273,9 @@ type server struct {
 	comicsHTTP     *url.URL
 	audiobooksHTTP *url.URL
 	transcoderHTTP *url.URL
+	subtitles      subtv1.SubtitleServiceClient
+	subtitlesHTTP  *url.URL
+	metadata       metadatav1.MetadataServiceClient
 	authHTTP       string // browser redirects
 	authInternal   string // server-side code exchange
 	publicURL      string // optional fixed public origin

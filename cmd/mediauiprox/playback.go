@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -98,18 +99,44 @@ func (s *server) handleTranscodeStream(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, src, http.StatusTemporaryRedirect)
 		return
 	}
-	r2 := r.Clone(r.Context())
-	u := *r.URL
-	u.Path = src
-	u.RawQuery = ""
-	r2.URL = &u
-	if strings.HasPrefix(src, "/stream/movies/") {
-		reverseProxy(s.moviesHTTP).ServeHTTP(w, r2)
+	if s.transcoderHTTP == nil {
+		http.Redirect(w, r, src, http.StatusTemporaryRedirect)
 		return
+	}
+
+	sourceURL := s.playbackSourceURL(src)
+	upstream := *s.transcoderHTTP
+	upstream.Path = ""
+	upstream.RawPath = ""
+	upstream.Fragment = ""
+	proxy := httputil.NewSingleHostReverseProxy(&upstream)
+
+	q := url.Values{}
+	q.Set("src", sourceURL)
+	if profile := strings.TrimSpace(r.URL.Query().Get("profile")); profile != "" {
+		q.Set("profile", profile)
+	}
+	if gpu := strings.TrimSpace(r.URL.Query().Get("gpu")); gpu != "" {
+		q.Set("gpu", gpu)
+	}
+
+	r2 := r.Clone(r.Context())
+	r2.URL.Scheme = upstream.Scheme
+	r2.URL.Host = upstream.Host
+	r2.URL.Path = "/stream/transcode"
+	r2.URL.RawQuery = q.Encode()
+	proxy.ServeHTTP(w, r2)
+}
+
+func (s *server) playbackSourceURL(src string) string {
+	if strings.HasPrefix(src, "http://") || strings.HasPrefix(src, "https://") {
+		return src
+	}
+	if strings.HasPrefix(src, "/stream/movies/") {
+		return strings.TrimRight(s.moviesHTTP.String(), "/") + src
 	}
 	if strings.HasPrefix(src, "/stream/tv/") {
-		reverseProxy(s.tvHTTP).ServeHTTP(w, r2)
-		return
+		return strings.TrimRight(s.tvHTTP.String(), "/") + src
 	}
-	http.Redirect(w, r, src, http.StatusTemporaryRedirect)
+	return src
 }

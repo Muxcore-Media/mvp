@@ -361,9 +361,12 @@ services:
       MUXCORE_MODULE_ID: media-transcoder
       TRANSCODER_DB_PATH: /data/transcoder.db
       TRANSCODER_GRPC_ADDR: ":9525"
+      TRANSCODER_HTTP_ADDR: ":9526"
       TRANSCODER_MAX_CONCURRENT: ${TRANSCODER_MAX_CONCURRENT:-2}
+      TRANSCODER_MAX_PLAYBACK: ${TRANSCODER_MAX_PLAYBACK:-4}
     ports:
       - "${TRANSCODER_GRPC_PORT:-9525}:9525"
+      - "${TRANSCODER_HTTP_PORT:-9526}:9526"
     volumes:
       - transcoder-data:/data
     profiles: ["transcoder"]
@@ -379,6 +382,7 @@ services:
       MOVIES_HTTP_URL: http://media-movies:9430
       TVSHOWS_HTTP_URL: http://media-tvshows:9450
       REQUEST_MEDIA_HTTP_URL: http://request-media:9380
+      TRANSCODER_HTTP_URL: http://media-transcoder:9526
     ports:
       - "${MEDIA_UI_HTTP_PORT:-5173}:5173"
     depends_on:
