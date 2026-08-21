@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	mgmntv1 "github.com/Muxcore-Media/media-movies/proto/mgmntv1"
@@ -16,6 +17,7 @@ import (
 func main() {
 	addr := flag.String("addr", "127.0.0.1:9420", "media-movies gRPC address")
 	pageSize := flag.Int("page-size", 100, "ListMovies page size")
+	missingPosters := flag.Bool("missing-posters", false, "only refresh movies with empty poster_path and tmdb_id")
 	flag.Parse()
 
 	conn, err := grpc.NewClient(*addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -27,8 +29,8 @@ func main() {
 	client := mgmntv1.NewMovieManagementServiceClient(conn)
 
 	var (
-		page    int32 = 1
-		ok, fail int
+		page           int32 = 1
+		ok, fail, skip int
 	)
 	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -48,6 +50,12 @@ func main() {
 		for _, mov := range movies {
 			id := mov.GetId()
 			title := mov.GetTitle()
+			if *missingPosters {
+				if mov.GetTmdbId() == 0 || strings.TrimSpace(mov.GetPosterPath()) != "" {
+					skip++
+					continue
+				}
+			}
 			rctx, rcancel := context.WithTimeout(context.Background(), 45*time.Second)
 			_, err := client.RefreshMetadata(rctx, &mgmntv1.RefreshMetadataRequest{MovieId: id})
 			rcancel()
@@ -64,7 +72,7 @@ func main() {
 		}
 		page++
 	}
-	fmt.Printf("done refreshed=%d failed=%d\n", ok, fail)
+	fmt.Printf("done refreshed=%d skipped=%d failed=%d\n", ok, skip, fail)
 	if fail > 0 {
 		os.Exit(1)
 	}

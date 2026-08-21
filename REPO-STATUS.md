@@ -893,7 +893,7 @@ Parallel subagent execution of org-multiplier fixes. **PRs are open — not merg
 - **Last activity:** 2026-06-12 — template alignment; earlier metrics/health/integration work; 7 open Dependabot PRs, no product commits since mid-June
 - **Critical tasks:**
   - Remove committed binaries from git history/tree and extend `.gitignore` (only `/module` is ignored today; root `worker-pool-memory` binary is tracked) — bloated clone and supply-chain smell
-  - Fix CI: last master failure used absolute `replace` to `/home/enderk/claude/core`; current `go.mod` uses `../core` but workflow still does **not** check out `core` (unlike `secrets-vault`/`tracing-otlp`)
+  - Fix CI: last master failure used absolute `replace` to the old workspace path (`/home/enderk/claude/core`); current `go.mod` uses `../core` but workflow still does **not** check out `core` (unlike `secrets-vault`/`tracing-otlp`)
   - Implement ROADMAP Phase 2 (executor discovery via registry + gRPC mesh dispatch + result collection) — without it the module is an HTTP queue, not the distributed worker pool README describes
   - Correct COMPATIBILITY (core ≥ 0.4.0, not v1.0.0) and finish Phase 3 reassignment/drain/metrics claims that README partially oversells
 
