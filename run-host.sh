@@ -341,6 +341,16 @@ case "$cmd" in
       TMDB_FIXTURE="${TMDB_FIXTURE:-}" \
       "$BIN/metadata-tmdb"
 
+    if [[ ! -x "$BIN/metadata-musicbrainz" ]]; then
+      echo "building metadata-musicbrainz"
+      (cd "$WS/metadata-musicbrainz" && go build -o "$BIN/metadata-musicbrainz" ./cmd/module)
+    fi
+    maybe_start metadata-musicbrainz env \
+      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=metadata-musicbrainz MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+      MUSICBRAINZ_FIXTURE="${MUSICBRAINZ_FIXTURE:-1}" \
+      METADATA_GRPC_ADDR=":9412" \
+      "$BIN/metadata-musicbrainz"
+
     maybe_start media-movies env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-movies MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
@@ -434,8 +444,9 @@ case "$cmd" in
     # shows under SCANNER_LIBRARY_ROOT (that produced movies/TV and movies/Other).
     LIBRARY_ROOT="${MVP_LIBRARY_ROOT:-$DATA/library}"
     TV_LIBRARY_ROOT="${MVP_TV_LIBRARY_ROOT:-$DATA/library/tv}"
+    MUSIC_LIBRARY_ROOT="${MVP_MUSIC_LIBRARY_ROOT:-$DATA/library/music}"
     DOWNLOADS_DIR="${MVP_DOWNLOADS_DIR:-$DATA/downloads}"
-    mkdir -p "$LIBRARY_ROOT" "$TV_LIBRARY_ROOT" "$DOWNLOADS_DIR"
+    mkdir -p "$LIBRARY_ROOT" "$TV_LIBRARY_ROOT" "$MUSIC_LIBRARY_ROOT" "$DOWNLOADS_DIR"
 
     maybe_start media-scanner env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-scanner MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
@@ -443,6 +454,7 @@ case "$cmd" in
       SCANNER_DB_PATH="$DATA/scanner/scanner.db" \
       SCANNER_LIBRARY_ROOT="$LIBRARY_ROOT" \
       SCANNER_TV_LIBRARY_ROOT="$TV_LIBRARY_ROOT" \
+      SCANNER_MUSIC_LIBRARY_ROOT="$MUSIC_LIBRARY_ROOT" \
       SCANNER_DEFAULT_WATCH_DIR="$DOWNLOADS_DIR" \
       SCANNER_GRPC_ADDR=":9470" \
       SCANNER_IMPORT_MODE=copy \
