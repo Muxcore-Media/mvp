@@ -74,8 +74,8 @@ need_cmd() {
 check_siblings() {
   local missing=()
   local req=(
-    core api-rest auth-local admin-ui metadata-tmdb request-media
-    media-movies media-tvshows media-scanner media-automation
+    core api-rest auth-local admin-ui metadata-tmdb metadata-musicbrainz request-media
+    media-movies media-tvshows media-music media-scanner media-automation
     media-root-folders jellyfin health-monitor notification-default
     secrets-file encryption-aesgcm call-policy-default publish-policy-default
     media-ui-app

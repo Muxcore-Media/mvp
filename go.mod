@@ -50,4 +50,6 @@ replace github.com/Muxcore-Media/media-root-folders => ../media-root-folders
 
 replace github.com/Muxcore-Media/metadata-tmdb => ../metadata-tmdb
 
+replace github.com/Muxcore-Media/metadata-musicbrainz => ../metadata-musicbrainz
+
 replace github.com/Muxcore-Media/media-music => ../media-music

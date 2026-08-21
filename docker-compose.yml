@@ -221,6 +221,18 @@ services:
       TMDB_API_KEY: ${TMDB_API_KEY:-}
       TMDB_FIXTURE: ${TMDB_FIXTURE:-}
 
+  metadata-musicbrainz:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: metadata-musicbrainz }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: metadata-musicbrainz
+      MUSICBRAINZ_FIXTURE: ${MUSICBRAINZ_FIXTURE:-1}
+      METADATA_GRPC_ADDR: ":9412"
+
   media-movies:
     <<: *module
     build:
@@ -253,6 +265,25 @@ services:
     volumes:
       - tvshows-data:/data
 
+  media-music:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-music }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-music
+      MUSIC_DATA_DIR: /data/music
+      MUSIC_LIBRARY_DIR: /library/music
+      MUSIC_GRPC_ADDR: ":9640"
+      MUXCORE_HTTP_ADDR: ":9641"
+    ports:
+      - "${MEDIA_MUSIC_HTTP_PORT:-9641}:9641"
+    volumes:
+      - music-data:/data
+      - library-data:/library
+
   media-automation:
     <<: *module
     build:
@@ -281,6 +312,8 @@ services:
       MUXCORE_MODULE_ID: media-scanner
       SCANNER_DB_PATH: /data/scanner.db
       SCANNER_LIBRARY_ROOT: /library
+      SCANNER_TV_LIBRARY_ROOT: /library/tv
+      SCANNER_MUSIC_LIBRARY_ROOT: /library/music
       SCANNER_DEFAULT_WATCH_DIR: /downloads
       SCANNER_IMPORT_MODE: copy
       SCANNER_MIN_VIDEO_BYTES: "0"
@@ -406,6 +439,7 @@ volumes:
   roots-data:
   movies-data:
   tvshows-data:
+  music-data:
   library-data:
   downloads-data:
   jellyfin-data:
