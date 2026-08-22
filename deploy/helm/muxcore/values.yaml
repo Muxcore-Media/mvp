@@ -56,3 +56,12 @@ media:
     mediaUi: ghcr.io/muxcore-media/media-ui-app:v0.1.12
   persistence:
     userdataSize: 2Gi
+
+# Optional acquisition sidecars (torrent / usenet / debrid / torznab). Requires media stack for end-to-end acquire.
+acquisition:
+  enabled: false
+  images:
+    indexerTorznab: ghcr.io/muxcore-media/indexer-torznab:v0.1.4
+    downloaderNativeTorrent: ghcr.io/muxcore-media/downloader-native-torrent:v0.1.6
+    downloaderSabnzbd: ghcr.io/muxcore-media/downloader-sabnzbd:v0.1.5
+    downloaderDebrid: ghcr.io/muxcore-media/downloader-debrid:v0.1.3

@@ -1,0 +1,75 @@
+{{- if .Values.acquisition.enabled }}
+{{- /* Optional acquisition sidecars — torrent/usenet/debrid/indexer peers */ -}}
+{{- $root := . -}}
+{{- $modules := list
+  (dict "name" "indexer-torznab" "image" .Values.acquisition.images.indexerTorznab "grpc" 9486)
+  (dict "name" "downloader-native-torrent" "image" .Values.acquisition.images.downloaderNativeTorrent "grpc" 9461)
+  (dict "name" "downloader-sabnzbd" "image" .Values.acquisition.images.downloaderSabnzbd "grpc" 9620 "health" "/health" "http" 9621)
+  (dict "name" "downloader-debrid" "image" .Values.acquisition.images.downloaderDebrid "grpc" 9630 "health" "/health" "http" 9631)
+-}}
+{{- range $m := $modules }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $m.name }}
+  namespace: {{ $root.Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $m.name }}
+    app.kubernetes.io/component: acquisition
+    {{- include "muxcore.labels" $root | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $m.name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $m.name }}
+        app.kubernetes.io/component: acquisition
+        {{- include "muxcore.labels" $root | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ $m.name }}
+          image: {{ $m.image }}
+          imagePullPolicy: {{ $root.Values.images.pullPolicy }}
+          env:
+            - name: MUXCORE_GRPC_ADDR
+              value: muxcored:9090
+            - name: MUXCORE_MODULE_ID
+              value: {{ $m.name }}
+            {{- include "muxcore.tlsEnv" $root | nindent 12 }}
+          ports:
+            - { name: grpc, containerPort: {{ $m.grpc }} }
+            {{- if $m.http }}
+            - { name: http, containerPort: {{ $m.http }} }
+            {{- end }}
+          {{- if $m.health }}
+          readinessProbe:
+            httpGet: { path: {{ $m.health | quote }}, port: http }
+            initialDelaySeconds: 8
+            periodSeconds: 10
+          {{- end }}
+          resources:
+            {{- toYaml $root.Values.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $m.name }}
+  namespace: {{ $root.Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $m.name }}
+    app.kubernetes.io/component: acquisition
+    {{- include "muxcore.labels" $root | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ $m.name }}
+  ports:
+    - { name: grpc, port: {{ $m.grpc }}, targetPort: grpc }
+    {{- if $m.http }}
+    - { name: http, port: {{ $m.http }}, targetPort: http }
+    {{- end }}
+{{- end }}
+{{- end }}

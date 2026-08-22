@@ -114,7 +114,8 @@ rm -rf "$work"
 git clone /tmp/muxcore-push.bundle "$work"
 cd "$work"
 branch="$(git symbolic-ref --short HEAD 2>/dev/null || echo main)"
-git push "ssh://forgejo@127.0.0.1:2222/muxcore/${name}.git" "$branch:main" --tags
+remote="ssh://forgejo@127.0.0.1:2222/muxcore/${name}.git"
+git push "$remote" "$branch:main" --tags --force
 REMOTE
   then
     echo "OK $forgejo"

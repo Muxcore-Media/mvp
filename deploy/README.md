@@ -38,14 +38,22 @@ helm upgrade --install muxcore deploy/helm/muxcore \
 # Enable media stack peers
 helm upgrade --install muxcore deploy/helm/muxcore \
   --namespace muxcore --set media.enabled=true
+
+# Optional acquisition sidecars (with media stack)
+helm upgrade --install muxcore deploy/helm/muxcore \
+  --namespace muxcore --set media.enabled=true --set acquisition.enabled=true
 ```
 
 Override image tags / `insecureDisableTLS` via `--set` or a values overlay.
 
+## Acquisition sidecars (Helm)
+
+When `acquisition.enabled=true`, the chart deploys `indexer-torznab`, `downloader-native-torrent`, `downloader-sabnzbd`, and `downloader-debrid` as mesh sidecars (`templates/acquisition-stack.yaml`). Pair with `media.enabled=true` for acquire→library flows.
+
 ## Not in scope yet
 
-- Acquisition sidecars (torrent/usenet/debrid) — add via operator CR or custom values overlay
 - mTLS cert injection matching `run-host-staging.sh`
+- Operator CR reconciliation (see muxcore-operator); Helm covers static sidecar Deployments
 
 ## Operator (CRDs)
 
