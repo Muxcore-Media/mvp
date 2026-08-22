@@ -24,6 +24,8 @@ Jobs must use `runs-on: native`. Workflows live in **`.forgejo/workflows/`** (Fo
 
 ## Golden module CI
 
+Bulk install: [`_mvp/scripts/install-forgejo-ci.sh`](../_mvp/scripts/install-forgejo-ci.sh) (all Go modules + `media-ui-app`). Single module: [`_wave1/gen-forgejo-ci.js`](../_wave1/gen-forgejo-ci.js).
+
 Template: [`_wave1/GOLDEN_FORGEJO_CI.yml`](../../_wave1/GOLDEN_FORGEJO_CI.yml). Copy to `.forgejo/workflows/ci.yml`.
 
 - `actions/checkout@v4` and `actions/setup-go@v5` resolve via Forgejo `DEFAULT_ACTIONS_URL` (`https://data.forgejo.org`).

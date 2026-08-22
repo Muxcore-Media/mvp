@@ -42,6 +42,7 @@ func main() {
 	comicsHTTP := flag.String("comics-http", envOr("COMICS_HTTP_URL", "http://127.0.0.1:9661"), "media-comics HTTP (optional library-plus)")
 	audiobooksHTTP := flag.String("audiobooks-http", envOr("AUDIOBOOKS_HTTP_URL", "http://127.0.0.1:9671"), "media-audiobooks HTTP (optional library-plus)")
 	transcoderHTTP := flag.String("transcoder-http", envOr("TRANSCODER_HTTP_URL", "http://127.0.0.1:9526"), "media-transcoder playback HTTP (on-the-fly transcode)")
+	debridHTTP := flag.String("debrid-http", envOr("DEBRID_HTTP_URL", "http://127.0.0.1:9631"), "downloader-debrid health HTTP (optional)")
 	subtitlesGRPC := flag.String("subtitles-grpc", envOr("SUBTITLES_GRPC_CLIENT_ADDR", "127.0.0.1:9520"), "media-subtitles gRPC (optional)")
 	subtitlesHTTP := flag.String("subtitles-http", envOr("SUBTITLES_HTTP_URL", "http://127.0.0.1:9521"), "media-subtitles HTTP (optional subtitle files)")
 	metadataGRPC := flag.String("metadata-grpc", envOr("METADATA_TMDB_GRPC_ADDR", "127.0.0.1:9411"), "metadata-tmdb gRPC")
@@ -124,6 +125,7 @@ func main() {
 		comicsHTTP:     mustURL(*comicsHTTP),
 		audiobooksHTTP: mustURL(*audiobooksHTTP),
 		transcoderHTTP: optionalURL(*transcoderHTTP),
+		debridHTTP:     optionalURL(*debridHTTP),
 		subtitles:      subtitlesClient,
 		subtitlesHTTP:  optionalURL(*subtitlesHTTP),
 		metadata:       metadataClient,
@@ -165,7 +167,14 @@ func main() {
 	mux.HandleFunc("GET /api/livetv", s.handleLiveTV)
 	mux.HandleFunc("POST /api/livetv/timers", s.handleLiveTVTimer)
 	mux.HandleFunc("/api/quickconnect", s.handleQuickConnect)
+	mux.HandleFunc("/api/tv/login", s.handleTVLogin)
+	mux.HandleFunc("GET /api/mobile/auth/login", s.handleMobileAuthLogin)
+	mux.HandleFunc("GET /api/mobile/auth/done", s.handleMobileAuthDone)
+	mux.HandleFunc("POST /api/mobile/session", s.handleMobileSession)
 	mux.HandleFunc("/api/password-reset", s.handlePasswordReset)
+	mux.HandleFunc("GET /api/invite/peek", s.handleInvitePeek)
+	mux.HandleFunc("POST /api/invite/redeem", s.handleInviteRedeem)
+	mux.HandleFunc("POST /api/debrid/add", s.handleDebridAdd)
 	mux.HandleFunc("GET /api/music/tracks/", s.handleTrackLyrics)
 	mux.HandleFunc("/api/userdata", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -273,6 +282,7 @@ type server struct {
 	comicsHTTP     *url.URL
 	audiobooksHTTP *url.URL
 	transcoderHTTP *url.URL
+	debridHTTP     *url.URL
 	subtitles      subtv1.SubtitleServiceClient
 	subtitlesHTTP  *url.URL
 	metadata       metadatav1.MetadataServiceClient
@@ -292,7 +302,13 @@ type server struct {
 func (s *server) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/healthz", "/login", "/auth/callback", "/logout", "/api/password-reset":
+		case "/healthz", "/login", "/auth/callback", "/logout", "/api/password-reset", "/api/quickconnect", "/api/tv/login",
+			"/api/mobile/auth/login", "/api/mobile/auth/done", "/api/mobile/session",
+			"/api/invite/peek", "/api/invite/redeem":
+			next.ServeHTTP(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/invite/") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -307,6 +323,10 @@ func (s *server) withAuth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		if tok := bearerSessionToken(r); tok != "" && s.sessions.Valid(tok) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if wantsJSON(r) || strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/stream/") {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -318,6 +338,17 @@ func (s *server) withAuth(next http.Handler) http.Handler {
 func wantsJSON(r *http.Request) bool {
 	accept := r.Header.Get("Accept")
 	return strings.Contains(accept, "application/json")
+}
+
+func bearerSessionToken(r *http.Request) string {
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	if strings.HasPrefix(strings.ToLower(auth), "bearer ") {
+		return strings.TrimSpace(auth[7:])
+	}
+	if v := strings.TrimSpace(r.Header.Get("X-MuxCore-Session")); v != "" {
+		return v
+	}
+	return ""
 }
 
 func (s *server) redirectLogin(w http.ResponseWriter, r *http.Request) {
@@ -336,40 +367,19 @@ func (s *server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "code required", http.StatusBadRequest)
 		return
 	}
-	body, _ := json.Marshal(map[string]string{"code": code})
-	// Exchange must hit auth over the loopback URL — browsers use AUTH_HTTP_URL (Caddy),
-	// but the host often cannot resolve/trust https://auth.*.
-	resp, err := http.Post(s.authInternal+"/login/exchange", "application/json", strings.NewReader(string(body)))
+	sess, _, err := s.createSessionFromAuthCode(code)
 	if err != nil {
-		log.Printf("auth exchange: %v (internal=%s)", err, s.authInternal)
-		http.Error(w, "auth unavailable", http.StatusServiceUnavailable)
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		http.Error(w, "code exchange failed", http.StatusUnauthorized)
-		return
-	}
-	var result struct {
-		Token    string         `json:"token"`
-		UserID   string         `json:"user_id"`
-		Username string         `json:"username"`
-		TenantID string         `json:"tenant_id"`
-		Claims   map[string]any `json:"claims"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		http.Error(w, "invalid response", http.StatusInternalServerError)
-		return
-	}
-	tenantID := strings.TrimSpace(result.TenantID)
-	if tenantID == "" && result.Claims != nil {
-		if v, ok := result.Claims["tenant_id"].(string); ok {
-			tenantID = strings.TrimSpace(v)
+		switch err.Error() {
+		case "code required":
+			http.Error(w, "code required", http.StatusBadRequest)
+		case "auth not configured":
+			log.Printf("auth exchange: auth not configured (internal=%s)", s.authInternal)
+			http.Error(w, "auth unavailable", http.StatusServiceUnavailable)
+		case "code exchange failed":
+			http.Error(w, "code exchange failed", http.StatusUnauthorized)
+		default:
+			http.Error(w, "session error", http.StatusInternalServerError)
 		}
-	}
-	sess, err := s.sessions.CreateWithTenant(result.UserID, result.Username, tenantID)
-	if err != nil {
-		http.Error(w, "session error", http.StatusInternalServerError)
 		return
 	}
 	origin := s.publicOrigin(r)

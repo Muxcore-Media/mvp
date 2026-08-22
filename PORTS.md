@@ -45,6 +45,7 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9604 | distributed-lock-sqlite | |
 | 9610 / 9611 | storage-s3 | optional S3/MinIO StorageProvider (gRPC / health) |
 | 9620 / 9621 | downloader-sabnzbd | optional SABnzbd usenet bridge (gRPC / health) |
+| 9622 / 9623 | downloader-native-usenet | native usenet engine (gRPC / health) |
 | 9625 | logging-file | |
 | 9630 / 9631 | downloader-debrid | optional Real-Debrid/AllDebrid bridge (gRPC / health) |
 | 9635 | serialization-safe | |

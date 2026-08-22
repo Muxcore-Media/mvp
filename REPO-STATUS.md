@@ -15,7 +15,7 @@ The acquire → library → admin/consumer UI path is closed on the host referen
 
 **Wave 30 (2026-08-09):** Live Apibay + anacrolix on VPN (**PASS** — search/dispatch/history completed; ~2.4 GiB Fight Club tree under `_mvp/data/downloads`); consumer `media-ui-app` session APIs **PASS**; `core@v0.5.0` release assets uploaded (linux/darwin amd64/arm64 + checksums). GHCR image push still blocked (no Docker here; token lacks `packages` scope). [media-automation#17](https://github.com/Muxcore-Media/media-automation/pull/17) / tag `v0.1.1` — non-blocking Dispatch during large ImportPath.
 
-**Remaining packaging:** org-wide core-only pin batch (~20 non-MVP modules still using `replace => ../core`); restore GitHub Actions billing so Dependabot/CI can run without admin-merge; GHCR `muxcored` image; admin-ui `/automation` page hang under load.
+**Remaining packaging:** org-wide core-only pin batch (~20 non-MVP modules still using `replace => ../core`); GHCR `muxcored` image public mirror when `write:packages` exists. **Origin CI:** Forgejo on vault (`_mvp/scripts/install-forgejo-ci.sh`, `_mvp/tls/FORGEJO-RUNNER.md`).
 
 **Polluted dumps archived:** `cache-memory`, `custom-scripts`, `media-jellyfin`, `muxcorectl`, `media-ui` (canonical SPA is `media-ui-app`). Tracked ELF binaries in those dumps stay frozen under archive. `cache.memory` capability lives in `cache-local`. `spool` is a JSON tag catalog (no `go.mod`).
 
@@ -33,7 +33,7 @@ The acquire → library → admin/consumer UI path is closed on the host referen
 ### Org-wide critical themes (do these next)
 
 1. **Org-wide core-only pin** — drop `replace => ../core*` on remaining non-MVP modules (`backup-local`, `cache-*`, `logging-file`, `scheduler-cron`, …) using the Wave 25–29 HTTPS/`GOPRIVATE` pattern.
-2. **Unblock Actions billing** — queued CI blocks Dependabot and forces admin-merge; local `go test`/`go build` remains the gate until spend is restored.
+2. **Forgejo origin CI** — `.forgejo/workflows/ci.yml` on every module; vault `gitea-runner-vault` (`runs-on: native`). GitHub `.github/workflows` are legacy mirrors only.
 3. **Stand up `database-postgres`** — empty remote today; required if Postgres is the intended production store.
 4. **Fix default port collisions** — e.g. historical overlaps on `:9480` / `:9460` (host stack already remaps; module defaults still diverge).
 5. **Release hygiene** — CHANGELOGs stuck on “Unreleased” / “initial scaffold” while features already shipped.
@@ -47,7 +47,7 @@ The acquire → library → admin/consumer UI path is closed on the host referen
 | P1 Contracts | Stable module APIs | `contracts-*`, `contracts-reconciler` |
 | P1 Data | Persistence & secrets | `database-sqlite` → `database-postgres`, `secrets-vault`, `encryption-aesgcm` |
 | P2 Observability | Ops readiness | `metrics-prometheus`, `tracing-otlp`, `health-monitor`, `logging-file` |
-| P3 Cleanup | Hygiene | empty/scaffold modules; org-wide pin; Actions billing |
+| P3 Cleanup | Hygiene | empty/scaffold modules; org-wide pin; Forgejo mirror sync |
 
 ---
 

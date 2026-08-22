@@ -26,6 +26,7 @@ func (s *server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 	homevideos := movies && s.companionLibraryConfigured("homevideos")
 	musicvideos := movies && s.companionLibraryConfigured("musicvideos")
 	transcoder := s.transcoderModuleLive(ctx)
+	debrid := s.debridModuleLive(ctx)
 	pol := loadPlaybackPolicy()
 
 	writeJSON(w, map[string]any{
@@ -52,6 +53,7 @@ func (s *server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 			"queue":        s.userdata != nil,
 			"favorites":    s.userdata != nil,
 			"transcoder":   transcoder,
+			"debrid":       debrid,
 		},
 		"playback": map[string]any{
 			"transcoder_available": transcoder,
@@ -59,6 +61,25 @@ func (s *server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 			"prefer_direct_play":   pol.PreferDirectPlay,
 		},
 	})
+}
+
+func (s *server) debridModuleLive(ctx context.Context) bool {
+	if s.debridHTTP == nil || strings.TrimSpace(s.debridHTTP.String()) == "" {
+		return false
+	}
+	u := *s.debridHTTP
+	u.Path = "/healthz"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return false
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 func (s *server) transcoderModuleLive(ctx context.Context) bool {
