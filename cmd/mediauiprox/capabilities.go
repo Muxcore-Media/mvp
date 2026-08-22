@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	listsyncv1 "github.com/Muxcore-Media/media-list-sync/proto/listsyncv1"
 )
 
 func (s *server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
@@ -22,6 +24,7 @@ func (s *server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 	comics := s.libraryModuleLive(ctx, libraryKind{Upstream: s.comicsHTTP, ListPath: "/api/series"})
 	audiobooks := s.libraryModuleLive(ctx, libraryKind{Upstream: s.audiobooksHTTP, ListPath: "/api/audiobooks"})
 	request := s.requestModuleLive(ctx)
+	watchlist := s.listSyncModuleLive(ctx)
 
 	homevideos := movies && s.companionLibraryConfigured("homevideos")
 	musicvideos := movies && s.companionLibraryConfigured("musicvideos")
@@ -52,6 +55,7 @@ func (s *server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 			"playlists":    s.userdata != nil,
 			"queue":        s.userdata != nil,
 			"favorites":    s.userdata != nil,
+			"watchlist":    watchlist,
 			"transcoder":   transcoder,
 			"debrid":       debrid,
 		},
@@ -61,6 +65,16 @@ func (s *server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 			"prefer_direct_play":   pol.PreferDirectPlay,
 		},
 	})
+}
+
+func (s *server) listSyncModuleLive(ctx context.Context) bool {
+	if s.listSync == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	_, err := s.listSync.GetItems(ctx, &listsyncv1.GetItemsRequest{Page: 1, PageSize: 1})
+	return err == nil
 }
 
 func (s *server) debridModuleLive(ctx context.Context) bool {

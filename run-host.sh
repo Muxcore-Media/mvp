@@ -1035,6 +1035,7 @@ case "$cmd" in
           SUBTITLES_GRPC_CLIENT_ADDR="127.0.0.1:9520" \
           SUBTITLES_HTTP_URL="http://127.0.0.1:9521" \
           TRANSCODER_HTTP_URL="http://127.0.0.1:9526" \
+          LISTSYNC_GRPC_CLIENT_ADDR="${LISTSYNC_GRPC_CLIENT_ADDR:-127.0.0.1:9530}" \
           "$BIN/mediauiprox" \
             -listen "${MEDIA_UI_LISTEN:-:5173}" \
             -dist "$UI_DIST" \

@@ -23,6 +23,7 @@ import (
 	mgmntv1 "github.com/Muxcore-Media/media-movies/proto/mgmntv1"
 	subtv1 "github.com/Muxcore-Media/media-subtitles/proto/subtv1"
 	tvmgmtv1 "github.com/Muxcore-Media/media-tvshows/proto/tvmgmtv1"
+	listsyncv1 "github.com/Muxcore-Media/media-list-sync/proto/listsyncv1"
 	metadatav1 "github.com/Muxcore-Media/metadata-tmdb/proto/metadatav1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -46,6 +47,7 @@ func main() {
 	subtitlesGRPC := flag.String("subtitles-grpc", envOr("SUBTITLES_GRPC_CLIENT_ADDR", "127.0.0.1:9520"), "media-subtitles gRPC (optional)")
 	subtitlesHTTP := flag.String("subtitles-http", envOr("SUBTITLES_HTTP_URL", "http://127.0.0.1:9521"), "media-subtitles HTTP (optional subtitle files)")
 	metadataGRPC := flag.String("metadata-grpc", envOr("METADATA_TMDB_GRPC_ADDR", "127.0.0.1:9411"), "metadata-tmdb gRPC")
+	listSyncGRPC := flag.String("listsync-grpc", envOr("LISTSYNC_GRPC_CLIENT_ADDR", "127.0.0.1:9530"), "media-list-sync gRPC (optional watchlist)")
 	authHTTP := flag.String("auth-http", envOr("AUTH_HTTP_URL", "http://127.0.0.1:9401"), "browser-facing auth-local URL (login redirects)")
 	authInternal := flag.String("auth-http-internal", envOr("AUTH_HTTP_INTERNAL_URL", ""), "server-side auth-local URL for code exchange (defaults to auth-http)")
 	publicURL := flag.String("public-url", envOr("MEDIA_UI_PUBLIC_URL", ""), "public origin for OAuth callbacks (e.g. https://media.gringotts)")
@@ -108,6 +110,17 @@ func main() {
 		}
 	}
 
+	var listSyncClient listsyncv1.ListSyncServiceClient
+	if addr := strings.TrimSpace(*listSyncGRPC); addr != "" {
+		listSyncConn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Printf("warn: dial list-sync grpc %s: %v (watchlist disabled)", addr, err)
+		} else {
+			defer listSyncConn.Close()
+			listSyncClient = listsyncv1.NewListSyncServiceClient(listSyncConn)
+		}
+	}
+
 	authPublic := strings.TrimRight(*authHTTP, "/")
 	authInt := strings.TrimRight(*authInternal, "/")
 	if authInt == "" {
@@ -129,6 +142,7 @@ func main() {
 		subtitles:      subtitlesClient,
 		subtitlesHTTP:  optionalURL(*subtitlesHTTP),
 		metadata:       metadataClient,
+		listSync:       listSyncClient,
 		authHTTP:       authPublic,
 		authInternal:   authInt,
 		publicURL:      strings.TrimRight(*publicURL, "/"),
@@ -168,6 +182,7 @@ func main() {
 	mux.HandleFunc("POST /api/livetv/timers", s.handleLiveTVTimer)
 	mux.HandleFunc("/api/quickconnect", s.handleQuickConnect)
 	mux.HandleFunc("/api/tv/login", s.handleTVLogin)
+	mux.HandleFunc("/api/tv/login/totp", s.handleTVLoginTOTP)
 	mux.HandleFunc("GET /api/mobile/auth/login", s.handleMobileAuthLogin)
 	mux.HandleFunc("GET /api/mobile/auth/done", s.handleMobileAuthDone)
 	mux.HandleFunc("POST /api/mobile/session", s.handleMobileSession)
@@ -175,6 +190,8 @@ func main() {
 	mux.HandleFunc("GET /api/invite/peek", s.handleInvitePeek)
 	mux.HandleFunc("POST /api/invite/redeem", s.handleInviteRedeem)
 	mux.HandleFunc("POST /api/debrid/add", s.handleDebridAdd)
+	mux.HandleFunc("GET /api/debrid/vfs", s.handleDebridVFS)
+	mux.HandleFunc("GET /api/debrid/stream", s.handleDebridStream)
 	mux.HandleFunc("GET /api/music/tracks/", s.handleTrackLyrics)
 	mux.HandleFunc("/api/userdata", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -189,6 +206,7 @@ func main() {
 	reqProxy := reverseProxy(s.requestHTTP)
 	mux.Handle("/api/search", reqProxy)
 	mux.HandleFunc("/api/discover/", s.handleDiscover)
+	mux.HandleFunc("/api/watchlist", s.handleWatchlist)
 	mux.Handle("/api/request", reqProxy)
 	mux.Handle("/api/requests/", reqProxy)
 	mux.Handle("/api/requests", reqProxy)
@@ -286,6 +304,7 @@ type server struct {
 	subtitles      subtv1.SubtitleServiceClient
 	subtitlesHTTP  *url.URL
 	metadata       metadatav1.MetadataServiceClient
+	listSync       listsyncv1.ListSyncServiceClient
 	authHTTP       string // browser redirects
 	authInternal   string // server-side code exchange
 	publicURL      string // optional fixed public origin
@@ -302,7 +321,7 @@ type server struct {
 func (s *server) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/healthz", "/login", "/auth/callback", "/logout", "/api/password-reset", "/api/quickconnect", "/api/tv/login",
+		case "/healthz", "/login", "/auth/callback", "/logout", "/api/password-reset", "/api/quickconnect", "/api/tv/login", "/api/tv/login/totp",
 			"/api/mobile/auth/login", "/api/mobile/auth/done", "/api/mobile/session",
 			"/api/invite/peek", "/api/invite/redeem":
 			next.ServeHTTP(w, r)
