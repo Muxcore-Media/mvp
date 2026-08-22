@@ -14,20 +14,28 @@ type discoverTrailer struct {
 	URL        string `json:"url"`
 }
 
+type discoverCastMember struct {
+	ID          int32  `json:"id"`
+	Name        string `json:"name"`
+	Character   string `json:"character,omitempty"`
+	ProfilePath string `json:"profilePath,omitempty"`
+}
+
 type discoverDetail struct {
-	ID        int32            `json:"id"`
-	Title     string           `json:"title"`
-	Year      int32            `json:"year"`
-	Overview  string           `json:"overview"`
-	Tagline   string           `json:"tagline"`
-	Genres    []string         `json:"genres"`
-	Poster    string           `json:"poster"`
-	Backdrop  string           `json:"backdrop"`
-	VoteAvg   float64          `json:"voteAvg"`
-	Runtime   int32            `json:"runtime,omitempty"`
-	Status    string           `json:"status,omitempty"`
-	MediaType string           `json:"mediaType"`
-	Trailer   *discoverTrailer `json:"trailer,omitempty"`
+	ID        int32                `json:"id"`
+	Title     string               `json:"title"`
+	Year      int32                `json:"year"`
+	Overview  string               `json:"overview"`
+	Tagline   string               `json:"tagline"`
+	Genres    []string             `json:"genres"`
+	Poster    string               `json:"poster"`
+	Backdrop  string               `json:"backdrop"`
+	VoteAvg   float64              `json:"voteAvg"`
+	Runtime   int32                `json:"runtime,omitempty"`
+	Status    string               `json:"status,omitempty"`
+	MediaType string               `json:"mediaType"`
+	Trailer   *discoverTrailer     `json:"trailer,omitempty"`
+	Cast      []discoverCastMember `json:"cast,omitempty"`
 }
 
 func (s *server) handleDiscover(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +64,7 @@ func (s *server) handleDiscover(w http.ResponseWriter, r *http.Request) {
 	case "movie", "movies":
 		resp, err := s.metadata.GetMovieDetails(r.Context(), &metadatav1.GetMovieDetailsRequest{
 			TmdbId:           int32(id),
-			AppendToResponse: []string{"videos"},
+			AppendToResponse: []string{"videos", "credits"},
 		})
 		if err != nil {
 			writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
@@ -66,7 +74,7 @@ func (s *server) handleDiscover(w http.ResponseWriter, r *http.Request) {
 	case "tv", "series", "show", "shows":
 		resp, err := s.metadata.GetTVDetails(r.Context(), &metadatav1.GetTVDetailsRequest{
 			TmdbId:           int32(id),
-			AppendToResponse: []string{"videos"},
+			AppendToResponse: []string{"videos", "credits"},
 		})
 		if err != nil {
 			writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
@@ -102,6 +110,7 @@ func mapMovieDiscover(resp *metadatav1.GetMovieDetailsResponse) discoverDetail {
 		Status:    resp.GetStatus(),
 		MediaType: "movie",
 		Trailer:   pickDiscoverTrailer(resp.GetVideos()),
+		Cast:      discoverCast(resp.GetCredits()),
 	}
 }
 
@@ -128,6 +137,7 @@ func mapTVDiscover(resp *metadatav1.GetTVDetailsResponse) discoverDetail {
 		Status:    resp.GetStatus(),
 		MediaType: "tv",
 		Trailer:   pickDiscoverTrailer(resp.GetVideos()),
+		Cast:      discoverCast(resp.GetCredits()),
 	}
 }
 
@@ -189,4 +199,41 @@ func pickDiscoverTrailer(videos []*metadatav1.Video) *discoverTrailer {
 		YoutubeKey: key,
 		URL:        "https://www.youtube.com/watch?v=" + key,
 	}
+}
+
+func discoverCast(credits []*metadatav1.Credits) []discoverCastMember {
+	if len(credits) == 0 {
+		return nil
+	}
+	var cast []*metadatav1.CastMember
+	for _, c := range credits {
+		if c != nil && len(c.GetCast()) > 0 {
+			cast = c.GetCast()
+			break
+		}
+	}
+	if len(cast) == 0 {
+		return nil
+	}
+	limit := len(cast)
+	if limit > 12 {
+		limit = 12
+	}
+	out := make([]discoverCastMember, 0, limit)
+	for _, m := range cast[:limit] {
+		if m == nil {
+			continue
+		}
+		name := strings.TrimSpace(m.GetName())
+		if name == "" {
+			continue
+		}
+		out = append(out, discoverCastMember{
+			ID:          m.GetId(),
+			Name:        name,
+			Character:   strings.TrimSpace(m.GetCharacter()),
+			ProfilePath: strings.TrimSpace(m.GetProfilePath()),
+		})
+	}
+	return out
 }

@@ -38,24 +38,20 @@
 - [x] **Required spool checksums** — `core` rejects `required: true` modules without `checksum` in spool tags
 - [x] **admin-ui `/automation` fail-fast** — bounded page/dial/read timeouts + regression tests (`admin-ui/handler/automation_timeout_test.go`)
 - [x] **Forgejo mirrors for GitHub-only org repos** — pushed via [`_mvp/scripts/mirror-github-only-to-forgejo.sh`](_mvp/scripts/mirror-github-only-to-forgejo.sh) (contracts-*, emby, plex, playback-*, media-library-maintainer, muxcore-ios, muxcore-tvos); `_mvp`→`mvp`, `_wave1`→`wave1` already synced
-- [~] **Publish `contracts-media` nested tag from a core release** — `pkg/contracts` no longer uses monorepo `replace`; cut with `core/scripts/tag-pkg-contracts.sh` on next `v0.5.x` release
 - [ ] **Public GHCR consumer mirror** — `docker-compose.ghcr.yml` + `publish-muxcored-ghcr.sh` when org has `write:packages` (origin install stays Forgejo/LAN)
 
 ### P1 — Platform engineering
 
 - [~] **Drop remaining publish-path `replace => ../core`** — `downloader-native-usenet`, `indexer-torznab`, `downloader-sabnzbd`, `metadata-musicbrainz` pinned; `admin-ui` + `request-media` keep monorepo `replace` until all sibling modules and `core/pkg/tenant` publish path land
-- [~] **Production Postgres path** — `database-postgres` unit tests green (`go test ./...`); live sqlite→postgres migration on non-soak stack still pending ([`database-postgres/MIGRATION-SQLITE.md`](database-postgres/MIGRATION-SQLITE.md); vault soak stays `database-sqlite`)
 
 ### P2 — Household product parity (Appendix A → checklist)
 
 - [~] **Seerr-class request UX** — role permissions (`REQUEST_ALLOWED_ROLES`, viewer blocked), manager auto-approve tier, pending queue in consumer UI; full discovery polish still open
 - [ ] **Library-plus acquire loops** — music, books, comics, audiobooks managers exist; full Lidarr/Readarr-grade acquire→import automation incomplete
 - [~] **Debrid product path** — `POST /api/add` on `downloader-debrid` + consumer Settings → Debrid tab via BFF; optional VFS still open
-- [~] **Operator daily-driver UX** — unified calendar + cross-media queue shipped; queue **Needs attention** failure triage + dashboard calendar link added 2026-08-22; Panelarr/Seerr-grade polish still open
+- [~] **Operator daily-driver UX** — unified calendar + queue + failure triage; dashboard queue alert when failures exist (2026-08-22); Panelarr/Seerr-grade polish still open
 
 ### P2 — Consumer UI (`media-ui-app/AGENTS.md` §12)
-
-- [~] **Definition of Done sweep** — motion-safe CSS, nav/card a11y, skeletons, VideoPlayer OSD tokens, shared `ErrorBanner`/`EmptyState` on Mixed/Upcoming/HomeVideos/MusicVideos/Collections/Music/DiscoverDetail shipped 2026-08-22; remaining: four-breakpoint QA
 
 ### P2 — Native clients (documented intentional gaps)
 
@@ -65,7 +61,7 @@
 
 ### P3 — Phase 3 / long-term
 
-- [~] **Kubernetes production overlays** — platform + **media-stack** Helm/Kustomize overlays shipped (`media.enabled`, `kustomize/overlays/media-stack`); acquisition sidecars + operator CR still open ([`muxcore-operator`](https://github.com/Muxcore-Media/muxcore-operator))
+- [~] **Kubernetes production overlays** — platform + media-stack Helm/Kustomize shipped; **acquisition** sidecars via `acquisition.enabled` + `templates/acquisition-stack.yaml` (2026-08-22); operator CR reconciliation still open ([`muxcore-operator`](https://github.com/Muxcore-Media/muxcore-operator))
 - [ ] **`muxcore-operator` image publish** — GHCR/Forgejo operator image + soak validation (blocked same as public GHCR today)
 - [ ] **`storage-ceph` native RADOS/CephFS** — MinIO RGW stand-in today ([`storage-ceph/README.md`](storage-ceph/README.md))
 
