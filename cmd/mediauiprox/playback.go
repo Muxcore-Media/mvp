@@ -69,10 +69,13 @@ func (s *server) handlePlaybackResolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pol := loadPlaybackPolicy()
+	transcoderAvail := s.transcoderHTTP != nil && strings.TrimSpace(s.transcoderHTTP.String()) != ""
 	mode := "direct"
 	streamURL := src
-	transcoderAvail := s.transcoderHTTP != nil && strings.TrimSpace(s.transcoderHTTP.String()) != ""
-	if pol.EnableTranscode && !pol.PreferDirectPlay && transcoderAvail {
+	if strings.HasPrefix(src, "debrid:") {
+		id := strings.TrimPrefix(src, "debrid:")
+		streamURL = debridStreamURL(id)
+	} else if pol.EnableTranscode && !pol.PreferDirectPlay && transcoderAvail {
 		mode = "transcode"
 		streamURL = "/stream/transcode?src=" + url.QueryEscape(src)
 	}

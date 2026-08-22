@@ -49,6 +49,11 @@ func (s *server) handleDiscover(w http.ResponseWriter, r *http.Request) {
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/discover/")
 	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) == 3 {
+		if s.handleDiscoverBrowse(w, r, parts) {
+			return
+		}
+	}
 	if len(parts) != 2 {
 		http.NotFound(w, r)
 		return
