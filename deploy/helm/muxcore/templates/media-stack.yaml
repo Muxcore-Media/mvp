@@ -1,0 +1,120 @@
+{{- if .Values.media.enabled }}
+{{- /* Media MVP stack — movies/TV/request/automation/scanner + consumer UI proxy */ -}}
+{{- $root := . -}}
+{{- $modules := list
+  (dict "name" "metadata-tmdb" "image" .Values.media.images.metadataTmdb "grpc" 9411)
+  (dict "name" "media-movies" "image" .Values.media.images.mediaMovies "http" 9430 "svcHttp" 9430 "grpc" 9420 "health" "/health")
+  (dict "name" "media-tvshows" "image" .Values.media.images.mediaTvshows "http" 9450 "svcHttp" 9450 "grpc" 9440 "health" "/health")
+  (dict "name" "request-media" "image" .Values.media.images.requestMedia "http" 9380 "svcHttp" 9380 "grpc" 9481 "health" "/health")
+  (dict "name" "media-automation" "image" .Values.media.images.mediaAutomation "grpc" 9460)
+  (dict "name" "media-scanner" "image" .Values.media.images.mediaScanner "grpc" 9470)
+  (dict "name" "media-ffprobe" "image" .Values.media.images.mediaFfprobe "grpc" 9480)
+  (dict "name" "notification-default" "image" .Values.media.images.notificationDefault "grpc" 9441)
+  (dict "name" "userdata-local" "image" .Values.media.images.userdataLocal "http" 9672 "svcHttp" 9672 "grpc" 9673 "health" "/health" "pvc" "userdata-local-data" "pvcSize" .Values.media.persistence.userdataSize)
+  (dict "name" "cache-local" "image" .Values.media.images.cacheLocal "grpc" 9602)
+  (dict "name" "logging-file" "image" .Values.media.images.loggingFile "grpc" 9625)
+  (dict "name" "media-ui" "image" .Values.media.images.mediaUi "http" 5173 "svcHttp" 5173 "health" "/healthz" "extra" (list (dict "name" "MEDIA_UI_DIST" "value" "/app/dist-app") (dict "name" "AUTH_HTTP_URL" "value" "http://auth-local:9401") (dict "name" "MOVIES_HTTP_URL" "value" "http://media-movies:9430") (dict "name" "TVSHOWS_HTTP_URL" "value" "http://media-tvshows:9450") (dict "name" "REQUEST_MEDIA_HTTP_URL" "value" "http://request-media:9380")))
+-}}
+{{- range $m := $modules }}
+{{- if $m.pvc }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $m.pvc }}
+  namespace: {{ $root.Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $m.name }}
+    {{- include "muxcore.labels" $root | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ $m.pvcSize }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $m.name }}
+  namespace: {{ $root.Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $m.name }}
+    app.kubernetes.io/component: media
+    {{- include "muxcore.labels" $root | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $m.name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $m.name }}
+        app.kubernetes.io/component: media
+        {{- include "muxcore.labels" $root | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ $m.name }}
+          image: {{ $m.image }}
+          imagePullPolicy: {{ $root.Values.images.pullPolicy }}
+          env:
+            - name: MUXCORE_GRPC_ADDR
+              value: muxcored:9090
+            - name: MUXCORE_MODULE_ID
+              value: {{ $m.name }}
+            {{- include "muxcore.tlsEnv" $root | nindent 12 }}
+            {{- range $e := $m.extra }}
+            - name: {{ $e.name }}
+              value: {{ $e.value | quote }}
+            {{- end }}
+          {{- if or $m.http $m.grpc }}
+          ports:
+            {{- if $m.http }}
+            - { name: http, containerPort: {{ $m.http }} }
+            {{- end }}
+            {{- if $m.grpc }}
+            - { name: grpc, containerPort: {{ $m.grpc }} }
+            {{- end }}
+          {{- if $m.health }}
+          readinessProbe:
+            httpGet: { path: {{ $m.health | quote }}, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          {{- end }}
+          {{- end }}
+          {{- if $m.pvc }}
+          volumeMounts:
+            - { name: data, mountPath: /data }
+          {{- end }}
+          resources:
+            {{- toYaml $root.Values.resources | nindent 12 }}
+      {{- if $m.pvc }}
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: {{ $m.pvc }} }
+      {{- end }}
+{{- if or $m.svcHttp $m.grpc }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $m.name }}
+  namespace: {{ $root.Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $m.name }}
+    app.kubernetes.io/component: media
+    {{- include "muxcore.labels" $root | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ $m.name }}
+  ports:
+    {{- if $m.svcHttp }}
+    - { name: http, port: {{ $m.svcHttp }}, targetPort: http }
+    {{- end }}
+    {{- if $m.grpc }}
+    - { name: grpc, port: {{ $m.grpc }}, targetPort: grpc }
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

@@ -37,3 +37,22 @@ resources:
   limits:
     cpu: 500m
     memory: 256Mi
+
+# Optional media MVP stack (movies/TV/request/automation/scanner + consumer UI).
+media:
+  enabled: false
+  images:
+    metadataTmdb: ghcr.io/muxcore-media/metadata-tmdb:v0.1.5
+    mediaMovies: ghcr.io/muxcore-media/media-movies:v0.1.8
+    mediaTvshows: ghcr.io/muxcore-media/media-tvshows:v0.1.8
+    requestMedia: ghcr.io/muxcore-media/request-media:v0.1.9
+    mediaAutomation: ghcr.io/muxcore-media/media-automation:v0.1.11
+    mediaScanner: ghcr.io/muxcore-media/media-scanner:v0.1.7
+    mediaFfprobe: ghcr.io/muxcore-media/media-ffprobe:v0.1.5
+    notificationDefault: ghcr.io/muxcore-media/notification-default:v0.1.5
+    userdataLocal: ghcr.io/muxcore-media/userdata-local:v0.1.4
+    cacheLocal: ghcr.io/muxcore-media/cache-local:v0.1.5
+    loggingFile: ghcr.io/muxcore-media/logging-file:v0.1.5
+    mediaUi: ghcr.io/muxcore-media/media-ui-app:v0.1.12
+  persistence:
+    userdataSize: 2Gi

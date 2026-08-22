@@ -32,6 +32,15 @@ load_env_file() {
 }
 load_env_file "$ROOT/.env"
 
+# WireGuard env for acquisition peers (indexer HTTP + live torrent). Empty when WG_CONF unset.
+ACQ_VPN_ENV=()
+if [[ -n "${WG_CONF:-}" ]]; then
+  ACQ_VPN_ENV+=(WG_CONF="$WG_CONF")
+  ACQ_VPN_ENV+=(WG_USE_WG_QUICK="${WG_USE_WG_QUICK:-0}")
+  ACQ_VPN_ENV+=(WG_KILL_SWITCH="${WG_KILL_SWITCH:-false}")
+  [[ -n "${DOWNLOADER_REQUIRE_VPN:-}" ]] && ACQ_VPN_ENV+=(DOWNLOADER_REQUIRE_VPN="$DOWNLOADER_REQUIRE_VPN")
+fi
+
 # Dev default is insecure mesh TLS. Staging profile (run-host-staging.sh) leaves this unset.
 if [[ "${MUXCORE_PROFILE:-}" == "staging" ]]; then
   unset MUXCORE_INSECURE_DISABLE_TLS || true
@@ -43,7 +52,7 @@ export MUXCORE_CONFIG="${MUXCORE_CONFIG:-$ROOT/muxcore.json}"
 MESH="${MUXCORE_MESH_ADDR:-127.0.0.1:9090}"
 MODULE_CERT_ROOT="${MUXCORE_MODULE_CERT_DIR:-$ROOT/tls/module-certs}"
 
-mkdir -p "$BIN" "$RUN" "$DATA"/{movies,tvshows,automation,scanner,roots,sqlite,secrets,library/tv,storage,auth,jellyfin,downloads,request,formats,rename,ffprobe,subtitles}
+mkdir -p "$BIN" "$RUN" "$DATA"/{movies,tvshows,automation,scanner,roots,sqlite,secrets,library/tv,storage,auth,jellyfin,downloads,request,formats,rename,ffprobe,subtitles,backup,audiobooks,books,comics,intro-outro,transcoder-pool,graph,tagging,listsync,workflow,maintainer,playback-guard,playback-monitor,locks,schemas,userdata,feature-flags,dlna,plex,emby}
 
 start_one() {
   local name="$1"; shift
@@ -514,6 +523,82 @@ case "$cmd" in
       export USERDATA_LOCAL_URL="${USERDATA_LOCAL_URL:-http://127.0.0.1:9672}"
     fi
 
+    # Optional native torrent peer (:9461) — fixture by default; VPN required for live engine.
+    if [[ "${MVP_ENABLE_DOWNLOADER_TORRENT:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/downloader-native-torrent" ]]; then
+        echo "building downloader-native-torrent"
+        (cd "$WS/downloader-native-torrent" && go build -o "$BIN/downloader-native-torrent" ./cmd/module)
+      fi
+      maybe_start downloader-native-torrent env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=downloader-native-torrent MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        DOWNLOADER_GRPC_ADDR=":9461" MUXCORE_HTTP_ADDR=":9464" \
+        DOWNLOADER_ENGINE="${DOWNLOADER_ENGINE:-fixture}" \
+        DOWNLOAD_DIR="${MVP_DOWNLOADS_DIR:-$DATA/downloads}" \
+        "${ACQ_VPN_ENV[@]}" \
+        "$BIN/downloader-native-torrent"
+    fi
+
+    # Optional native usenet peer (:9622) — fixture by default; NNTP required for live engine.
+    if [[ "${MVP_ENABLE_DOWNLOADER_USENET:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/downloader-native-usenet" ]]; then
+        echo "building downloader-native-usenet"
+        (cd "$WS/downloader-native-usenet" && go build -o "$BIN/downloader-native-usenet" ./cmd/module)
+      fi
+      maybe_start downloader-native-usenet env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=downloader-native-usenet MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        USENET_GRPC_ADDR=":9622" MUXCORE_HTTP_ADDR=":9623" \
+        USENET_ENGINE="${USENET_ENGINE:-fixture}" \
+        USENET_DOWNLOAD_DIR="${MVP_DOWNLOADS_DIR:-$DATA/downloads}/usenet" \
+        USENET_PAR2="${USENET_PAR2:-auto}" USENET_UNPACK="${USENET_UNPACK:-auto}" \
+        NNTP_HOST="${NNTP_HOST:-}" NNTP_PORT="${NNTP_PORT:-}" NNTP_USER="${NNTP_USER:-}" NNTP_PASS="${NNTP_PASS:-}" NNTP_SSL="${NNTP_SSL:-}" \
+        "${ACQ_VPN_ENV[@]}" \
+        "$BIN/downloader-native-usenet"
+    fi
+
+    # Optional SABnzbd usenet bridge (:9620) — requires SABNZBD_URL + SABNZBD_API_KEY.
+    if [[ "${MVP_ENABLE_DOWNLOADER_SABNZBD:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/downloader-sabnzbd" ]]; then
+        echo "building downloader-sabnzbd"
+        (cd "$WS/downloader-sabnzbd" && go build -o "$BIN/downloader-sabnzbd" ./cmd/module)
+      fi
+      maybe_start downloader-sabnzbd env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=downloader-sabnzbd MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        MUXCORE_GRPC_ADDR_OVERRIDE=":9620" MUXCORE_HTTP_ADDR=":9621" \
+        SABNZBD_URL="${SABNZBD_URL:-}" SABNZBD_API_KEY="${SABNZBD_API_KEY:-}" \
+        "${ACQ_VPN_ENV[@]}" \
+        "$BIN/downloader-sabnzbd"
+    fi
+
+    # Optional indexer-piratebay (:9485)
+    if [[ "${MVP_ENABLE_INDEXER_PIRATEBAY:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/indexer-piratebay" ]]; then
+        echo "building indexer-piratebay"
+        (cd "$WS/indexer-piratebay" && go build -o "$BIN/indexer-piratebay" ./cmd/module)
+      fi
+      maybe_start indexer-piratebay env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=indexer-piratebay MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        PIRATEBAY_GRPC_ADDR=":9485" PIRATEBAY_HTTP_ADDR=":9487" \
+        INDEXER_FIXTURE="${INDEXER_FIXTURE:-1}" \
+        PIRATEBAY_API_BASE="${PIRATEBAY_API_BASE:-}" \
+        "${ACQ_VPN_ENV[@]}" \
+        "$BIN/indexer-piratebay"
+    fi
+
+    # Optional indexer-torznab / newznab (:9486)
+    if [[ "${MVP_ENABLE_INDEXER_TORZNAB:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/indexer-torznab" ]]; then
+        echo "building indexer-torznab"
+        (cd "$WS/indexer-torznab" && go build -o "$BIN/indexer-torznab" ./cmd/module)
+      fi
+      maybe_start indexer-torznab env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=indexer-torznab MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        TORZNAB_GRPC_ADDR=":9486" TORZNAB_HTTP_ADDR=":9488" \
+        TORZNAB_URL="${TORZNAB_URL:-}" TORZNAB_API_KEY="${TORZNAB_API_KEY:-}" \
+        PROWLARR_URL="${PROWLARR_URL:-}" PROWLARR_API_KEY="${PROWLARR_API_KEY:-}" \
+        "${ACQ_VPN_ENV[@]}" \
+        "$BIN/indexer-torznab"
+    fi
+
     # Optional qBittorrent WebUI peer (:9462) — fixture by default; set QBIT_URL for live.
     if [[ "${MVP_ENABLE_DOWNLOADER_QBITTORRENT:-0}" == "1" ]]; then
       if [[ ! -x "$BIN/downloader-qbittorrent" ]]; then
@@ -644,7 +729,7 @@ case "$cmd" in
         "$BIN/media-graph"
     fi
 
-    # Optional content tagging (:9700)
+    # Optional content tagging (:9740)
     if [[ "${MVP_ENABLE_MEDIA_TAGGING:-0}" == "1" ]]; then
       if [[ ! -x "$BIN/media-tagging" ]]; then
         echo "building media-tagging"
@@ -655,6 +740,268 @@ case "$cmd" in
         TAGGING_GRPC_ADDR=":9740" \
         MUXCORE_HTTP_ADDR=":9741" \
         "$BIN/media-tagging"
+    fi
+
+    # ── Optional peers (env-gated; vault soak enables non-acquisition set via muxcore-test.nix) ──
+
+    if [[ "${MVP_ENABLE_BACKUP_LOCAL:-0}" == "1" ]]; then
+      mkdir -p "$DATA/backup"
+      maybe_start backup-local env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=backup-local MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        BACKUP_DIR="$DATA/backup" \
+        BACKUP_SOURCE_DIRS="$DATA" \
+        "$BIN/backup-local"
+    fi
+
+    if [[ "${MVP_ENABLE_MEDIA_AUDIOBOOKS:-0}" == "1" ]]; then
+      mkdir -p "$DATA/audiobooks"
+      maybe_start media-audiobooks env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-audiobooks MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        AUDIOBOOKS_DATA_DIR="$DATA/audiobooks" \
+        MUXCORE_HTTP_ADDR=":9671" \
+        "$BIN/media-audiobooks"
+    fi
+
+    if [[ "${MVP_ENABLE_MEDIA_BOOKS:-0}" == "1" ]]; then
+      mkdir -p "$DATA/books"
+      maybe_start media-books env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-books MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        BOOKS_DATA_DIR="$DATA/books" \
+        MUXCORE_HTTP_ADDR=":9651" \
+        "$BIN/media-books"
+    fi
+
+    if [[ "${MVP_ENABLE_MEDIA_COMICS:-0}" == "1" ]]; then
+      mkdir -p "$DATA/comics"
+      maybe_start media-comics env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-comics MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        COMICS_DATA_DIR="$DATA/comics" \
+        MUXCORE_HTTP_ADDR=":9661" \
+        "$BIN/media-comics"
+    fi
+
+    if [[ "${MVP_ENABLE_MEDIA_INTRO_OUTRO:-0}" == "1" ]]; then
+      maybe_start media-intro-outro env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-intro-outro MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        MUXCORE_HTTP_ADDR=":9711" \
+        "$BIN/media-intro-outro"
+    fi
+
+    if [[ "${MVP_ENABLE_MEDIA_TRANSCODER_POOL:-0}" == "1" ]]; then
+      mkdir -p "$DATA/transcoder-pool"
+      maybe_start media-transcoder-pool env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-transcoder-pool MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        POOL_DB_PATH="$DATA/transcoder-pool/pool.db" \
+        MUXCORE_HTTP_ADDR=":9721" \
+        PATH="$BIN:${PATH}" \
+        "$BIN/media-transcoder-pool"
+    fi
+
+    if [[ "${MVP_ENABLE_STORAGE_S3:-0}" == "1" ]]; then
+      maybe_start storage-s3 env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=storage-s3 MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        STORAGE_S3_GRPC_ADDR=":9610" \
+        STORAGE_S3_HTTP_ADDR=":9612" \
+        "$BIN/storage-s3"
+    fi
+
+    if [[ "${MVP_ENABLE_STORAGE_CEPH:-0}" == "1" ]]; then
+      maybe_start storage-ceph env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=storage-ceph MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        STORAGE_CEPH_GRPC_ADDR=":9680" \
+        STORAGE_CEPH_HTTP_ADDR=":9681" \
+        "$BIN/storage-ceph"
+    fi
+
+    if [[ "${MVP_ENABLE_STORAGE_OVERLAY:-0}" == "1" ]]; then
+      maybe_start storage-overlay env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=storage-overlay MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        STORAGE_OVERLAY_GRPC_ADDR=":9690" \
+        STORAGE_OVERLAY_HTTP_ADDR=":9691" \
+        "$BIN/storage-overlay"
+    fi
+
+    if [[ "${MVP_ENABLE_MEDIA_LIBRARY_MAINTAINER:-0}" == "1" ]]; then
+      mkdir -p "$DATA/maintainer"
+      maybe_start media-library-maintainer env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-library-maintainer MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        MAINTAINER_DB_PATH="$DATA/maintainer/maintainer.db" \
+        MAINTAINER_GRPC_ADDR=":9545" \
+        MAINTAINER_USERDATA_DIR="${USERDATA_LOCAL_DATA_DIR:-$DATA/userdata}" \
+        "$BIN/media-library-maintainer"
+    fi
+
+    if [[ "${MVP_ENABLE_PLAYBACK_GUARD:-0}" == "1" ]]; then
+      mkdir -p "$DATA/playback-guard"
+      maybe_start playback-guard env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=playback-guard MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        PLAYBACK_GUARD_GRPC_ADDR=":9561" \
+        PLAYBACK_GUARD_DB_PATH="$DATA/playback-guard/guard.db" \
+        "$BIN/playback-guard"
+    fi
+
+    if [[ "${MVP_ENABLE_PLAYBACK_MONITOR:-0}" == "1" ]]; then
+      mkdir -p "$DATA/playback-monitor"
+      maybe_start playback-monitor env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=playback-monitor MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        PLAYBACK_MONITOR_GRPC_ADDR=":9560" \
+        PLAYBACK_MONITOR_HTTP_ADDR=":8560" \
+        PLAYBACK_MONITOR_DB_PATH="$DATA/playback-monitor/monitor.db" \
+        "$BIN/playback-monitor"
+    fi
+
+    if [[ "${MVP_ENABLE_CIRCUITBREAKER_SIMPLE:-0}" == "1" ]]; then
+      maybe_start circuitbreaker-simple env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=circuitbreaker-simple MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        CB_GRPC_ADDR=":9645" \
+        "$BIN/circuitbreaker-simple"
+    fi
+
+    if [[ "${MVP_ENABLE_CONFIG_WATCHER:-0}" == "1" ]]; then
+      maybe_start config-watcher env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=config-watcher MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        CONFIG_WATCHER_GRPC_ADDR=":9612" \
+        "$BIN/config-watcher"
+    fi
+
+    if [[ "${MVP_ENABLE_DATA_REDACTION:-0}" == "1" ]]; then
+      maybe_start data-redaction-pattern env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=data-redaction-pattern MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        REDACTION_GRPC_ADDR=":9655" \
+        "$BIN/data-redaction-pattern"
+    fi
+
+    if [[ "${MVP_ENABLE_DISTRIBUTED_LOCK:-0}" == "1" ]]; then
+      mkdir -p "$DATA/locks"
+      maybe_start distributed-lock-sqlite env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=distributed-lock-sqlite MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        LOCK_GRPC_ADDR=":9604" \
+        LOCK_DB_PATH="$DATA/locks/locks.db" \
+        "$BIN/distributed-lock-sqlite"
+    fi
+
+    if [[ "${MVP_ENABLE_EXECUTOR_SHELL:-0}" == "1" ]]; then
+      maybe_start executor-shell env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=executor-shell MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        EXECUTOR_GRPC_ADDR=":9605" \
+        "$BIN/executor-shell"
+    fi
+
+    if [[ "${MVP_ENABLE_FEATURE_FLAGS:-0}" == "1" ]]; then
+      mkdir -p "$DATA/feature-flags"
+      _flags_file="$DATA/feature-flags/flags.yaml"
+      [[ -f "$_flags_file" ]] || printf '{}\n' >"$_flags_file"
+      maybe_start feature-flags-file env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=feature-flags-file MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        FEATURE_FLAGS_FILE="$_flags_file" \
+        "$BIN/feature-flags-file"
+    fi
+
+    if [[ "${MVP_ENABLE_INPUT_VALIDATE:-0}" == "1" ]]; then
+      mkdir -p "$DATA/schemas"
+      maybe_start input-validate-jsonschema env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=input-validate-jsonschema MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        VALIDATE_GRPC_ADDR=":9665" \
+        VALIDATE_DATA_DIR="$DATA/schemas" \
+        "$BIN/input-validate-jsonschema"
+    fi
+
+    if [[ "${MVP_ENABLE_LOGGING_FILE:-0}" == "1" ]]; then
+      maybe_start logging-file env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=logging-file MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        LOG_GRPC_ADDR=":9625" \
+        LOG_FILE_PATH="$RUN/logging-file.log" \
+        "$BIN/logging-file"
+    fi
+
+    if [[ "${MVP_ENABLE_METRICS_PROMETHEUS:-0}" == "1" ]]; then
+      maybe_start metrics-prometheus env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=metrics-prometheus MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        METRICS_GRPC_ADDR=":9900" \
+        METRICS_HTTP_ADDR=":9901" \
+        "$BIN/metrics-prometheus"
+    fi
+
+    if [[ "${MVP_ENABLE_SCHEDULER_CRON:-0}" == "1" ]]; then
+      maybe_start scheduler-cron env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=scheduler-cron MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        SCHEDULER_HTTP_ADDR=":9204" \
+        "$BIN/scheduler-cron"
+    fi
+
+    if [[ "${MVP_ENABLE_SERIALIZATION_SAFE:-0}" == "1" ]]; then
+      maybe_start serialization-safe env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=serialization-safe MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        SERIALIZATION_GRPC_ADDR=":9635" \
+        "$BIN/serialization-safe"
+    fi
+
+    if [[ "${MVP_ENABLE_SPOOL_RESOLVER:-0}" == "1" ]]; then
+      maybe_start spool-resolver-http env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=spool-resolver-http MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        SPOOL_RESOLVER_GRPC_ADDR=":9675" \
+        "$BIN/spool-resolver-http"
+    fi
+
+    if [[ "${MVP_ENABLE_TRACING_OTLP:-0}" == "1" ]]; then
+      maybe_start tracing-otlp env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=tracing-otlp MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        TRACING_GRPC_ADDR=":9613" \
+        "$BIN/tracing-otlp"
+    fi
+
+    if [[ "${MVP_ENABLE_WORKER_POOL:-0}" == "1" ]]; then
+      maybe_start worker-pool-memory env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=worker-pool-memory MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        WORKER_POOL_HTTP_ADDR=":9300" \
+        "$BIN/worker-pool-memory"
+    fi
+
+    if [[ "${MVP_ENABLE_PLEX:-0}" == "1" ]]; then
+      maybe_start plex env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=plex MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        PLEX_GRPC_ADDR=":9476" PLEX_HTTP_ADDR=":8476" \
+        PLEX_URL="${PLEX_URL:-}" PLEX_TOKEN="${PLEX_TOKEN:-}" \
+        "$BIN/plex"
+    fi
+
+    if [[ "${MVP_ENABLE_EMBY:-0}" == "1" ]]; then
+      maybe_start emby env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=emby MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        EMBY_GRPC_ADDR=":9477" EMBY_HTTP_ADDR=":8477" \
+        EMBY_URL="${EMBY_URL:-}" EMBY_TOKEN="${EMBY_TOKEN:-}" \
+        "$BIN/emby"
+    fi
+
+    # Alternate infrastructure slots — binaries deployed; leave disabled unless migrating off defaults.
+    if [[ "${MVP_ENABLE_AUTH_OIDC:-0}" == "1" ]]; then
+      mkdir -p "$DATA/auth-oidc"
+      maybe_start auth-oidc env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=auth-oidc MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        AUTH_OIDC_GRPC_ADDR=":9410" AUTH_OIDC_HTTP_ADDR=":9412" \
+        AUTH_OIDC_DB_PATH="$DATA/auth-oidc/auth.db" \
+        "$BIN/auth-oidc"
+    fi
+
+    if [[ "${MVP_ENABLE_CACHE_LOCAL:-0}" == "1" ]]; then
+      maybe_start cache-local env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=cache-local MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        CACHE_LOCAL_GRPC_ADDR=":9602" \
+        "$BIN/cache-local"
+    fi
+
+    if [[ "${MVP_ENABLE_DATABASE_POSTGRES:-0}" == "1" ]]; then
+      maybe_start database-postgres env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=database-postgres MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        DATABASE_GRPC_ADDR=":9701" \
+        "$BIN/database-postgres"
+    fi
+
+    if [[ "${MVP_ENABLE_SECRETS_VAULT:-0}" == "1" ]]; then
+      maybe_start secrets-vault env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=secrets-vault MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        SECRETS_GRPC_ADDR=":9551" \
+        "$BIN/secrets-vault"
     fi
 
     # Consumer SPA from media-ui-app (clean extract; not the polluted media-ui dump).

@@ -55,7 +55,7 @@ BUILD_ONLY=1 MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-muxcored-
 
 `MUXCORE_REGISTRY` defaults to `git.zem.systems/muxcore`. Compose defaults to `localhost:5000/muxcore` when unset — set the same value on publish and install hosts.
 
-Tag module images (`api-rest`, `auth-local`, …) under the same registry prefix and `${MUXCORE_IMAGE_TAG}`.
+Tag module images (`api-rest`, `auth-local`, …) under the same registry prefix and `${MUXCORE_IMAGE_TAG}` using [`scripts/publish-module-images.sh`](scripts/publish-module-images.sh).
 
 ### Podman / Docker
 

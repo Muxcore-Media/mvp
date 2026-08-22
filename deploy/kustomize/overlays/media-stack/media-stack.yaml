@@ -1,0 +1,277 @@
+# Media MVP stack overlay — extends minimal platform base with acquire→library→UI peers.
+# Apply after platform base is healthy: kubectl apply -k deploy/kustomize/overlays/media-stack
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metadata-tmdb
+  labels:
+    app.kubernetes.io/name: metadata-tmdb
+    app.kubernetes.io/part-of: muxcore
+    app.kubernetes.io/component: media
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: metadata-tmdb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: metadata-tmdb
+        app.kubernetes.io/part-of: muxcore
+    spec:
+      containers:
+        - name: metadata-tmdb
+          image: ghcr.io/muxcore-media/metadata-tmdb:v0.1.5
+          env:
+            - { name: MUXCORE_GRPC_ADDR, value: muxcored:9090 }
+            - { name: MUXCORE_MODULE_ID, value: metadata-tmdb }
+            - { name: MUXCORE_INSECURE_DISABLE_TLS, value: "true" }
+          ports:
+            - { name: grpc, containerPort: 9411 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: metadata-tmdb
+  labels:
+    app.kubernetes.io/name: metadata-tmdb
+spec:
+  selector:
+    app.kubernetes.io/name: metadata-tmdb
+  ports:
+    - { name: grpc, port: 9411, targetPort: grpc }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: media-movies
+  labels:
+    app.kubernetes.io/name: media-movies
+    app.kubernetes.io/component: media
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: media-movies
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: media-movies
+    spec:
+      containers:
+        - name: media-movies
+          image: ghcr.io/muxcore-media/media-movies:v0.1.8
+          env:
+            - { name: MUXCORE_GRPC_ADDR, value: muxcored:9090 }
+            - { name: MUXCORE_MODULE_ID, value: media-movies }
+            - { name: MUXCORE_INSECURE_DISABLE_TLS, value: "true" }
+          ports:
+            - { name: http, containerPort: 9430 }
+            - { name: grpc, containerPort: 9420 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: media-movies
+spec:
+  selector:
+    app.kubernetes.io/name: media-movies
+  ports:
+    - { name: http, port: 9430, targetPort: http }
+    - { name: grpc, port: 9420, targetPort: grpc }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: media-tvshows
+  labels:
+    app.kubernetes.io/name: media-tvshows
+    app.kubernetes.io/component: media
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: media-tvshows
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: media-tvshows
+    spec:
+      containers:
+        - name: media-tvshows
+          image: ghcr.io/muxcore-media/media-tvshows:v0.1.8
+          env:
+            - { name: MUXCORE_GRPC_ADDR, value: muxcored:9090 }
+            - { name: MUXCORE_MODULE_ID, value: media-tvshows }
+            - { name: MUXCORE_INSECURE_DISABLE_TLS, value: "true" }
+          ports:
+            - { name: http, containerPort: 9450 }
+            - { name: grpc, containerPort: 9440 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: media-tvshows
+spec:
+  selector:
+    app.kubernetes.io/name: media-tvshows
+  ports:
+    - { name: http, port: 9450, targetPort: http }
+    - { name: grpc, port: 9440, targetPort: grpc }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: request-media
+  labels:
+    app.kubernetes.io/name: request-media
+    app.kubernetes.io/component: media
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: request-media
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: request-media
+    spec:
+      containers:
+        - name: request-media
+          image: ghcr.io/muxcore-media/request-media:v0.1.9
+          env:
+            - { name: MUXCORE_GRPC_ADDR, value: muxcored:9090 }
+            - { name: MUXCORE_MODULE_ID, value: request-media }
+            - { name: MUXCORE_INSECURE_DISABLE_TLS, value: "true" }
+          ports:
+            - { name: http, containerPort: 9380 }
+            - { name: grpc, containerPort: 9481 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: request-media
+spec:
+  selector:
+    app.kubernetes.io/name: request-media
+  ports:
+    - { name: http, port: 9380, targetPort: http }
+    - { name: grpc, port: 9481, targetPort: grpc }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: media-automation
+  labels:
+    app.kubernetes.io/name: media-automation
+    app.kubernetes.io/component: media
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: media-automation
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: media-automation
+    spec:
+      containers:
+        - name: media-automation
+          image: ghcr.io/muxcore-media/media-automation:v0.1.11
+          env:
+            - { name: MUXCORE_GRPC_ADDR, value: muxcored:9090 }
+            - { name: MUXCORE_MODULE_ID, value: media-automation }
+            - { name: MUXCORE_INSECURE_DISABLE_TLS, value: "true" }
+          ports:
+            - { name: grpc, containerPort: 9460 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: media-automation
+spec:
+  selector:
+    app.kubernetes.io/name: media-automation
+  ports:
+    - { name: grpc, port: 9460, targetPort: grpc }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: media-scanner
+  labels:
+    app.kubernetes.io/name: media-scanner
+    app.kubernetes.io/component: media
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: media-scanner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: media-scanner
+    spec:
+      containers:
+        - name: media-scanner
+          image: ghcr.io/muxcore-media/media-scanner:v0.1.7
+          env:
+            - { name: MUXCORE_GRPC_ADDR, value: muxcored:9090 }
+            - { name: MUXCORE_MODULE_ID, value: media-scanner }
+            - { name: MUXCORE_INSECURE_DISABLE_TLS, value: "true" }
+          ports:
+            - { name: grpc, containerPort: 9470 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: media-scanner
+spec:
+  selector:
+    app.kubernetes.io/name: media-scanner
+  ports:
+    - { name: grpc, port: 9470, targetPort: grpc }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: media-ui
+  labels:
+    app.kubernetes.io/name: media-ui
+    app.kubernetes.io/component: ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: media-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: media-ui
+    spec:
+      containers:
+        - name: media-ui
+          image: ghcr.io/muxcore-media/media-ui-app:v0.1.12
+          env:
+            - { name: MUXCORE_INSECURE_DISABLE_TLS, value: "true" }
+            - { name: AUTH_HTTP_URL, value: "http://auth-local:9401" }
+            - { name: MOVIES_HTTP_URL, value: "http://media-movies:9430" }
+            - { name: TVSHOWS_HTTP_URL, value: "http://media-tvshows:9450" }
+            - { name: REQUEST_MEDIA_HTTP_URL, value: "http://request-media:9380" }
+          ports:
+            - { name: http, containerPort: 5173 }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: media-ui
+spec:
+  selector:
+    app.kubernetes.io/name: media-ui
+  ports:
+    - { name: http, port: 5173, targetPort: http }

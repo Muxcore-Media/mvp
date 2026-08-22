@@ -23,6 +23,9 @@ kubectl apply -k deploy/kustomize/overlays/dev
 
 # Production-shaped (TLS insecure flag off; tighten images/resources)
 kubectl apply -k deploy/kustomize/overlays/production
+
+# Full media MVP stack (platform + movies/TV/request/automation/scanner + consumer UI)
+kubectl apply -k deploy/kustomize/overlays/media-stack
 ```
 
 ## Helm
@@ -31,13 +34,17 @@ kubectl apply -k deploy/kustomize/overlays/production
 helm upgrade --install muxcore deploy/helm/muxcore \
   --namespace muxcore --create-namespace \
   -f deploy/helm/muxcore/values.yaml
+
+# Enable media stack peers
+helm upgrade --install muxcore deploy/helm/muxcore \
+  --namespace muxcore --set media.enabled=true
 ```
 
 Override image tags / `insecureDisableTLS` via `--set` or a values overlay.
 
 ## Not in scope yet
 
-- Full media stack (movies/TV/automation/scanner/…)
+- Acquisition sidecars (torrent/usenet/debrid) — add via operator CR or custom values overlay
 - mTLS cert injection matching `run-host-staging.sh`
 
 ## Operator (CRDs)

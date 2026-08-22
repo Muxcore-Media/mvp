@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -257,8 +259,26 @@ type qcEntry struct {
 	Code      string    `json:"code"`
 	UserID    string    `json:"user_id,omitempty"`
 	Username  string    `json:"username,omitempty"`
+	TenantID  string    `json:"tenant_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	Approved  bool      `json:"approved"`
+	Consumed  bool      `json:"consumed,omitempty"`
+}
+
+const quickConnectTTL = 15 * time.Minute
+
+func quickConnectExpired(e qcEntry) bool {
+	if e.CreatedAt.IsZero() {
+		return false
+	}
+	return time.Since(e.CreatedAt) > quickConnectTTL
+}
+
+func generateQuickConnectCode() string {
+	var b [3]byte
+	rand.Read(b[:])
+	n := (int(b[0])<<16 | int(b[1])<<8 | int(b[2])) % 1000000
+	return fmt.Sprintf("%06d", n)
 }
 
 type quickConnectStore struct {
@@ -328,10 +348,15 @@ func (s *server) handleQuickConnect(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
 		var body struct {
-			Code string `json:"code"`
+			Action string `json:"action"`
+			Code   string `json:"code"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
+			return
+		}
+		if strings.EqualFold(strings.TrimSpace(body.Action), "register") {
+			s.handleQuickConnectRegister(w, r, strings.TrimSpace(body.Code))
 			return
 		}
 		code := strings.TrimSpace(body.Code)
@@ -340,16 +365,31 @@ func (s *server) handleQuickConnect(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		m := s.quickconnect.load()
-		userID, username := "", ""
+		userID, username, tenantID := "", "", ""
 		if c, err := r.Cookie("session"); err == nil && s.sessions != nil {
-			userID, username, _ = s.sessions.Lookup(c.Value)
+			userID, username, tenantID, _ = s.sessions.LookupTenant(c.Value)
+		}
+		if userID == "" {
+			http.Error(w, `{"error":"login required to approve device"}`, http.StatusUnauthorized)
+			return
+		}
+		e, exists := m[code]
+		if exists && quickConnectExpired(e) {
+			delete(m, code)
+			exists = false
+		}
+		if !exists {
+			http.Error(w, `{"error":"code not found or expired"}`, http.StatusNotFound)
+			return
 		}
 		m[code] = qcEntry{
 			Code:      code,
 			UserID:    userID,
 			Username:  username,
-			CreatedAt: time.Now().UTC(),
+			TenantID:  tenantID,
+			CreatedAt: e.CreatedAt,
 			Approved:  true,
+			Consumed:  false,
 		}
 		if err := s.quickconnect.save(m); err != nil {
 			http.Error(w, `{"error":"save failed"}`, http.StatusInternalServerError)
@@ -359,7 +399,7 @@ func (s *server) handleQuickConnect(w http.ResponseWriter, r *http.Request) {
 			"ok":       true,
 			"approved": true,
 			"code":     code,
-			"message":  "Device authorized. Other clients can poll GET /api/quickconnect?code=…",
+			"message":  "Device authorized. The TV can poll GET /api/quickconnect?code=…",
 		})
 	case http.MethodGet:
 		code := strings.TrimSpace(r.URL.Query().Get("code"))
@@ -369,20 +409,74 @@ func (s *server) handleQuickConnect(w http.ResponseWriter, r *http.Request) {
 		}
 		m := s.quickconnect.load()
 		e, ok := m[code]
-		if !ok {
+		if !ok || quickConnectExpired(e) {
+			if ok {
+				delete(m, code)
+				_ = s.quickconnect.save(m)
+			}
 			writeJSON(w, map[string]any{"approved": false, "code": code})
 			return
 		}
-		writeJSON(w, map[string]any{
+		resp := map[string]any{
 			"approved":   e.Approved,
 			"code":       e.Code,
 			"username":   e.Username,
 			"user_id":    e.UserID,
 			"created_at": e.CreatedAt,
-		})
+		}
+		if e.Approved && e.UserID != "" && !e.Consumed && s.sessions != nil {
+			sess, err := s.sessions.CreateWithTenant(e.UserID, e.Username, e.TenantID)
+			if err != nil {
+				http.Error(w, `{"error":"session error"}`, http.StatusInternalServerError)
+				return
+			}
+			e.Consumed = true
+			m[code] = e
+			if err := s.quickconnect.save(m); err != nil {
+				http.Error(w, `{"error":"save failed"}`, http.StatusInternalServerError)
+				return
+			}
+			resp["session_token"] = sess
+			resp["consumed"] = true
+		}
+		writeJSON(w, resp)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *server) handleQuickConnectRegister(w http.ResponseWriter, r *http.Request, code string) {
+	if code == "" {
+		code = generateQuickConnectCode()
+	}
+	if len(code) < 4 {
+		http.Error(w, `{"error":"code too short"}`, http.StatusBadRequest)
+		return
+	}
+	m := s.quickconnect.load()
+	if e, ok := m[code]; ok && !quickConnectExpired(e) {
+		writeJSON(w, map[string]any{
+			"code":     code,
+			"approved": e.Approved,
+			"pending":  !e.Approved,
+		})
+		return
+	}
+	m[code] = qcEntry{
+		Code:      code,
+		CreatedAt: time.Now().UTC(),
+		Approved:  false,
+	}
+	if err := s.quickconnect.save(m); err != nil {
+		http.Error(w, `{"error":"save failed"}`, http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"code":     code,
+		"approved": false,
+		"pending":  true,
+		"message":  "Enter this code at mux.zem.systems/quickconnect (or your server Quick Connect page).",
+	})
 }
 
 func (s *server) handleTrackLyrics(w http.ResponseWriter, r *http.Request) {

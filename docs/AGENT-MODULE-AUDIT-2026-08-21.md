@@ -481,7 +481,7 @@ Fine for monorepo dev layout but **breaks standalone module CI/publish** unless 
 | **Phase 2** | Dedup pollution | Archive/strip 5 dumps; consolidate muxidx/githooks to root; update Appendix H |
 | **Phase 3** | Contract truth | Phantom contracts, metadata contract repo, event constants |
 | **Phase 4** | Agent guidance | Thin per-domain docs (not 229-line clones); module-starter template |
-| **Phase 5** | Publish hygiene | Drop `replace => ../core` on remaining modules; GHCR/Actions billing per REPO-STATUS |
+| **Phase 5** | Publish hygiene | Drop `replace => ../core` on remaining modules; GHCR public mirror when `write:packages` exists |
 
 ---
 
