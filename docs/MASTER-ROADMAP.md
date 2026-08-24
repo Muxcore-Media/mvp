@@ -34,33 +34,19 @@
 
 ### P0 — Distribution & CI
 
-- [x] **Forgejo origin CI** — `.forgejo/workflows/ci.yml` on all Go modules + `media-ui-app`; install via [`_mvp/scripts/install-forgejo-ci.sh`](_mvp/scripts/install-forgejo-ci.sh); runner: [`_mvp/tls/FORGEJO-RUNNER.md`](_mvp/tls/FORGEJO-RUNNER.md) (`gitea-runner-vault`, `runs-on: native`)
-- [x] **Required spool checksums** — `core` rejects `required: true` modules without `checksum` in spool tags
-- [x] **admin-ui `/automation` fail-fast** — bounded page/dial/read timeouts + regression tests (`admin-ui/handler/automation_timeout_test.go`)
-- [x] **Forgejo mirrors for GitHub-only org repos** — pushed via [`_mvp/scripts/mirror-github-only-to-forgejo.sh`](_mvp/scripts/mirror-github-only-to-forgejo.sh) (contracts-*, emby, plex, playback-*, media-library-maintainer, muxcore-ios, muxcore-tvos); `_mvp`→`mvp`, `_wave1`→`wave1` already synced
-- [ ] **Public GHCR consumer mirror** — `docker-compose.ghcr.yml` + `publish-muxcored-ghcr.sh` when org has `write:packages` (origin install stays Forgejo/LAN)
+- [ ] **Public GHCR consumer mirror** — scripts + `Dockerfile.monorepo` + `core/scripts/publish-muxcored-vault-ghcr.sh` (vault BUILD_ONLY verified 2026-08-22); **push** needs `gh auth refresh -s write:packages,read:packages,repo` then vault script or `publish-muxcored-ghcr.sh`
 
 ### P1 — Platform engineering
-
-- [~] **Drop remaining publish-path `replace => ../core`** — `downloader-qbittorrent` pinned (2026-08-22); `_mvp` keeps monorepo `replace` for smoke dev; nested `core/pkg/tenant` publish path added (`pkg/tenant/go.mod`, `tag-pkg-tenant.sh`)
-
-**P1 hygiene landed 2026-08-22:** Forgejo CI on origin (`push-forgejo-origin.sh`, 55 repos); spool commit-SHA clone + `populate-spool-checksums.sh`; `contracts-playback` in `playback-monitor`/`admin-ui`; `media-automation` subscribes to `media.*.requested`; indexer contract version `v0.1.0`; dual-library API doc; `core-wiki` synced; trusted-proxy defaults in `_mvp/.env.example`; `core` direct `contracts-media` require; registry smoke script (`smoke-forgejo-registry.sh`).
-
-- [x] **Library-plus acquire loops** — music/books/comics/audiobooks `GET /api/missing` + automation `syncWantedFromLibraries` (2026-08-22)
 
 ### P2 — Consumer UI (`media-ui-app/AGENTS.md` §12)
 
 ### P2 — Native clients (documented intentional gaps)
 
-- [ ] **`muxcore-ios`** — custom Video OSD parity, theme engine ([`muxcore-ios/README.md`](muxcore-ios/README.md))
-- [ ] **`media-tvos-app`** — live validation on physical Apple TV (CI ships unsigned IPA only)
+- [ ] **`media-tvos-app`** — live validation on physical Apple TV ([`media-tvos-app/docs/HARDWARE-VALIDATION.md`](media-tvos-app/docs/HARDWARE-VALIDATION.md); [`bff-soak.sh`](media-tvos-app/scripts/bff-soak.sh) authenticated walk PASS on mux.zem.systems 2026-08-22; CI ships unsigned IPA only)
 
 ### P3 — Phase 3 / long-term
 
-- [ ] **`muxcore-operator` image publish** — GHCR/Forgejo operator image + soak validation (blocked same as public GHCR today)
-- [ ] **`storage-ceph` native RADOS/CephFS** — MinIO RGW stand-in today ([`storage-ceph/README.md`](storage-ceph/README.md))
-
-(No other open P3 rows — multi-region placement, cross-cluster storage sync, distro rootfs / vsock Firecracker microVM config, and native VideoPlayer OSD + transcoder wiring shipped 2026-08-20.)
+(No other open P3 rows — multi-region placement, cross-cluster storage sync, distro rootfs / vsock Firecracker microVM config, native VideoPlayer OSD + transcoder wiring, **storage-ceph** native RADOS/CephFS, and **muxcore-operator** LAN registry publish shipped 2026-08-22.)
 
 ---
 

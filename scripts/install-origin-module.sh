@@ -54,11 +54,7 @@ verify_live_one() {
   local ssh="${MVP_DEPLOY_SSH:-}"
   local run_dir="${MVP_DEPLOY_RUN:-/mnt/fast-storage/appdata/muxcore/mvp/run}"
   if [[ -n "$ssh" ]]; then
-    if [[ "$name" == "downloader-native-torrent" ]]; then
-      log="$(ssh -o BatchMode=yes -o ConnectTimeout=20 "$ssh" "journalctl -u muxcore-downloader -n 80 --no-pager | grep \"module registered with core id=${name}\" | tail -1" || true)"
-    else
-      log="$(ssh -o BatchMode=yes -o ConnectTimeout=20 "$ssh" "grep \"module registered with core id=${name}\" \"$run_dir/${name}.log\" | tail -1" || true)"
-    fi
+    log="$(ssh -o BatchMode=yes -o ConnectTimeout=20 "$ssh" "grep \"module registered with core id=${name}\" \"$run_dir/${name}.log\" | tail -1" || true)"
   elif [[ -f "$ROOT/run/${name}.log" ]]; then
     log="$(grep "module registered with core id=${name}" "$ROOT/run/${name}.log" | tail -1 || true)"
   fi

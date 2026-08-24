@@ -7,12 +7,16 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPasswordResetAPI(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "password-resets.json")
-	s := &server{passwordResets: newPasswordResetStore(path, "")}
+	s := &server{
+		passwordResets: newPasswordResetStore(path, ""),
+		sessions:       newSessionStore(time.Hour),
+	}
 
 	post := httptest.NewRequest(http.MethodPost, "/api/password-reset", strings.NewReader(`{"username":"alice","note":"lost phone"}`))
 	post.Header.Set("Content-Type", "application/json")
@@ -29,11 +33,16 @@ func TestPasswordResetAPI(t *testing.T) {
 		t.Fatalf("expected ok, got %v", resp)
 	}
 
+	adminTok, err := s.sessions.CreateWithRoles("admin-1", "admin", "", []string{"admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	get := httptest.NewRequest(http.MethodGet, "/api/password-reset", nil)
+	get.AddCookie(&http.Cookie{Name: "session", Value: adminTok})
 	gw := httptest.NewRecorder()
 	s.handlePasswordReset(gw, get)
 	if gw.Code != http.StatusOK {
-		t.Fatalf("get status %d", gw.Code)
+		t.Fatalf("get status %d body=%s", gw.Code, gw.Body.String())
 	}
 	var list struct {
 		Count    int `json:"count"`

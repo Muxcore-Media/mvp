@@ -173,7 +173,7 @@ func guideNowPlaying(guide []liveTVGuideRow, channelID string, now time.Time) *s
 
 func (s *server) handleLiveTV(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	f := liveTVFile{}
@@ -217,20 +217,20 @@ func (s *server) handleLiveTV(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleLiveTVTimer(w http.ResponseWriter, r *http.Request) {
 	if s.livetv == nil {
-		http.Error(w, `{"error":"livetv disabled"}`, http.StatusServiceUnavailable)
+		writeAPIError(w, http.StatusServiceUnavailable, "livetv disabled", "livetv.disabled")
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	var body liveTVTimer
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "invalid json", "livetv.invalid_json")
 		return
 	}
 	if body.ChannelID == "" || body.Title == "" {
-		http.Error(w, `{"error":"channel_id and title required"}`, http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "channel_id and title required", "livetv.fields_required")
 		return
 	}
 	f := s.livetv.load()
@@ -245,7 +245,7 @@ func (s *server) handleLiveTVTimer(w http.ResponseWriter, r *http.Request) {
 	}
 	f.Timers = append(f.Timers, body)
 	if err := s.livetv.save(f); err != nil {
-		http.Error(w, `{"error":"save failed"}`, http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "save failed", "livetv.save_failed")
 		return
 	}
 	writeJSON(w, map[string]any{"ok": true, "timer": body})
@@ -342,7 +342,7 @@ func (s *sessionStore) LookupTenant(tok string) (userID, username, tenantID stri
 
 func (s *server) handleQuickConnect(w http.ResponseWriter, r *http.Request) {
 	if s.quickconnect == nil {
-		http.Error(w, `{"error":"quick connect disabled"}`, http.StatusServiceUnavailable)
+		writeAPIError(w, http.StatusServiceUnavailable, "quick connect disabled", "quickconnect.disabled")
 		return
 	}
 	switch r.Method {
@@ -352,7 +352,7 @@ func (s *server) handleQuickConnect(w http.ResponseWriter, r *http.Request) {
 			Code   string `json:"code"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "invalid json", "quickconnect.invalid_json")
 			return
 		}
 		if strings.EqualFold(strings.TrimSpace(body.Action), "register") {
@@ -361,7 +361,7 @@ func (s *server) handleQuickConnect(w http.ResponseWriter, r *http.Request) {
 		}
 		code := strings.TrimSpace(body.Code)
 		if len(code) < 4 {
-			http.Error(w, `{"error":"code too short"}`, http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "code too short", "quickconnect.code_too_short")
 			return
 		}
 		m := s.quickconnect.load()
@@ -370,7 +370,7 @@ func (s *server) handleQuickConnect(w http.ResponseWriter, r *http.Request) {
 			userID, username, tenantID, _ = s.sessions.LookupTenant(c.Value)
 		}
 		if userID == "" {
-			http.Error(w, `{"error":"login required to approve device"}`, http.StatusUnauthorized)
+			writeAPIError(w, http.StatusUnauthorized, "login required to approve device", "quickconnect.login_required")
 			return
 		}
 		e, exists := m[code]
@@ -379,7 +379,7 @@ func (s *server) handleQuickConnect(w http.ResponseWriter, r *http.Request) {
 			exists = false
 		}
 		if !exists {
-			http.Error(w, `{"error":"code not found or expired"}`, http.StatusNotFound)
+			writeAPIError(w, http.StatusNotFound, "code not found or expired", "quickconnect.code_not_found")
 			return
 		}
 		m[code] = qcEntry{
@@ -392,7 +392,7 @@ func (s *server) handleQuickConnect(w http.ResponseWriter, r *http.Request) {
 			Consumed:  false,
 		}
 		if err := s.quickconnect.save(m); err != nil {
-			http.Error(w, `{"error":"save failed"}`, http.StatusInternalServerError)
+			writeAPIError(w, http.StatusInternalServerError, "save failed", "quickconnect.save_failed")
 			return
 		}
 		writeJSON(w, map[string]any{
@@ -404,7 +404,7 @@ func (s *server) handleQuickConnect(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		code := strings.TrimSpace(r.URL.Query().Get("code"))
 		if code == "" {
-			http.Error(w, `{"error":"code required"}`, http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "code required", "quickconnect.code_required")
 			return
 		}
 		m := s.quickconnect.load()
@@ -427,13 +427,13 @@ func (s *server) handleQuickConnect(w http.ResponseWriter, r *http.Request) {
 		if e.Approved && e.UserID != "" && !e.Consumed && s.sessions != nil {
 			sess, err := s.sessions.CreateWithTenant(e.UserID, e.Username, e.TenantID)
 			if err != nil {
-				http.Error(w, `{"error":"session error"}`, http.StatusInternalServerError)
+				writeAPIError(w, http.StatusInternalServerError, "session error", "quickconnect.session_error")
 				return
 			}
 			e.Consumed = true
 			m[code] = e
 			if err := s.quickconnect.save(m); err != nil {
-				http.Error(w, `{"error":"save failed"}`, http.StatusInternalServerError)
+				writeAPIError(w, http.StatusInternalServerError, "save failed", "quickconnect.save_failed")
 				return
 			}
 			resp["session_token"] = sess
@@ -441,7 +441,7 @@ func (s *server) handleQuickConnect(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, resp)
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 	}
 }
 
@@ -450,7 +450,7 @@ func (s *server) handleQuickConnectRegister(w http.ResponseWriter, r *http.Reque
 		code = generateQuickConnectCode()
 	}
 	if len(code) < 4 {
-		http.Error(w, `{"error":"code too short"}`, http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "code too short", "quickconnect.code_too_short")
 		return
 	}
 	m := s.quickconnect.load()
@@ -468,7 +468,7 @@ func (s *server) handleQuickConnectRegister(w http.ResponseWriter, r *http.Reque
 		Approved:  false,
 	}
 	if err := s.quickconnect.save(m); err != nil {
-		http.Error(w, `{"error":"save failed"}`, http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "save failed", "quickconnect.save_failed")
 		return
 	}
 	writeJSON(w, map[string]any{
@@ -481,7 +481,7 @@ func (s *server) handleQuickConnectRegister(w http.ResponseWriter, r *http.Reque
 
 func (s *server) handleTrackLyrics(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/music/tracks/"), "/")
@@ -495,12 +495,12 @@ func (s *server) handleTrackLyrics(w http.ResponseWriter, r *http.Request) {
 	u.Path = strings.TrimRight(s.musicHTTP.Path, "/") + "/api/tracks/" + url.PathEscape(id) + "/lyrics"
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, u.String(), nil)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeAPIError(w, http.StatusBadGateway, err.Error(), "music.gateway_error")
 		return
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := upstreamClient.Do(req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeAPIError(w, http.StatusBadGateway, err.Error(), "music.gateway_error")
 		return
 	}
 	defer resp.Body.Close()

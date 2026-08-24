@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -10,11 +11,11 @@ import (
 // handleTVLogin exchanges username/password via auth-local /login/device and issues a media-ui session cookie token.
 func (s *server) handleTVLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	if s.authInternal == "" {
-		http.Error(w, `{"error":"auth not configured"}`, http.StatusServiceUnavailable)
+		writeAPIError(w, http.StatusServiceUnavailable, "auth not configured", "auth.not_configured")
 		return
 	}
 
@@ -23,30 +24,36 @@ func (s *server) handleTVLogin(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
-		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		writeAPIError(w, http.StatusBadRequest, "invalid json", "auth.invalid_json")
 		return
 	}
 	username := strings.TrimSpace(creds.Username)
 	password := creds.Password
 	if username == "" || password == "" {
-		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "username and password required"})
+		writeAPIError(w, http.StatusBadRequest, "username and password required", "auth.credentials_required")
 		return
 	}
 
 	body, _ := json.Marshal(map[string]string{"username": username, "password": password})
-	resp, err := http.Post(s.authInternal+"/login/device", "application/json", strings.NewReader(string(body)))
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, s.authInternal+"/login/device", bytes.NewReader(body))
 	if err != nil {
-		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]string{"error": "auth unavailable"})
+		writeAPIError(w, http.StatusServiceUnavailable, "auth unavailable", "auth.unavailable")
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := authUpstreamClient.Do(req)
+	if err != nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "auth unavailable", "auth.unavailable")
 		return
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode == http.StatusUnauthorized {
-		writeJSONStatus(w, http.StatusUnauthorized, map[string]string{"error": "invalid username or password"})
+		writeAPIError(w, http.StatusUnauthorized, "invalid username or password", "auth.invalid_credentials")
 		return
 	}
 	if resp.StatusCode != http.StatusOK {
-		writeJSONStatus(w, resp.StatusCode, map[string]string{"error": strings.TrimSpace(string(raw))})
+		writeAPIError(w, resp.StatusCode, strings.TrimSpace(string(raw)), "auth.login_failed")
 		return
 	}
 
@@ -55,12 +62,13 @@ func (s *server) handleTVLogin(w http.ResponseWriter, r *http.Request) {
 		UserID       string         `json:"user_id"`
 		Username     string         `json:"username"`
 		TenantID     string         `json:"tenant_id"`
+		Roles        []string       `json:"roles"`
 		Requires2FA  bool           `json:"requires_2fa"`
 		PartialToken string         `json:"partial_token"`
 		Claims       map[string]any `json:"claims"`
 	}
 	if err := json.Unmarshal(raw, &authResult); err != nil {
-		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": "invalid auth response"})
+		writeAPIError(w, http.StatusInternalServerError, "invalid auth response", "auth.invalid_response")
 		return
 	}
 	if authResult.Requires2FA {
@@ -79,9 +87,13 @@ func (s *server) handleTVLogin(w http.ResponseWriter, r *http.Request) {
 			tenantID = strings.TrimSpace(v)
 		}
 	}
-	sess, err := s.sessions.CreateWithTenant(authResult.UserID, authResult.Username, tenantID)
+	roles := append([]string(nil), authResult.Roles...)
+	if len(roles) == 0 {
+		roles = rolesFromClaims(authResult.Claims)
+	}
+	sess, err := s.sessions.CreateWithRoles(authResult.UserID, authResult.Username, tenantID, roles)
 	if err != nil {
-		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": "session error"})
+		writeAPIError(w, http.StatusInternalServerError, "session error", "auth.session_error")
 		return
 	}
 	writeJSONStatus(w, http.StatusOK, map[string]any{
@@ -94,11 +106,11 @@ func (s *server) handleTVLogin(w http.ResponseWriter, r *http.Request) {
 // handleTVLoginTOTP completes native login after password step when TOTP is required.
 func (s *server) handleTVLoginTOTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	if s.authInternal == "" {
-		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]string{"error": "auth not configured"})
+		writeAPIError(w, http.StatusServiceUnavailable, "auth not configured", "auth.not_configured")
 		return
 	}
 
@@ -107,30 +119,36 @@ func (s *server) handleTVLoginTOTP(w http.ResponseWriter, r *http.Request) {
 		TOTPCode     string `json:"totp_code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
-		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		writeAPIError(w, http.StatusBadRequest, "invalid json", "auth.invalid_json")
 		return
 	}
 	partialToken := strings.TrimSpace(creds.PartialToken)
 	totpCode := strings.TrimSpace(creds.TOTPCode)
 	if partialToken == "" || totpCode == "" {
-		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "partial_token and totp_code required"})
+		writeAPIError(w, http.StatusBadRequest, "partial_token and totp_code required", "auth.totp_required")
 		return
 	}
 
 	body, _ := json.Marshal(map[string]string{"partial_token": partialToken, "totp_code": totpCode})
-	resp, err := http.Post(s.authInternal+"/login/device/totp", "application/json", strings.NewReader(string(body)))
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, s.authInternal+"/login/device/totp", bytes.NewReader(body))
 	if err != nil {
-		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]string{"error": "auth unavailable"})
+		writeAPIError(w, http.StatusServiceUnavailable, "auth unavailable", "auth.unavailable")
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := authUpstreamClient.Do(req)
+	if err != nil {
+		writeAPIError(w, http.StatusServiceUnavailable, "auth unavailable", "auth.unavailable")
 		return
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode == http.StatusUnauthorized {
-		writeJSONStatus(w, http.StatusUnauthorized, map[string]string{"error": "invalid TOTP code"})
+		writeAPIError(w, http.StatusUnauthorized, "invalid TOTP code", "auth.invalid_totp")
 		return
 	}
 	if resp.StatusCode != http.StatusOK {
-		writeJSONStatus(w, resp.StatusCode, map[string]string{"error": strings.TrimSpace(string(raw))})
+		writeAPIError(w, resp.StatusCode, strings.TrimSpace(string(raw)), "auth.totp_failed")
 		return
 	}
 
@@ -141,7 +159,7 @@ func (s *server) handleTVLoginTOTP(w http.ResponseWriter, r *http.Request) {
 		Claims   map[string]any `json:"claims"`
 	}
 	if err := json.Unmarshal(raw, &authResult); err != nil {
-		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": "invalid auth response"})
+		writeAPIError(w, http.StatusInternalServerError, "invalid auth response", "auth.invalid_response")
 		return
 	}
 	tenantID := strings.TrimSpace(authResult.TenantID)
@@ -150,9 +168,10 @@ func (s *server) handleTVLoginTOTP(w http.ResponseWriter, r *http.Request) {
 			tenantID = strings.TrimSpace(v)
 		}
 	}
-	sess, err := s.sessions.CreateWithTenant(authResult.UserID, authResult.Username, tenantID)
+	roles := rolesFromClaims(authResult.Claims)
+	sess, err := s.sessions.CreateWithRoles(authResult.UserID, authResult.Username, tenantID, roles)
 	if err != nil {
-		writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": "session error"})
+		writeAPIError(w, http.StatusInternalServerError, "session error", "auth.session_error")
 		return
 	}
 	writeJSONStatus(w, http.StatusOK, map[string]any{

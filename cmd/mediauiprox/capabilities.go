@@ -11,7 +11,7 @@ import (
 
 func (s *server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
@@ -87,8 +87,7 @@ func (s *server) debridModuleLive(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := upstreamClient.Do(req)
 	if err != nil {
 		return false
 	}
@@ -106,8 +105,7 @@ func (s *server) transcoderModuleLive(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := upstreamClient.Do(req)
 	if err != nil {
 		return false
 	}
@@ -132,8 +130,7 @@ func (s *server) libraryModuleLive(ctx context.Context, kind libraryKind) bool {
 	if err != nil {
 		return false
 	}
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := upstreamClient.Do(req)
 	if err != nil {
 		return false
 	}
@@ -145,12 +142,10 @@ func (s *server) requestModuleLive(ctx context.Context) bool {
 	if s.requestHTTP == nil || strings.TrimSpace(s.requestHTTP.String()) == "" {
 		return false
 	}
-	client := &http.Client{Timeout: 2 * time.Second}
-
 	u := *s.requestHTTP
 	u.Path = strings.TrimRight(s.requestHTTP.Path, "/") + "/healthz"
 	if req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil); err == nil {
-		if resp, err := client.Do(req); err == nil {
+		if resp, err := upstreamClient.Do(req); err == nil {
 			defer resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				return true
@@ -165,7 +160,7 @@ func (s *server) requestModuleLive(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
-	resp2, err := client.Do(req2)
+	resp2, err := upstreamClient.Do(req2)
 	if err != nil {
 		return false
 	}

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 )
 
 // libraryKind describes an optional non-video library proxied from module HTTP.
@@ -36,7 +35,7 @@ func (s *server) registerLibraryRoutes(mux *http.ServeMux) {
 
 func (s *server) handleMusicStream(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/stream/music/"), "/")
@@ -54,7 +53,7 @@ func (s *server) handleMusicStream(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleMusicArtistByID(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/music/"), "/")
@@ -75,8 +74,7 @@ func (s *server) handleMusicArtistByID(w http.ResponseWriter, r *http.Request) {
 		writeLibrarySoft(w, kind, err.Error())
 		return
 	}
-	client := &http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := upstreamClient.Do(req)
 	if err != nil {
 		writeLibrarySoft(w, kind, err.Error())
 		return
@@ -84,7 +82,7 @@ func (s *server) handleMusicArtistByID(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode == http.StatusNotFound {
-		http.Error(w, string(body), http.StatusNotFound)
+		writeAPIError(w, http.StatusNotFound, "not found", kind.CodePrefix+".not_found")
 		return
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -98,7 +96,7 @@ func (s *server) handleMusicArtistByID(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleBookAuthorByID(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/books/"), "/")
@@ -119,8 +117,7 @@ func (s *server) handleBookAuthorByID(w http.ResponseWriter, r *http.Request) {
 		writeLibrarySoft(w, kind, err.Error())
 		return
 	}
-	client := &http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := upstreamClient.Do(req)
 	if err != nil {
 		writeLibrarySoft(w, kind, err.Error())
 		return
@@ -128,7 +125,7 @@ func (s *server) handleBookAuthorByID(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode == http.StatusNotFound {
-		http.Error(w, string(body), http.StatusNotFound)
+		writeAPIError(w, http.StatusNotFound, "not found", kind.CodePrefix+".not_found")
 		return
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -142,7 +139,7 @@ func (s *server) handleBookAuthorByID(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleBookStream(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/stream/books/"), "/")
@@ -161,7 +158,7 @@ func (s *server) handleBookStream(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleLibraryList(kind libraryKind) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			writeAPIMethodNotAllowed(w)
 			return
 		}
 		if kind.Upstream == nil || kind.Upstream.String() == "" {
@@ -177,8 +174,7 @@ func (s *server) handleLibraryList(kind libraryKind) http.HandlerFunc {
 			writeLibrarySoft(w, kind, err.Error())
 			return
 		}
-		client := &http.Client{Timeout: 8 * time.Second}
-		resp, err := client.Do(req)
+		resp, err := upstreamClient.Do(req)
 		if err != nil {
 			writeLibrarySoft(w, kind, err.Error())
 			return

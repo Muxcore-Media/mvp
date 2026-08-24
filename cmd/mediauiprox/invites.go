@@ -9,12 +9,12 @@ import (
 
 func (s *server) handleInvitePeek(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	token := strings.TrimSpace(r.URL.Query().Get("token"))
 	if token == "" {
-		http.Error(w, `{"error":"token required"}`, http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "token required", "invite.token_required")
 		return
 	}
 	s.proxyAuthJSON(w, r, s.authInternal+"/api/invite/peek?token="+url.QueryEscape(token))
@@ -22,7 +22,7 @@ func (s *server) handleInvitePeek(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleInviteRedeem(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	s.proxyAuthJSON(w, r, s.authInternal+"/api/invite/redeem")
@@ -31,16 +31,16 @@ func (s *server) handleInviteRedeem(w http.ResponseWriter, r *http.Request) {
 func (s *server) proxyAuthJSON(w http.ResponseWriter, r *http.Request, target string) {
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, target, r.Body)
 	if err != nil {
-		http.Error(w, `{"error":"proxy build failed"}`, http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "proxy build failed", "invite.proxy_failed")
 		return
 	}
 	req.Header.Set("Accept", "application/json")
 	if r.Body != nil && r.Method != http.MethodGet {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := upstreamClient.Do(req)
 	if err != nil {
-		http.Error(w, `{"error":"auth unavailable"}`, http.StatusServiceUnavailable)
+		writeAPIError(w, http.StatusServiceUnavailable, "auth unavailable", "invite.auth_unavailable")
 		return
 	}
 	defer resp.Body.Close()

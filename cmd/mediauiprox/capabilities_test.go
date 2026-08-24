@@ -169,6 +169,26 @@ func TestCapabilitiesCompanionLibrariesFromPathsFile(t *testing.T) {
 	}
 }
 
+func TestCapabilitiesWatchlistWhenListSyncLive(t *testing.T) {
+	s := &server{
+		movies:       stubMoviesClient{},
+		tv:           stubTVClient{},
+		listSync:     dialListSyncFixture(t),
+		libraryPaths: newLibraryPathsStore("", t.TempDir()),
+	}
+	w := httptest.NewRecorder()
+	s.handleCapabilities(w, httptest.NewRequest(http.MethodGet, "/api/capabilities", nil))
+	var body struct {
+		Features map[string]bool `json:"features"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Features["watchlist"] {
+		t.Fatalf("expected watchlist true when list-sync live, got %#v", body.Features)
+	}
+}
+
 // stubMoviesClient / stubTVClient satisfy non-nil checks in handleCapabilities.
 type stubMoviesClient struct{ mgmntv1.MovieManagementServiceClient }
 type stubTVClient struct{ tvmgmtv1.TvManagementServiceClient }

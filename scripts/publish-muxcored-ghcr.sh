@@ -23,6 +23,7 @@ set -euo pipefail
 TAG="${1:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CORE_DIR="${MUXCORE_CORE_DIR:-$ROOT/../core}"
+MONOREPO_ROOT="$(cd "$CORE_DIR/.." && pwd)"
 BUILD_ONLY="${BUILD_ONLY:-0}"
 
 die() { echo "FAIL: $*" >&2; exit 1; }
@@ -56,6 +57,19 @@ fi
 IMAGE="ghcr.io/muxcore-media/muxcored:${TAG}"
 LOCAL="localhost/muxcored:${TAG}"
 
+pick_build() {
+  if [[ -d "$MONOREPO_ROOT/contracts-media" && -d "$MONOREPO_ROOT/contracts-reconciler" ]]; then
+    BUILD_CTX="$MONOREPO_ROOT"
+    DOCKERFILE="$CORE_DIR/Dockerfile.monorepo"
+    echo "using monorepo build context (no private module fetch)"
+    return 0
+  fi
+  BUILD_CTX="$CORE_DIR"
+  DOCKERFILE="$CORE_DIR/Dockerfile"
+}
+
+pick_build
+
 if ! RUNTIME="$(detect_runtime)"; then
   cat >&2 <<EOF
 FAIL: neither podman nor docker is on PATH.
@@ -69,8 +83,8 @@ EOF
   exit 1
 fi
 
-echo "building $LOCAL from $CORE_DIR (runtime=$RUNTIME)"
-"$RUNTIME" build -t "$LOCAL" --build-arg "VERSION=${TAG#v}" -f "$CORE_DIR/Dockerfile" "$CORE_DIR"
+echo "building $LOCAL from $BUILD_CTX (runtime=$RUNTIME dockerfile=$DOCKERFILE)"
+"$RUNTIME" build -t "$LOCAL" --build-arg "VERSION=${TAG#v}" -f "$DOCKERFILE" "$BUILD_CTX"
 "$RUNTIME" tag "$LOCAL" "localhost/muxcored:latest" 2>/dev/null || true
 
 if [[ "$BUILD_ONLY" == "1" ]]; then

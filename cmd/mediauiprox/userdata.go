@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/Muxcore-Media/userdata-local/store"
 )
@@ -26,7 +25,6 @@ type serverUserdata struct {
 	store    *store.Store
 	proxyURL string // empty = local files only
 	pushURL  string // jellyfin bridge /userdata/from-muxcore
-	client   *http.Client
 }
 
 func newServerUserdata(dir string) *serverUserdata {
@@ -48,7 +46,6 @@ func newServerUserdata(dir string) *serverUserdata {
 		store:    st,
 		proxyURL: proxy,
 		pushURL:  push,
-		client:   &http.Client{Timeout: 8 * time.Second},
 	}
 }
 
@@ -112,13 +109,6 @@ func (u *serverUserdata) save(scope store.Scope, incoming store.Blob) (store.Blo
 	return merged, nil
 }
 
-func (u *serverUserdata) httpClient() *http.Client {
-	if u.client != nil {
-		return u.client
-	}
-	return http.DefaultClient
-}
-
 func (u *serverUserdata) proxyGet(scope store.Scope) (store.Blob, bool) {
 	req, err := http.NewRequest(http.MethodGet, u.proxyURL+"/userdata", nil)
 	if err != nil {
@@ -134,7 +124,7 @@ func (u *serverUserdata) proxyGet(scope store.Scope) (store.Blob, bool) {
 		req.Header.Set("X-Tenant-ID", scope.TenantID)
 	}
 	req.Header.Set("X-User-ID", scope.UserID)
-	resp, err := u.httpClient().Do(req)
+	resp, err := upstreamClient.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		if resp != nil {
 			_ = resp.Body.Close()
@@ -169,7 +159,7 @@ func (u *serverUserdata) proxyPut(scope store.Scope, incoming store.Blob) (store
 	if scope.TenantID != "" {
 		req.Header.Set("X-Tenant-ID", scope.TenantID)
 	}
-	resp, err := u.httpClient().Do(req)
+	resp, err := upstreamClient.Do(req)
 	if err != nil {
 		return store.Blob{}, err
 	}
@@ -205,7 +195,7 @@ func (u *serverUserdata) notifyJellyfinPush(scope store.Scope, blob store.Blob) 
 		req.URL.RawQuery = q.Encode()
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-User-ID", scope.UserID)
-		resp, err := u.httpClient().Do(req)
+		resp, err := upstreamClient.Do(req)
 		if err != nil {
 			log.Printf("jellyfin userdata push notify: %v", err)
 			return
@@ -216,11 +206,11 @@ func (u *serverUserdata) notifyJellyfinPush(scope store.Scope, blob store.Blob) 
 
 func (s *server) handleUserdataGet(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	if s.userdata == nil {
-		http.Error(w, `{"error":"userdata disabled"}`, http.StatusServiceUnavailable)
+		writeAPIError(w, http.StatusServiceUnavailable, "userdata disabled", "userdata.disabled")
 		return
 	}
 	scope := s.userdata.scopeFromRequest(r, s.sessions)
@@ -229,22 +219,22 @@ func (s *server) handleUserdataGet(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleUserdataPut(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut && r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	if s.userdata == nil {
-		http.Error(w, `{"error":"userdata disabled"}`, http.StatusServiceUnavailable)
+		writeAPIError(w, http.StatusServiceUnavailable, "userdata disabled", "userdata.disabled")
 		return
 	}
 	var blob store.Blob
 	if err := json.NewDecoder(r.Body).Decode(&blob); err != nil {
-		http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "invalid json", "userdata.invalid_json")
 		return
 	}
 	scope := s.userdata.scopeFromRequest(r, s.sessions)
 	merged, err := s.userdata.save(scope, blob)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, err.Error(), "userdata.save_failed")
 		return
 	}
 	writeJSON(w, merged)

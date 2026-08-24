@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	metadatav1 "github.com/Muxcore-Media/metadata-tmdb/proto/metadatav1"
+	metadatav1 "github.com/Muxcore-Media/contracts-metadata/muxcore/metadata/v1"
 )
 
 type discoverBrowseResult struct {
@@ -58,7 +58,7 @@ func (s *server) handleDiscoverTrending(w http.ResponseWriter, r *http.Request, 
 		Page:       int32(page),
 	})
 	if err != nil {
-		writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "results": []discoverBrowseResult{}})
+		writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "code": "discover.gateway_error", "results": []discoverBrowseResult{}})
 		return
 	}
 	writeJSONStatus(w, http.StatusOK, map[string]any{"results": mapDiscoverBrowseResults(resp.GetResults())})
@@ -78,7 +78,7 @@ func (s *server) handleDiscoverPopular(w http.ResponseWriter, r *http.Request, m
 		Page: int32(page),
 	})
 	if err != nil {
-		writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "results": []discoverBrowseResult{}})
+		writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "code": "discover.gateway_error", "results": []discoverBrowseResult{}})
 		return
 	}
 	writeJSONStatus(w, http.StatusOK, map[string]any{"results": mapDiscoverBrowseResults(resp.GetResults())})

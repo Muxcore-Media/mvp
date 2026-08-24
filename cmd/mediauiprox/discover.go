@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	metadatav1 "github.com/Muxcore-Media/metadata-tmdb/proto/metadatav1"
+	metadatav1 "github.com/Muxcore-Media/contracts-metadata/muxcore/metadata/v1"
 )
 
 type discoverTrailer struct {
@@ -40,11 +40,11 @@ type discoverDetail struct {
 
 func (s *server) handleDiscover(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	if s.metadata == nil {
-		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": "metadata module unavailable"})
+		writeAPIError(w, http.StatusServiceUnavailable, "metadata module unavailable", "discover.unavailable")
 		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/discover/")
@@ -61,7 +61,7 @@ func (s *server) handleDiscover(w http.ResponseWriter, r *http.Request) {
 	kind := strings.ToLower(parts[0])
 	id, err := strconv.ParseInt(parts[1], 10, 32)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid id", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "invalid id", "discover.invalid_id")
 		return
 	}
 
@@ -72,7 +72,7 @@ func (s *server) handleDiscover(w http.ResponseWriter, r *http.Request) {
 			AppendToResponse: []string{"videos", "credits"},
 		})
 		if err != nil {
-			writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "code": "discover.gateway_error"})
 			return
 		}
 		writeJSONStatus(w, http.StatusOK, mapMovieDiscover(resp))
@@ -82,7 +82,7 @@ func (s *server) handleDiscover(w http.ResponseWriter, r *http.Request) {
 			AppendToResponse: []string{"videos", "credits"},
 		})
 		if err != nil {
-			writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
+			writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "code": "discover.gateway_error"})
 			return
 		}
 		writeJSONStatus(w, http.StatusOK, mapTVDiscover(resp))

@@ -74,7 +74,7 @@ func (s *passwordResetStore) save(f passwordResetFile) error {
 
 func (s *server) handlePasswordReset(w http.ResponseWriter, r *http.Request) {
 	if s.passwordResets == nil {
-		http.Error(w, `{"error":"password reset disabled"}`, http.StatusServiceUnavailable)
+		writeAPIError(w, http.StatusServiceUnavailable, "password reset disabled", "password_reset.disabled")
 		return
 	}
 	switch r.Method {
@@ -84,16 +84,16 @@ func (s *server) handlePasswordReset(w http.ResponseWriter, r *http.Request) {
 			Note     string `json:"note"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, `{"error":"invalid json"}`, http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "invalid json", "password_reset.invalid_json")
 			return
 		}
 		username := strings.TrimSpace(body.Username)
 		if username == "" {
-			http.Error(w, `{"error":"username required"}`, http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "username required", "password_reset.username_required")
 			return
 		}
 		if len(username) > 128 {
-			http.Error(w, `{"error":"username too long"}`, http.StatusBadRequest)
+			writeAPIError(w, http.StatusBadRequest, "username too long", "password_reset.username_too_long")
 			return
 		}
 		f := s.passwordResets.load()
@@ -109,7 +109,7 @@ func (s *server) handlePasswordReset(w http.ResponseWriter, r *http.Request) {
 			f.Requests = f.Requests[len(f.Requests)-200:]
 		}
 		if err := s.passwordResets.save(f); err != nil {
-			http.Error(w, `{"error":"save failed"}`, http.StatusInternalServerError)
+			writeAPIError(w, http.StatusInternalServerError, "save failed", "password_reset.save_failed")
 			return
 		}
 		writeJSON(w, map[string]any{
@@ -118,6 +118,10 @@ func (s *server) handlePasswordReset(w http.ResponseWriter, r *http.Request) {
 			"message": "Request recorded. An administrator can reset your password from Admin → Users. No email is sent unless SMTP is configured.",
 		})
 	case http.MethodGet:
+		if !s.sessionHasPrivilegedRole(r) {
+			writeAPIUnauthorized(w)
+			return
+		}
 		f := s.passwordResets.load()
 		pending := make([]passwordResetEntry, 0)
 		for _, e := range f.Requests {
@@ -127,7 +131,7 @@ func (s *server) handlePasswordReset(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, map[string]any{"requests": pending, "count": len(pending)})
 	default:
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 	}
 }
 

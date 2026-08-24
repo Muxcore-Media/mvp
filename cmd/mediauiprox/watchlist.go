@@ -23,11 +23,11 @@ type watchlistItem struct {
 
 func (s *server) handleWatchlist(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	if s.listSync == nil {
-		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": "watchlist module unavailable", "items": []watchlistItem{}})
+		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": "watchlist module unavailable", "code": "watchlist.unavailable", "items": []watchlistItem{}})
 		return
 	}
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
@@ -44,7 +44,7 @@ func (s *server) handleWatchlist(w http.ResponseWriter, r *http.Request) {
 		Page: int32(page), PageSize: int32(pageSize), MediaType: mediaType,
 	})
 	if err != nil {
-		writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "items": []watchlistItem{}})
+		writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "code": "watchlist.gateway_error", "items": []watchlistItem{}})
 		return
 	}
 
