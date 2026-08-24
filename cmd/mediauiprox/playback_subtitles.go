@@ -223,7 +223,7 @@ func (s *server) moduleSubtitleTracks(ctx context.Context, fileID string) []play
 
 func (s *server) handlePlaybackSubtitlesList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	src := strings.TrimSpace(r.URL.Query().Get("src"))
@@ -244,7 +244,7 @@ func (s *server) handlePlaybackSubtitlesList(w http.ResponseWriter, r *http.Requ
 
 func (s *server) handlePlaybackSubtitleServe(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
@@ -255,7 +255,7 @@ func (s *server) handlePlaybackSubtitleServe(w http.ResponseWriter, r *http.Requ
 		}
 	}
 	if id == "" {
-		http.Error(w, "subtitle id required", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "subtitle id required", "subtitles.id_required")
 		return
 	}
 
@@ -270,17 +270,17 @@ func (s *server) handlePlaybackSubtitleServe(w http.ResponseWriter, r *http.Requ
 		u.RawQuery = ""
 		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, u.String(), nil)
 		if err != nil {
-			http.Error(w, "subtitle proxy", http.StatusBadGateway)
+			writeAPIError(w, http.StatusBadGateway, "subtitle proxy", "subtitles.proxy_error")
 			return
 		}
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := upstreamClient.Do(req)
 		if err != nil {
-			http.Error(w, "subtitle unavailable", http.StatusBadGateway)
+			writeAPIError(w, http.StatusBadGateway, "subtitle unavailable", "subtitles.unavailable")
 			return
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			http.Error(w, "subtitle not found", resp.StatusCode)
+			writeAPIError(w, resp.StatusCode, "subtitle not found", "subtitles.not_found")
 			return
 		}
 		w.Header().Set("Content-Type", "text/vtt; charset=utf-8")

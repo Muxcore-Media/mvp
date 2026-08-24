@@ -9,24 +9,24 @@ import (
 
 func (s *server) handleDebridAdd(w http.ResponseWriter, r *http.Request) {
 	if s.debridHTTP == nil || strings.TrimSpace(s.debridHTTP.String()) == "" {
-		http.Error(w, `{"error":"debrid unavailable"}`, http.StatusServiceUnavailable)
+		writeAPIError(w, http.StatusServiceUnavailable, "debrid unavailable", "debrid.unavailable")
 		return
 	}
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	target := strings.TrimRight(s.debridHTTP.String(), "/") + "/api/add"
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, target, r.Body)
 	if err != nil {
-		http.Error(w, `{"error":"proxy build failed"}`, http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "proxy build failed", "debrid.proxy_failed")
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := upstreamClient.Do(req)
 	if err != nil {
-		http.Error(w, `{"error":"debrid unavailable"}`, http.StatusServiceUnavailable)
+		writeAPIError(w, http.StatusServiceUnavailable, "debrid unavailable", "debrid.unavailable")
 		return
 	}
 	defer resp.Body.Close()
@@ -45,11 +45,11 @@ func (s *server) handleDebridStream(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) proxyDebridGET(w http.ResponseWriter, r *http.Request, path string) {
 	if s.debridHTTP == nil || strings.TrimSpace(s.debridHTTP.String()) == "" {
-		http.Error(w, `{"error":"debrid unavailable"}`, http.StatusServiceUnavailable)
+		writeAPIError(w, http.StatusServiceUnavailable, "debrid unavailable", "debrid.unavailable")
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	target := strings.TrimRight(s.debridHTTP.String(), "/") + path
@@ -58,16 +58,16 @@ func (s *server) proxyDebridGET(w http.ResponseWriter, r *http.Request, path str
 	}
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, target, nil)
 	if err != nil {
-		http.Error(w, `{"error":"proxy build failed"}`, http.StatusInternalServerError)
+		writeAPIError(w, http.StatusInternalServerError, "proxy build failed", "debrid.proxy_failed")
 		return
 	}
 	if rng := r.Header.Get("Range"); rng != "" {
 		req.Header.Set("Range", rng)
 	}
 	req.Header.Set("Accept", r.Header.Get("Accept"))
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := upstreamClient.Do(req)
 	if err != nil {
-		http.Error(w, `{"error":"debrid unavailable"}`, http.StatusServiceUnavailable)
+		writeAPIError(w, http.StatusServiceUnavailable, "debrid unavailable", "debrid.unavailable")
 		return
 	}
 	defer resp.Body.Close()

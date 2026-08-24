@@ -14,6 +14,7 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9403 | auth-local gRPC | |
 | 9410 / 9412 | auth-oidc gRPC / HTTP | |
 | 9411 | metadata-tmdb | gRPC |
+| 9413 | metadata-musicbrainz | gRPC |
 | 9420 / 9430 | media-movies gRPC / HTTP | |
 | 9440 / 9450 | media-tvshows gRPC / HTTP | |
 | 9441 | notification-default | |
@@ -44,6 +45,7 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9603 | workflow-tapestry | optional (`MVP_ENABLE_WORKFLOW_TAPESTRY=1`) |
 | 9604 | distributed-lock-sqlite | |
 | 9610 / 9611 | storage-s3 | optional S3/MinIO StorageProvider (gRPC / health) |
+| 9614 | config-watcher | optional (`MVP_ENABLE_CONFIG_WATCHER=1`) |
 | 9620 / 9621 | downloader-sabnzbd | optional SABnzbd usenet bridge (gRPC / health) |
 | 9622 / 9623 | downloader-native-usenet | native usenet engine (gRPC / health) |
 | 9625 | logging-file | |

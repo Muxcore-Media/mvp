@@ -172,6 +172,8 @@ cd ~/Projects/muxcore/mvp
 ./run-host.sh stop-one indexer-piratebay 2>/dev/null || true
 ./run-host.sh stop-one indexer-torznab 2>/dev/null || true
 ./run-host.sh stop-one downloader-native-torrent 2>/dev/null || true
+# Full `./run-host.sh stop` sweeps all MVP binaries (including acquisition peers).
+# Use stop-one/restart when swapping one peer without restarting the whole stack.
 ```
 
 Optional offline-only leave-on:

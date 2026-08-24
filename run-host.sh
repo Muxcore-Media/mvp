@@ -41,11 +41,12 @@ if [[ -n "${WG_CONF:-}" ]]; then
   [[ -n "${DOWNLOADER_REQUIRE_VPN:-}" ]] && ACQ_VPN_ENV+=(DOWNLOADER_REQUIRE_VPN="$DOWNLOADER_REQUIRE_VPN")
 fi
 
-# Dev default is insecure mesh TLS. Staging profile (run-host-staging.sh) leaves this unset.
-if [[ "${MUXCORE_PROFILE:-}" == "staging" ]]; then
-  unset MUXCORE_INSECURE_DISABLE_TLS || true
-else
-  export MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-true}"
+# Dev default is insecure mesh TLS unless MUXCORE_REQUIRE_TLS=1 (vault/production).
+# Explicit MUXCORE_INSECURE_DISABLE_TLS=true or MUXCORE_PROFILE=dev keeps local convenience.
+if [[ "${MUXCORE_REQUIRE_TLS:-}" == "1" ]] || [[ "${MUXCORE_PROFILE:-}" == "staging" ]]; then
+  unset MUXCORE_INSECURE_DISABLE_TLS 2>/dev/null || true
+elif [[ "${MUXCORE_INSECURE_DISABLE_TLS:-}" == "true" ]] || [[ "${MUXCORE_PROFILE:-dev}" == "dev" ]]; then
+  export MUXCORE_INSECURE_DISABLE_TLS=true
 fi
 export MUXCORE_LOG_LEVEL="${MUXCORE_LOG_LEVEL:-info}"
 export MUXCORE_CONFIG="${MUXCORE_CONFIG:-$ROOT/muxcore.json}"
@@ -96,13 +97,12 @@ stop_all() {
     rm -f "$f"
   done
   # Sweep orphan host binaries that outlived their pidfiles (port collisions otherwise).
-  # Skip edge/VPN peers managed by separate units (Caddy, indexer+torrent in muxcore-vpn).
   if [[ -d "$BIN" ]]; then
     for bin in "$BIN"/*; do
       [[ -x "$bin" && -f "$bin" ]] || continue
       base=$(basename "$bin")
       case "$base" in
-        caddy|indexer-piratebay|downloader-native-torrent) continue ;;
+        caddy) continue ;;
       esac
       pkill -x "$base" 2>/dev/null || true
     done
@@ -151,6 +151,22 @@ unregister_best_effort() {
   fi
 }
 
+# Origin-pinned acquisition modules (see docs/ACQUISITION.md). Set MVP_ALLOW_ADHOC_BUILD=1 for local go build fallback.
+ensure_origin_module() {
+  local name="$1"
+  if [[ "${MVP_ALLOW_ADHOC_BUILD:-0}" == "1" ]]; then
+    if [[ ! -x "$BIN/$name" ]]; then
+      echo "building $name (MVP_ALLOW_ADHOC_BUILD=1)"
+      (cd "$WS/$name" && go build -ldflags="-s -w" -o "$BIN/$name" ./cmd/module)
+    fi
+    return 0
+  fi
+  if [[ ! -x "$BIN/$name" ]]; then
+    echo "installing origin-pinned $name"
+    "$ROOT/scripts/install-origin-module.sh" "$name" --dest "$BIN"
+  fi
+}
+
 # When START_ONLY is set (restart path), skip launching other modules.
 maybe_start() {
   local name="$1"
@@ -188,6 +204,9 @@ case "$cmd" in
   up)
     if [[ -z "${START_ONLY:-}" ]]; then
       stop_all
+    fi
+    # Core is started here, not via maybe_start; restart core must re-launch muxcored after stop-one.
+    if [[ -z "${START_ONLY:-}" || "$START_ONLY" == "core" ]]; then
       [[ -x "$BIN/muxcored" ]] || (cd "$WS/core" && go build -o "$BIN/muxcored" ./cmd/muxcored)
       start_one core env \
         MUXCORE_CONFIG="$MUXCORE_CONFIG" \
@@ -205,7 +224,7 @@ case "$cmd" in
         [[ "$code" == "200" || "$code" == "503" ]] && break
         sleep 0.5
       done
-    else
+    elif [[ -n "${START_ONLY:-}" ]]; then
       echo "restart path: starting only $START_ONLY (core left running)"
     fi
 
@@ -242,9 +261,14 @@ case "$cmd" in
       ENCRYPTION_KEY_FILE="$DATA/encryption/master.key" \
       "$BIN/encryption-aesgcm"
 
+    call_policy_dev_file=""
+    if [[ "${MUXCORE_PROFILE:-dev}" == "dev" && "${MUXCORE_REQUIRE_TLS:-}" != "1" ]]; then
+      call_policy_dev_file="$WS/call-policy-default/policies-dev.yaml"
+    fi
     maybe_start call-policy-default env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=call-policy-default MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       CALL_POLICY_FILE="$WS/call-policy-default/policies.yaml" \
+      CALL_POLICY_DEV_FILE="$call_policy_dev_file" \
       "$BIN/call-policy-default"
 
     maybe_start publish-policy-default env \
@@ -257,9 +281,14 @@ case "$cmd" in
       echo "building ratelimit-tokenbucket"
       (cd "$WS/ratelimit-tokenbucket" && go build -o "$BIN/ratelimit-tokenbucket" ./cmd/module)
     fi
+    if [[ "${MUXCORE_REQUIRE_TLS:-}" == "1" ]] || [[ "${MUXCORE_PROFILE:-}" == "staging" ]]; then
+      RATELIMIT_ENABLED="${RATELIMIT_ENABLED:-true}"
+    else
+      RATELIMIT_ENABLED="${RATELIMIT_ENABLED:-false}"
+    fi
     maybe_start ratelimit-tokenbucket env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=ratelimit-tokenbucket MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
-      RATELIMIT_ENABLED="${RATELIMIT_ENABLED:-false}" \
+      RATELIMIT_ENABLED="$RATELIMIT_ENABLED" \
       RATELIMIT_RATE="${RATELIMIT_RATE:-100}" \
       RATELIMIT_BURST="${RATELIMIT_BURST:-200}" \
       "$BIN/ratelimit-tokenbucket"
@@ -357,21 +386,21 @@ case "$cmd" in
     maybe_start metadata-musicbrainz env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=metadata-musicbrainz MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUSICBRAINZ_FIXTURE="${MUSICBRAINZ_FIXTURE:-1}" \
-      METADATA_GRPC_ADDR=":9412" \
+      METADATA_GRPC_ADDR=":9413" \
       "$BIN/metadata-musicbrainz"
 
     maybe_start media-movies env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-movies MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
       MOVIES_DB_PATH="$DATA/movies/movies.db" MOVIES_IMAGE_DIR="$DATA/movies/images" \
-      MOVIES_HTTP_ADDR=":9430" \
+      MOVIES_HTTP_ADDR="127.0.0.1:9430" \
       "$BIN/media-movies"
 
     maybe_start media-tvshows env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-tvshows MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
       TVSHOWS_DB_PATH="$DATA/tvshows/tvshows.db" TVSHOWS_IMAGE_DIR="$DATA/tvshows/images" \
-      TVSHOWS_GRPC_ADDR=":9440" TVSHOWS_HTTP_ADDR=":9450" \
+      TVSHOWS_GRPC_ADDR=":9440" TVSHOWS_HTTP_ADDR="127.0.0.1:9450" \
       "$BIN/media-tvshows"
 
     MUSIC_LIBRARY_ROOT="${MVP_MUSIC_LIBRARY_ROOT:-$DATA/library/music}"
@@ -387,6 +416,7 @@ case "$cmd" in
       MUSIC_GRPC_ADDR=":9640" MUXCORE_HTTP_ADDR=":9641" \
       "$BIN/media-music"
 
+    ensure_origin_module media-automation
     maybe_start media-automation env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-automation MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
@@ -457,6 +487,7 @@ case "$cmd" in
     DOWNLOADS_DIR="${MVP_DOWNLOADS_DIR:-$DATA/downloads}"
     mkdir -p "$LIBRARY_ROOT" "$TV_LIBRARY_ROOT" "$MUSIC_LIBRARY_ROOT" "$DOWNLOADS_DIR"
 
+    ensure_origin_module media-scanner
     maybe_start media-scanner env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-scanner MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
@@ -479,7 +510,7 @@ case "$cmd" in
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=request-media MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
       REQUEST_GRPC_ADDR=":9481" \
-      REQUEST_HTTP_ADDR=":9380" \
+      REQUEST_HTTP_ADDR="127.0.0.1:9380" \
       REQUEST_DATA_DIR="$DATA/request" \
       "$BIN/request-media"
 
@@ -494,21 +525,23 @@ case "$cmd" in
       WEBHOOK_URL="${NOTIFY_WEBHOOK_URL:-http://127.0.0.1:9/muxcore-notify-sink}" \
       "$BIN/notification-default"
 
-    # Soft-config OK without live Jellyfin; set JELLYFIN_BASE_URL + JELLYFIN_API_KEY for sync.
-    maybe_start jellyfin env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=jellyfin MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
-      JELLYFIN_GRPC_ADDR=":9475" JELLYFIN_HTTP_ADDR=":8475" \
-      JELLYFIN_DATA_DIR="$DATA/jellyfin" \
-      JELLYFIN_BASE_URL="${JELLYFIN_BASE_URL:-}" \
-      JELLYFIN_API_KEY="${JELLYFIN_API_KEY:-}" \
-      JELLYFIN_WEBHOOK_SECRET="${JELLYFIN_WEBHOOK_SECRET:-}" \
-      USERDATA_SYNC="${USERDATA_SYNC:-0}" \
-      USERDATA_LOCAL_URL="${USERDATA_LOCAL_URL:-}" \
-      USERDATA_PUSH_TO_JELLYFIN="${USERDATA_PUSH_TO_JELLYFIN:-0}" \
-      "$BIN/jellyfin"
+    # Optional Jellyfin bridge — off by default; standalone Jellyfin at media.zem.systems is separate.
+    if [[ "${MVP_ENABLE_JELLYFIN:-0}" == "1" ]]; then
+      maybe_start jellyfin env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=jellyfin MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        JELLYFIN_GRPC_ADDR=":9475" JELLYFIN_HTTP_ADDR=":8475" \
+        JELLYFIN_DATA_DIR="$DATA/jellyfin" \
+        JELLYFIN_BASE_URL="${JELLYFIN_BASE_URL:-}" \
+        JELLYFIN_API_KEY="${JELLYFIN_API_KEY:-}" \
+        JELLYFIN_WEBHOOK_SECRET="${JELLYFIN_WEBHOOK_SECRET:-}" \
+        USERDATA_SYNC="${USERDATA_SYNC:-1}" \
+        USERDATA_LOCAL_URL="${USERDATA_LOCAL_URL:-http://127.0.0.1:9672}" \
+        USERDATA_PUSH_TO_JELLYFIN="${USERDATA_PUSH_TO_JELLYFIN:-0}" \
+        "$BIN/jellyfin"
+    fi
 
-    # Optional household userdata mesh (HTTP :9672) — prefer with USERDATA_LOCAL_URL for mediauiprox/jellyfin.
-    if [[ "${MVP_ENABLE_USERDATA_LOCAL:-0}" == "1" ]]; then
+    # Optional household userdata mesh (HTTP :9672) — default on; BFF + jellyfin prefer USERDATA_LOCAL_URL.
+    if [[ "${MVP_ENABLE_USERDATA_LOCAL:-1}" == "1" ]]; then
       if [[ ! -x "$BIN/userdata-local" ]]; then
         echo "building userdata-local"
         (cd "$WS/userdata-local" && go build -o "$BIN/userdata-local" ./cmd/module)
@@ -525,10 +558,7 @@ case "$cmd" in
 
     # Optional native torrent peer (:9461) — fixture by default; VPN required for live engine.
     if [[ "${MVP_ENABLE_DOWNLOADER_TORRENT:-0}" == "1" ]]; then
-      if [[ ! -x "$BIN/downloader-native-torrent" ]]; then
-        echo "building downloader-native-torrent"
-        (cd "$WS/downloader-native-torrent" && go build -o "$BIN/downloader-native-torrent" ./cmd/module)
-      fi
+      ensure_origin_module downloader-native-torrent
       maybe_start downloader-native-torrent env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=downloader-native-torrent MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
         DOWNLOADER_GRPC_ADDR=":9461" MUXCORE_HTTP_ADDR=":9464" \
@@ -665,7 +695,7 @@ case "$cmd" in
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-transcoder MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
         PATH="$BIN:${PATH}" \
         TRANSCODER_GRPC_ADDR=":9525" \
-        TRANSCODER_HTTP_ADDR=":9526" \
+        TRANSCODER_HTTP_ADDR="127.0.0.1:9526" \
         TRANSCODER_DB_PATH="$DATA/transcoder/transcoder.db" \
         TRANSCODER_MAX_CONCURRENT="${TRANSCODER_MAX_CONCURRENT:-2}" \
         "$BIN/media-transcoder"
@@ -860,7 +890,7 @@ case "$cmd" in
     if [[ "${MVP_ENABLE_CONFIG_WATCHER:-0}" == "1" ]]; then
       maybe_start config-watcher env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=config-watcher MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
-        CONFIG_WATCHER_GRPC_ADDR=":9612" \
+        CONFIG_WATCHER_GRPC_ADDR=":9614" \
         "$BIN/config-watcher"
     fi
 
@@ -1025,7 +1055,7 @@ case "$cmd" in
           MEDIA_UI_LIBRARY_PATHS_FILE="${MEDIA_UI_LIBRARY_PATHS_FILE:-$DATA/media-ui/library-paths.json}" \
           AUTH_HTTP_URL="${AUTH_HTTP_URL:-https://auth.gringotts}" \
           AUTH_HTTP_INTERNAL_URL="${AUTH_HTTP_INTERNAL_URL:-http://127.0.0.1:9401}" \
-          USERDATA_LOCAL_URL="${USERDATA_LOCAL_URL:-}" \
+          USERDATA_LOCAL_URL="${USERDATA_LOCAL_URL:-http://127.0.0.1:9672}" \
           MOVIES_GRPC_CLIENT_ADDR="127.0.0.1:9420" \
           TVSHOWS_GRPC_CLIENT_ADDR="127.0.0.1:9440" \
           JELLYFIN_GRPC_CLIENT_ADDR="127.0.0.1:9475" \
@@ -1034,6 +1064,7 @@ case "$cmd" in
           REQUEST_MEDIA_HTTP_URL="http://127.0.0.1:9380" \
           SUBTITLES_GRPC_CLIENT_ADDR="127.0.0.1:9520" \
           SUBTITLES_HTTP_URL="http://127.0.0.1:9521" \
+          FFPROBE_GRPC_CLIENT_ADDR="127.0.0.1:9480" \
           TRANSCODER_HTTP_URL="http://127.0.0.1:9526" \
           LISTSYNC_GRPC_CLIENT_ADDR="${LISTSYNC_GRPC_CLIENT_ADDR:-127.0.0.1:9530}" \
           "$BIN/mediauiprox" \
@@ -1046,6 +1077,7 @@ case "$cmd" in
             -auth-http "${AUTH_HTTP_URL:-https://auth.gringotts}" \
             -auth-http-internal "${AUTH_HTTP_INTERNAL_URL:-http://127.0.0.1:9401}" \
             -public-url "${MEDIA_UI_PUBLIC_URL:-https://media.gringotts}" \
+            -ffprobe-grpc "127.0.0.1:9480" \
             -transcoder-http "http://127.0.0.1:9526"
       fi
     fi

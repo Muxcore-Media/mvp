@@ -10,7 +10,7 @@ CORE_CI="$ROOT/core/.forgejo/workflows/ci.yml"
 # Polluted workspace dumps — never add CI here (MASTER-ROADMAP Appendix H).
 SKIP=(
   cache-memory custom-scripts media-jellyfin muxcorectl media-ui
-  _wave1 muxcore-docs media-android
+  _wave1 muxcore-docs
 )
 
 skip_dir() {

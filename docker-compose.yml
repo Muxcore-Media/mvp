@@ -231,7 +231,7 @@ services:
       <<: *module_env
       MUXCORE_MODULE_ID: metadata-musicbrainz
       MUSICBRAINZ_FIXTURE: ${MUSICBRAINZ_FIXTURE:-1}
-      METADATA_GRPC_ADDR: ":9412"
+      METADATA_GRPC_ADDR: ":9413"
 
   media-movies:
     <<: *module

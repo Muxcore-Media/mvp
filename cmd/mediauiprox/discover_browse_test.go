@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	metadatav1 "github.com/Muxcore-Media/metadata-tmdb/proto/metadatav1"
+	metadatav1 "github.com/Muxcore-Media/contracts-metadata/muxcore/metadata/v1"
 )
 
 func TestMapDiscoverBrowseResult(t *testing.T) {

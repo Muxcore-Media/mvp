@@ -12,7 +12,7 @@ const defaultMobileRedirectURI = "muxcore://auth/callback"
 // handleMobileAuthLogin starts browser-based auth (passkeys, OIDC, TOTP, etc.) for native clients.
 func (s *server) handleMobileAuthLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	redirectURI := safeMobileRedirectURI(r.URL.Query().Get("redirect_uri"))
@@ -24,18 +24,18 @@ func (s *server) handleMobileAuthLogin(w http.ResponseWriter, r *http.Request) {
 // handleMobileAuthDone receives the auth module redirect and forwards the one-time code to the app deep link.
 func (s *server) handleMobileAuthDone(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	code := strings.TrimSpace(r.URL.Query().Get("code"))
 	if code == "" {
-		http.Error(w, "code required", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "code required", "mobile_auth.code_required")
 		return
 	}
 	redirectURI := safeMobileRedirectURI(r.URL.Query().Get("redirect_uri"))
 	target, err := appendCodeToRedirect(redirectURI, code)
 	if err != nil {
-		http.Error(w, "invalid redirect", http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "invalid redirect", "mobile_auth.invalid_redirect")
 		return
 	}
 	http.Redirect(w, r, target, http.StatusSeeOther)
@@ -44,28 +44,19 @@ func (s *server) handleMobileAuthDone(w http.ResponseWriter, r *http.Request) {
 // handleMobileSession exchanges an auth one-time code for a bearer session token (JSON API for native clients).
 func (s *server) handleMobileSession(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	var body struct {
 		Code string `json:"code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "invalid json"})
+		writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "invalid json", "code": "mobile_auth.invalid_json"})
 		return
 	}
 	sess, result, err := s.createSessionFromAuthCode(body.Code)
 	if err != nil {
-		switch err.Error() {
-		case "code required":
-			writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		case "auth not configured":
-			writeJSONStatus(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
-		case "code exchange failed":
-			writeJSONStatus(w, http.StatusUnauthorized, map[string]string{"error": "invalid or expired code"})
-		default:
-			writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		}
+		writeAuthExchangeError(w, err)
 		return
 	}
 	writeJSONStatus(w, http.StatusOK, map[string]any{

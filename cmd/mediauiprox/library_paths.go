@@ -315,7 +315,7 @@ func (s *server) handleLibraryMovies(w http.ResponseWriter, r *http.Request, lib
 
 	all, err := s.collectMoviesForLibrary(ctx, lib)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeAPIError(w, http.StatusBadGateway, err.Error(), "movies.gateway_error")
 		return
 	}
 

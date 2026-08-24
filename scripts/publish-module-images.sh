@@ -20,7 +20,8 @@ DEFAULT_MODULES=(
   api-rest auth-local database-sqlite secrets-file encryption-aesgcm
   call-policy-default publish-policy-default health-monitor admin-ui
   media-movies media-tvshows media-scanner media-automation metadata-tmdb
-  request-media media-ui
+  media-custom-formats media-rename media-ffprobe media-subtitles media-root-folders
+  request-media notification-default userdata-local media-ui jellyfin
 )
 
 if [[ -n "${MODULES:-}" ]]; then

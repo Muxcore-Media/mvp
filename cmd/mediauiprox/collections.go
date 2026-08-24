@@ -15,7 +15,7 @@ func (s *server) handleListCollections(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	resp, err := s.movies.ListCollections(ctx, &mgmntv1.ListCollectionsRequest{})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeAPIError(w, http.StatusBadGateway, err.Error(), "collections.gateway_error")
 		return
 	}
 	items := make([]map[string]any, 0, len(resp.GetCollections()))
@@ -42,14 +42,14 @@ func (s *server) handleCollectionByID(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := strconv.Atoi(idStr)
 	if err != nil || id <= 0 {
-		http.Error(w, `{"error":"invalid collection id"}`, http.StatusBadRequest)
+		writeAPIError(w, http.StatusBadRequest, "invalid collection id", "collections.invalid_id")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	resp, err := s.movies.GetCollectionMovies(ctx, &mgmntv1.GetCollectionMoviesRequest{CollectionId: int32(id)})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeAPIError(w, http.StatusBadGateway, err.Error(), "collections.gateway_error")
 		return
 	}
 	movies := make([]map[string]any, 0, len(resp.GetMovies()))

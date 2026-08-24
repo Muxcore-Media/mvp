@@ -86,7 +86,34 @@ Smoke and day-1 demos must use `DOWNLOADER_ENGINE=fixture`. Do not require live 
 
 ## Future: public GHCR mirror
 
-[`../docker-compose.ghcr.yml`](../docker-compose.ghcr.yml) + [`../scripts/publish-muxcored-ghcr.sh`](../scripts/publish-muxcored-ghcr.sh) remain for a later public `ghcr.io/muxcore-media/*` mirror when a GitHub packages-write token exists. Until then, Forgejo/LAN is the supported non-dev path.
+[`../docker-compose.ghcr.yml`](../docker-compose.ghcr.yml) + [`../scripts/publish-muxcored-ghcr.sh`](../scripts/publish-muxcored-ghcr.sh) + [`../scripts/smoke-ghcr-build.sh`](../scripts/smoke-ghcr-build.sh) for a public `ghcr.io/muxcore-media/*` mirror.
+
+Build-only smoke (no push); uses `core/Dockerfile.monorepo` when monorepo siblings exist (verified vault podman 2026-08-22):
+
+```bash
+./scripts/smoke-ghcr-build.sh v0.5.8
+```
+
+Unlock push (interactive on desk — needs read:packages + write:packages):
+
+```bash
+gh auth refresh -h github.com -s write:packages,read:packages,repo
+./scripts/publish-muxcored-ghcr.sh v0.5.8
+```
+
+Alternative when desk lacks packages scope: trigger the **GitHub Release** workflow on `Muxcore-Media/core` (GoReleaser publishes `ghcr.io/muxcore-media/muxcored` via Actions `packages:write`). Self-hosted runners mirror Forgejo — tag `refs/tags/v*` on GitHub must match the mirror or checkout must pin `github.sha` (see `core/.github/workflows/release.yml`; pushing workflow files needs `workflow` scope on `gh`).
+
+**Vault host-build path** (desk without podman; verified BUILD_ONLY 2026-08-22):
+
+```bash
+gh auth refresh -h github.com -s write:packages,read:packages,repo   # required for push
+GHCR_TOKEN="$(gh auth token)" ../../core/scripts/publish-muxcored-vault-ghcr.sh v0.5.8
+# BUILD_ONLY: BUILD_ONLY=1 ../../core/scripts/publish-muxcored-vault-ghcr.sh v0.5.8
+```
+
+Forgejo Actions on vault is currently failing all jobs (~2s); use the script above until runner CI is repaired.
+
+Until `write:packages` is on the gh token, Forgejo/LAN is the supported non-dev path.
 
 ## Playback product decision
 

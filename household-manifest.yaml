@@ -1,0 +1,67 @@
+# Minimal household stack — canonical module set shared by run-host.sh,
+# docker-compose.registry.yml, and publish-module-images.sh.
+#
+# Required: always-on for a working household (library + requests + consumer UI).
+# Recommended: leaf peers and metadata needed for full acquisition/scoring path.
+# Optional: env-gated in run-host; omitted from registry compose by default.
+#
+# Version pin: MUXCORE_IMAGE_TAG / core go.mod (see scripts/bump-core-pins.sh).
+
+version: "1"
+core_tag: v0.5.8
+
+required:
+  - core                    # muxcored mesh
+  - auth-local
+  - database-sqlite
+  - secrets-file
+  - encryption-aesgcm
+  - call-policy-default
+  - publish-policy-default
+  - health-monitor
+  - admin-ui
+  - media-movies
+  - media-tvshows
+  - media-scanner
+  - media-automation
+  - request-media
+  - notification-default
+  - media-ui                  # mediauiprox BFF + static SPA
+  - userdata-local            # household progress/favorites mesh store
+
+recommended:
+  - metadata-tmdb
+  - media-custom-formats
+  - media-rename
+  - media-ffprobe
+  - media-subtitles
+  - media-root-folders
+  - jellyfin                  # optional bridge (MVP_ENABLE_JELLYFIN=1); standalone Jellyfin is separate
+
+optional_env_gated:
+  - name: indexer-piratebay
+    env: MVP_ENABLE_INDEXER_PIRATEBAY
+  - name: indexer-torznab
+    env: MVP_ENABLE_INDEXER_TORZNAB
+  - name: downloader-native-torrent
+    env: MVP_ENABLE_DOWNLOADER_TORRENT
+  - name: downloader-native-usenet
+    env: MVP_ENABLE_DOWNLOADER_USENET
+  - name: downloader-qbittorrent
+    env: MVP_ENABLE_DOWNLOADER_QBITTORRENT
+  - name: downloader-sabnzbd
+    env: MVP_ENABLE_DOWNLOADER_SABNZBD
+  - name: downloader-debrid
+    env: MVP_ENABLE_DOWNLOADER_DEBRID
+  - name: media-transcoder
+    env: MVP_ENABLE_TRANSCODER
+  - name: media-list-sync
+    env: MVP_ENABLE_LIST_SYNC
+  - name: notification-apprise
+    env: MVP_ENABLE_NOTIFICATION_APPRISE
+
+contract_deps:
+  - github.com/Muxcore-Media/contracts-scanner@v0.1.0
+  - github.com/Muxcore-Media/contracts-automation@v0.1.0
+  - github.com/Muxcore-Media/contracts-metadata@v0.1.0
+  - github.com/Muxcore-Media/contracts-media@v0.1.0

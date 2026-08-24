@@ -96,6 +96,56 @@ services:
       core:
         condition: service_healthy
 
+  secrets-file:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/secrets-file:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: secrets-file
+    depends_on:
+      core:
+        condition: service_healthy
+
+  encryption-aesgcm:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/encryption-aesgcm:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: encryption-aesgcm
+    depends_on:
+      core:
+        condition: service_healthy
+
+  call-policy-default:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/call-policy-default:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: call-policy-default
+    depends_on:
+      core:
+        condition: service_healthy
+
+  publish-policy-default:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/publish-policy-default:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: publish-policy-default
+    depends_on:
+      core:
+        condition: service_healthy
+
+  health-monitor:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/health-monitor:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: health-monitor
+    depends_on:
+      core:
+        condition: service_healthy
+
   admin-ui:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/admin-ui:${MUXCORE_IMAGE_TAG:-v0.5.4}
@@ -168,10 +218,117 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: request-media
+      REQUEST_HTTP_ADDR: "127.0.0.1:9380"
       REQUEST_REQUIRE_APPROVAL: ${REQUEST_REQUIRE_APPROVAL:-false}
     depends_on:
       core:
         condition: service_healthy
+
+  metadata-tmdb:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/metadata-tmdb:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: metadata-tmdb
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
+    depends_on:
+      core:
+        condition: service_healthy
+
+  media-custom-formats:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-custom-formats:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-custom-formats
+    depends_on:
+      core:
+        condition: service_healthy
+
+  media-rename:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-rename:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-rename
+    depends_on:
+      core:
+        condition: service_healthy
+
+  media-ffprobe:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-ffprobe:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-ffprobe
+    depends_on:
+      core:
+        condition: service_healthy
+
+  media-subtitles:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-subtitles:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-subtitles
+    depends_on:
+      core:
+        condition: service_healthy
+
+  media-root-folders:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-root-folders:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-root-folders
+    depends_on:
+      core:
+        condition: service_healthy
+
+  notification-default:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/notification-default:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: notification-default
+      WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-http://127.0.0.1:9/muxcore-notify-sink}
+    depends_on:
+      core:
+        condition: service_healthy
+
+  userdata-local:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/userdata-local:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: userdata-local
+      USERDATA_LOCAL_HTTP_ADDR: ":9672"
+      USERDATA_LOCAL_GRPC_ADDR: ":9673"
+    ports:
+      - "${USERDATA_LOCAL_PORT:-9672}:9672"
+    depends_on:
+      core:
+        condition: service_healthy
+
+  media-ui:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-ui:${MUXCORE_IMAGE_TAG:-v0.5.4}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-ui
+      MEDIA_UI_LISTEN: ":5173"
+      MEDIA_UI_REQUIRE_AUTH: "1"
+      AUTH_HTTP_INTERNAL_URL: http://auth-local:9401
+      USERDATA_LOCAL_URL: http://userdata-local:9672
+    ports:
+      - "${MEDIA_UI_PORT:-5173}:5173"
+    depends_on:
+      core:
+        condition: service_healthy
+      auth-local:
+        condition: service_started
+      userdata-local:
+        condition: service_started
 
   jellyfin-bridge:
     <<: *image
@@ -181,9 +338,9 @@ services:
       MUXCORE_MODULE_ID: jellyfin
       JELLYFIN_BASE_URL: ${JELLYFIN_BASE_URL:-}
       JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
-      USERDATA_SYNC: ${USERDATA_SYNC:-0}
+      USERDATA_SYNC: ${USERDATA_SYNC:-1}
       USERDATA_SYNC_INTERVAL_SECONDS: ${USERDATA_SYNC_INTERVAL_SECONDS:-300}
-      USERDATA_LOCAL_URL: ${USERDATA_LOCAL_URL:-}
+      USERDATA_LOCAL_URL: ${USERDATA_LOCAL_URL:-http://userdata-local:9672}
       USERDATA_PUSH_TO_JELLYFIN: ${USERDATA_PUSH_TO_JELLYFIN:-0}
     depends_on:
       core:

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	scannerv1 "github.com/Muxcore-Media/media-scanner/proto/scannerv1"
+	scannerv1 "github.com/Muxcore-Media/contracts-scanner/muxcore/scanner/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )

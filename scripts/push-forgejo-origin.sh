@@ -21,7 +21,7 @@ declare -A FORGEJO_NAME=(
 
 SKIP=(
   cache-memory custom-scripts media-jellyfin muxcorectl media-ui
-  _wave1 muxcore-docs media-android
+  _wave1 muxcore-docs
 )
 
 skip_dir() {

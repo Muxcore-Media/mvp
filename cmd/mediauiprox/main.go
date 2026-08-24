@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -20,11 +21,13 @@ import (
 	"time"
 
 	jellyfinv1 "github.com/Muxcore-Media/jellyfin/proto/jellyfinv1"
+	introoutrov1 "github.com/Muxcore-Media/media-intro-outro/proto/gen/muxcore/introoutro/v1"
+	ffprobev1 "github.com/Muxcore-Media/media-ffprobe/proto/ffprobev1"
 	mgmntv1 "github.com/Muxcore-Media/media-movies/proto/mgmntv1"
 	subtv1 "github.com/Muxcore-Media/media-subtitles/proto/subtv1"
 	tvmgmtv1 "github.com/Muxcore-Media/media-tvshows/proto/tvmgmtv1"
 	listsyncv1 "github.com/Muxcore-Media/media-list-sync/proto/listsyncv1"
-	metadatav1 "github.com/Muxcore-Media/metadata-tmdb/proto/metadatav1"
+	metadatav1 "github.com/Muxcore-Media/contracts-metadata/muxcore/metadata/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -48,6 +51,8 @@ func main() {
 	subtitlesHTTP := flag.String("subtitles-http", envOr("SUBTITLES_HTTP_URL", "http://127.0.0.1:9521"), "media-subtitles HTTP (optional subtitle files)")
 	metadataGRPC := flag.String("metadata-grpc", envOr("METADATA_TMDB_GRPC_ADDR", "127.0.0.1:9411"), "metadata-tmdb gRPC")
 	listSyncGRPC := flag.String("listsync-grpc", envOr("LISTSYNC_GRPC_CLIENT_ADDR", "127.0.0.1:9530"), "media-list-sync gRPC (optional watchlist)")
+	introOutroGRPC := flag.String("intro-outro-grpc", envOr("INTRO_OUTRO_GRPC_CLIENT_ADDR", "127.0.0.1:9710"), "media-intro-outro gRPC (optional intro/outro/credits skip segments)")
+	ffprobeGRPC := flag.String("ffprobe-grpc", envOr("FFPROBE_GRPC_CLIENT_ADDR", "127.0.0.1:9480"), "media-ffprobe gRPC (optional chapter markers)")
 	authHTTP := flag.String("auth-http", envOr("AUTH_HTTP_URL", "http://127.0.0.1:9401"), "browser-facing auth-local URL (login redirects)")
 	authInternal := flag.String("auth-http-internal", envOr("AUTH_HTTP_INTERNAL_URL", ""), "server-side auth-local URL for code exchange (defaults to auth-http)")
 	publicURL := flag.String("public-url", envOr("MEDIA_UI_PUBLIC_URL", ""), "public origin for OAuth callbacks (e.g. https://media.gringotts)")
@@ -121,6 +126,28 @@ func main() {
 		}
 	}
 
+	var introOutroClient introoutrov1.IntroOutroServiceClient
+	if addr := strings.TrimSpace(*introOutroGRPC); addr != "" {
+		introOutroConn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Printf("warn: dial intro-outro grpc %s: %v (intro/outro skip disabled)", addr, err)
+		} else {
+			defer introOutroConn.Close()
+			introOutroClient = introoutrov1.NewIntroOutroServiceClient(introOutroConn)
+		}
+	}
+
+	var ffprobeClient ffprobev1.AnalysisServiceClient
+	if addr := strings.TrimSpace(*ffprobeGRPC); addr != "" {
+		ffprobeConn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Printf("warn: dial ffprobe grpc %s: %v (chapter markers disabled)", addr, err)
+		} else {
+			defer ffprobeConn.Close()
+			ffprobeClient = ffprobev1.NewAnalysisServiceClient(ffprobeConn)
+		}
+	}
+
 	authPublic := strings.TrimRight(*authHTTP, "/")
 	authInt := strings.TrimRight(*authInternal, "/")
 	if authInt == "" {
@@ -143,6 +170,8 @@ func main() {
 		subtitlesHTTP:  optionalURL(*subtitlesHTTP),
 		metadata:       metadataClient,
 		listSync:       listSyncClient,
+		introOutro:     introOutroClient,
+		ffprobe:        ffprobeClient,
 		authHTTP:       authPublic,
 		authInternal:   authInt,
 		publicURL:      strings.TrimRight(*publicURL, "/"),
@@ -177,7 +206,11 @@ func main() {
 	mux.HandleFunc("GET /api/playback/resolve", s.handlePlaybackResolve)
 	mux.HandleFunc("GET /api/playback/subtitles", s.handlePlaybackSubtitlesList)
 	mux.HandleFunc("GET /api/playback/subtitles/{id}", s.handlePlaybackSubtitleServe)
+	mux.HandleFunc("GET /api/playback/segments", s.handlePlaybackSegments)
+	mux.HandleFunc("GET /api/playback/chapters", s.handlePlaybackChapters)
+	mux.HandleFunc("GET /api/playback/analysis", s.handlePlaybackAnalysis)
 	mux.HandleFunc("GET /stream/transcode", s.handleTranscodeStream)
+	mux.HandleFunc("GET /stream/trickplay", s.handleTrickplaySprite)
 	mux.HandleFunc("GET /api/livetv", s.handleLiveTV)
 	mux.HandleFunc("POST /api/livetv/timers", s.handleLiveTVTimer)
 	mux.HandleFunc("/api/quickconnect", s.handleQuickConnect)
@@ -200,16 +233,12 @@ func main() {
 		case http.MethodPut, http.MethodPost:
 			s.handleUserdataPut(w, r)
 		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			writeAPIMethodNotAllowed(w)
 		}
 	})
-	reqProxy := reverseProxy(s.requestHTTP)
-	mux.Handle("/api/search", reqProxy)
+	s.registerRequestMediaRoutes(mux)
 	mux.HandleFunc("/api/discover/", s.handleDiscover)
 	mux.HandleFunc("/api/watchlist", s.handleWatchlist)
-	mux.Handle("/api/request", reqProxy)
-	mux.Handle("/api/requests/", reqProxy)
-	mux.Handle("/api/requests", reqProxy)
 	// SPA uses /images/movies/<rel> and /images/tv/<rel>; modules serve under /images/<rel>.
 	mux.Handle("/images/movies/", imagePrefixProxy("/images/movies", "/images", reverseProxy(s.moviesHTTP)))
 	mux.Handle("/images/tv/", imagePrefixProxy("/images/tv", "/images", reverseProxy(s.tvHTTP)))
@@ -239,6 +268,7 @@ type sessionEntry struct {
 	userID   string
 	username string
 	tenantID string
+	roles    []string
 	expiry   time.Time
 }
 
@@ -247,10 +277,14 @@ func newSessionStore(ttl time.Duration) *sessionStore {
 }
 
 func (s *sessionStore) Create(userID, username string) (string, error) {
-	return s.CreateWithTenant(userID, username, "")
+	return s.CreateWithRoles(userID, username, "", nil)
 }
 
 func (s *sessionStore) CreateWithTenant(userID, username, tenantID string) (string, error) {
+	return s.CreateWithRoles(userID, username, tenantID, nil)
+}
+
+func (s *sessionStore) CreateWithRoles(userID, username, tenantID string, roles []string) (string, error) {
 	var b [32]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return "", err
@@ -259,6 +293,7 @@ func (s *sessionStore) CreateWithTenant(userID, username, tenantID string) (stri
 	s.mu.Lock()
 	s.byID[tok] = sessionEntry{
 		userID: userID, username: username, tenantID: strings.TrimSpace(tenantID),
+		roles: append([]string(nil), roles...),
 		expiry: time.Now().Add(s.ttl),
 	}
 	s.mu.Unlock()
@@ -305,6 +340,8 @@ type server struct {
 	subtitlesHTTP  *url.URL
 	metadata       metadatav1.MetadataServiceClient
 	listSync       listsyncv1.ListSyncServiceClient
+	introOutro     introoutrov1.IntroOutroServiceClient
+	ffprobe        ffprobev1.AnalysisServiceClient
 	authHTTP       string // browser redirects
 	authInternal   string // server-side code exchange
 	publicURL      string // optional fixed public origin
@@ -321,9 +358,13 @@ type server struct {
 func (s *server) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/healthz", "/login", "/auth/callback", "/logout", "/api/password-reset", "/api/quickconnect", "/api/tv/login", "/api/tv/login/totp",
+		case "/healthz", "/login", "/auth/callback", "/logout", "/api/quickconnect", "/api/tv/login", "/api/tv/login/totp",
 			"/api/mobile/auth/login", "/api/mobile/auth/done", "/api/mobile/session",
 			"/api/invite/peek", "/api/invite/redeem":
+			next.ServeHTTP(w, r)
+			return
+		}
+		if r.URL.Path == "/api/password-reset" && r.Method == http.MethodPost {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -347,6 +388,10 @@ func (s *server) withAuth(next http.Handler) http.Handler {
 			return
 		}
 		if wantsJSON(r) || strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/stream/") {
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				writeAPIUnauthorized(w)
+				return
+			}
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -388,17 +433,11 @@ func (s *server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, _, err := s.createSessionFromAuthCode(code)
 	if err != nil {
-		switch err.Error() {
-		case "code required":
-			http.Error(w, "code required", http.StatusBadRequest)
-		case "auth not configured":
+		var ae *authExchangeError
+		if errors.As(err, &ae) && ae.code == "auth.not_configured" {
 			log.Printf("auth exchange: auth not configured (internal=%s)", s.authInternal)
-			http.Error(w, "auth unavailable", http.StatusServiceUnavailable)
-		case "code exchange failed":
-			http.Error(w, "code exchange failed", http.StatusUnauthorized)
-		default:
-			http.Error(w, "session error", http.StatusInternalServerError)
 		}
+		writeAuthExchangeError(w, err)
 		return
 	}
 	origin := s.publicOrigin(r)
@@ -458,7 +497,7 @@ func (s *server) spa(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleListMovies(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	if lib := normalizeLibraryKey(r.URL.Query().Get("library")); lib != "" {
@@ -470,7 +509,7 @@ func (s *server) handleListMovies(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	resp, err := s.movies.ListMovies(ctx, &mgmntv1.ListMoviesRequest{Page: page, PageSize: pageSize})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeAPIError(w, http.StatusBadGateway, err.Error(), "movies.gateway_error")
 		return
 	}
 	items := make([]map[string]any, 0, len(resp.GetMovies()))
@@ -487,7 +526,7 @@ func (s *server) handleListMovies(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleMovieByID(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/api/movies/")
@@ -500,7 +539,7 @@ func (s *server) handleMovieByID(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	resp, err := s.movies.GetMovie(ctx, &mgmntv1.GetMovieRequest{MovieId: id})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeAPIError(w, http.StatusBadGateway, err.Error(), "movies.gateway_error")
 		return
 	}
 	writeJSON(w, map[string]any{"movie": movieJSON(resp.GetMovie())})
@@ -508,7 +547,7 @@ func (s *server) handleMovieByID(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleListTV(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	page, pageSize := pageParams(r)
@@ -516,7 +555,7 @@ func (s *server) handleListTV(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	resp, err := s.tv.ListTVShows(ctx, &tvmgmtv1.ListTVShowsRequest{Page: page, PageSize: pageSize})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeAPIError(w, http.StatusBadGateway, err.Error(), "tv.gateway_error")
 		return
 	}
 	items := make([]map[string]any, 0, len(resp.GetSeries()))
@@ -533,7 +572,7 @@ func (s *server) handleListTV(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleTVByID(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/api/tv/")
@@ -542,11 +581,11 @@ func (s *server) handleTVByID(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	resp, err := s.tv.GetTVShow(ctx, &tvmgmtv1.GetTVShowRequest{SeriesId: id})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		writeAPIError(w, http.StatusBadGateway, err.Error(), "tv.gateway_error")
 		return
 	}
 	writeJSON(w, map[string]any{"show": tvJSON(resp.GetSeries())})
@@ -556,7 +595,7 @@ func (s *server) handleTVByID(w http.ResponseWriter, r *http.Request) {
 // SPA: GET /api/jellyfin/play?mux_id=… → {"url":"…"}. 404 when unlinked; 503 when bridge down.
 func (s *server) handleJellyfinPlay(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		writeAPIMethodNotAllowed(w)
 		return
 	}
 	muxID := strings.TrimSpace(r.URL.Query().Get("mux_id"))
@@ -665,10 +704,15 @@ func tvJSON(m *tvmgmtv1.TVSeries) map[string]any {
 			epStream := ""
 			if ep.GetHasFile() {
 				hasFile = true
-				epStream = "/stream/tv/" + url.PathEscape(ep.GetId())
-				if streamURL == "" {
-					streamURL = epStream
+				if ep.GetId() != "" && ep.GetId() != "_list" {
+					epStream = "/stream/tv/" + url.PathEscape(ep.GetId())
+					if streamURL == "" {
+						streamURL = epStream
+					}
 				}
+			}
+			if ep.GetId() == "_list" {
+				continue
 			}
 			eps = append(eps, map[string]any{
 				"id":             ep.GetId(),
