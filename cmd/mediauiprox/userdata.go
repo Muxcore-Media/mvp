@@ -131,7 +131,7 @@ func (u *serverUserdata) proxyGet(scope store.Scope) (store.Blob, bool) {
 		}
 		return store.Blob{}, false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var blob store.Blob
 	if json.NewDecoder(resp.Body).Decode(&blob) != nil {
 		return store.Blob{}, false
@@ -163,7 +163,7 @@ func (u *serverUserdata) proxyPut(scope store.Scope, incoming store.Blob) (store
 	if err != nil {
 		return store.Blob{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return store.Blob{}, os.ErrInvalid
 	}

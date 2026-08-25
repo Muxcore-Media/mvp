@@ -24,7 +24,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "dial: %v\n", err)
 		os.Exit(1)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	client := scannerv1.NewScannerServiceClient(conn)
 
 	resp, err := client.ScanLibraryRoots(ctx, &scannerv1.ScanLibraryRootsRequest{})

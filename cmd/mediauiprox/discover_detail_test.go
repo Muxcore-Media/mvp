@@ -48,14 +48,14 @@ func dialMetadataFixture(t *testing.T) metadatav1.MetadataServiceClient {
 	}
 	srv := grpc.NewServer()
 	metadatav1.RegisterMetadataServiceServer(srv, fixtureMetadataDiscover{})
-	go srv.Serve(lis)
-	t.Cleanup(func() { srv.Stop(); lis.Close() })
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(func() { srv.Stop(); _ = lis.Close() })
 
 	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	return metadatav1.NewMetadataServiceClient(conn)
 }
 

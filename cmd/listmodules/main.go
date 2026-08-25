@@ -57,7 +57,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "dial: %v\n", err)
 		os.Exit(1)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	missing := 0
 	mismatch := 0

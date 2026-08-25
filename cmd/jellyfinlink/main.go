@@ -31,7 +31,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "dial: %v\n", err)
 		os.Exit(1)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	client := jellyfinv1.NewJellyfinBridgeClient(conn)
 
 	up, err := client.UpsertItemLink(ctx, &jellyfinv1.UpsertItemLinkRequest{
@@ -104,7 +104,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "POST /webhook: %v\n", err)
 		os.Exit(1)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
 		fmt.Fprintf(os.Stderr, "POST /webhook HTTP %d: %s\n", resp.StatusCode, respBody)

@@ -32,11 +32,11 @@ func (f fixtureCollectionsMovies) GetCollectionMovies(_ context.Context, req *mg
 		CollectionId: req.GetCollectionId(),
 		Name:         "Marvel Cinematic Universe",
 		Movies: []*mgmntv1.MovieItem{{
-			Id:       "iron-man",
-			Title:    "Iron Man",
-			Year:     2008,
-			HasFile:  true,
-			Genres:   []string{"Action"},
+			Id:      "iron-man",
+			Title:   "Iron Man",
+			Year:    2008,
+			HasFile: true,
+			Genres:  []string{"Action"},
 		}},
 	}, nil
 }
@@ -48,14 +48,14 @@ func dialMoviesFixture(t *testing.T) mgmntv1.MovieManagementServiceClient {
 	}
 	srv := grpc.NewServer()
 	mgmntv1.RegisterMovieManagementServiceServer(srv, fixtureCollectionsMovies{})
-	go srv.Serve(lis)
-	t.Cleanup(func() { srv.Stop(); lis.Close() })
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(func() { srv.Stop(); _ = lis.Close() })
 
 	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	return mgmntv1.NewMovieManagementServiceClient(conn)
 }
 
@@ -93,9 +93,9 @@ func TestHandleCollectionByID(t *testing.T) {
 		t.Fatalf("status %d body %s", w.Code, w.Body.String())
 	}
 	var body struct {
-		ID    string `json:"id"`
-		Name  string `json:"name"`
-		Total int    `json:"total"`
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Total  int    `json:"total"`
 		Movies []struct {
 			ID    string `json:"id"`
 			Title string `json:"title"`

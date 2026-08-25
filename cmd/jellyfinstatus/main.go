@@ -24,7 +24,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "dial: %v\n", err)
 		os.Exit(1)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	st, err := jellyfinv1.NewJellyfinBridgeClient(conn).Status(ctx, &jellyfinv1.StatusRequest{})
 	if err != nil {

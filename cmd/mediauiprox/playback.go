@@ -81,14 +81,14 @@ func loadPlaybackPolicy() playbackPolicy {
 }
 
 type playbackResolveResponse struct {
-	StreamURL          string `json:"stream_url"`
-	Mode               string `json:"mode"`
-	ResumeEnabled      bool   `json:"resume_enabled"`
-	TranscoderEnabled  bool   `json:"transcoder_enabled"`
-	PreferDirectPlay   bool   `json:"prefer_direct_play"`
-	MaxBitrateMbps     string `json:"max_bitrate_mbps"`
-	TrickplayEnabled   bool   `json:"trickplay_enabled"`
-	TranscoderAvailable bool  `json:"transcoder_available"`
+	StreamURL           string `json:"stream_url"`
+	Mode                string `json:"mode"`
+	ResumeEnabled       bool   `json:"resume_enabled"`
+	TranscoderEnabled   bool   `json:"transcoder_enabled"`
+	PreferDirectPlay    bool   `json:"prefer_direct_play"`
+	MaxBitrateMbps      string `json:"max_bitrate_mbps"`
+	TrickplayEnabled    bool   `json:"trickplay_enabled"`
+	TranscoderAvailable bool   `json:"transcoder_available"`
 }
 
 func (s *server) handlePlaybackResolve(w http.ResponseWriter, r *http.Request) {

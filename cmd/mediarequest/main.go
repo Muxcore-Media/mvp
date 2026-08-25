@@ -47,7 +47,7 @@ func main() {
 		os.Exit(1)
 	}
 	searchBody, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		fmt.Fprintf(os.Stderr, "search HTTP %d: %s\n", resp.StatusCode, searchBody)
 		os.Exit(1)
@@ -104,7 +104,7 @@ func main() {
 		os.Exit(1)
 	}
 	reqBody, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		fmt.Fprintf(os.Stderr, "POST /api/request HTTP %d: %s\n", resp.StatusCode, reqBody)
 		os.Exit(1)
@@ -131,7 +131,7 @@ func main() {
 		os.Exit(1)
 	}
 	listBody, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != 200 {
 		fmt.Fprintf(os.Stderr, "GET /api/requests HTTP %d: %s\n", resp.StatusCode, listBody)
 		os.Exit(1)

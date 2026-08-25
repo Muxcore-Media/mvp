@@ -38,7 +38,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "dial tvshows: %v\n", err)
 		os.Exit(1)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	client := tvmgmtv1.NewTvManagementServiceClient(conn)
 
 	add, err := client.AddTVShow(ctx, &tvmgmtv1.AddTVShowRequest{
@@ -78,7 +78,7 @@ func ensureRoot(ctx context.Context, addr, path string) error {
 	if err != nil {
 		return fmt.Errorf("dial roots: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	client := rootsv1.NewRootFolderServiceClient(conn)
 
 	list, err := client.ListRoots(ctx, &rootsv1.ListRootsRequest{MediaKind: "tv"})

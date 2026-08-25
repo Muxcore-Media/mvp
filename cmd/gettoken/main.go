@@ -30,7 +30,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "dial: %v\n", err)
 		os.Exit(1)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	cred, _ := json.Marshal(map[string]string{"username": *user, "password": *pass})
 	resp, err := authv1.NewAuthServiceClient(conn).Authenticate(ctx, &authv1.AuthenticateRequest{
 		CredentialType: "password",

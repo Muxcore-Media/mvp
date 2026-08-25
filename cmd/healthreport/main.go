@@ -32,7 +32,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "dial: %v\n", err)
 		os.Exit(1)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	hm := healthmonitorv1.NewHealthMonitorServiceClient(conn)
 
 	_, err = hm.ReportHealth(ctx, &healthmonitorv1.ReportHealthRequest{
@@ -71,7 +71,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "GET /status: %v\n", err)
 		os.Exit(1)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
 		fmt.Fprintf(os.Stderr, "GET /status HTTP %d: %s\n", resp.StatusCode, body)
@@ -124,7 +124,7 @@ func assertMeshDegraded(ctx context.Context, mesh, moduleID string, hm healthmon
 	if err != nil {
 		return fmt.Errorf("dial mesh: %w", err)
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	ch, cancel, err := c.Events.Subscribe(ctx, "module.degraded")
 	if err != nil {

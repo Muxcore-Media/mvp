@@ -51,7 +51,7 @@ func (s *server) proxyRequestMedia(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadGateway, "request-media unavailable", "request.unavailable")
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	for k, vals := range resp.Header {
 		for _, v := range vals {
 			w.Header().Add(k, v)

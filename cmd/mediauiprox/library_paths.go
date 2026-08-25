@@ -172,7 +172,7 @@ func genreSuggestsLibrary(genre, lib string) bool {
 }
 
 var (
-	homeVideoHeuristicRE = regexp.MustCompile(`(?i)home.?video|home.?movie|personal|family|vacation|wedding|camcorder`)
+	homeVideoHeuristicRE     = regexp.MustCompile(`(?i)home.?video|home.?movie|personal|family|vacation|wedding|camcorder`)
 	musicVideoHeuristicHints = []string{"music video", "musicvideo", "official video"}
 )
 

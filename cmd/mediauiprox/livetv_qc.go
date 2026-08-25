@@ -86,8 +86,8 @@ func defaultLiveTVFile() liveTVFile {
 		Timers: []liveTVTimer{
 			{
 				ID: "t1", ChannelID: "ch1", Title: "Demo series timer",
-				Start: now.Add(2 * time.Hour).Format(time.RFC3339),
-				End:   now.Add(3 * time.Hour).Format(time.RFC3339),
+				Start:  now.Add(2 * time.Hour).Format(time.RFC3339),
+				End:    now.Add(3 * time.Hour).Format(time.RFC3339),
 				Series: true,
 			},
 		},
@@ -503,7 +503,7 @@ func (s *server) handleTrackLyrics(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadGateway, err.Error(), "music.gateway_error")
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(resp.Body)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)

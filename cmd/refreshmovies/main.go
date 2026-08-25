@@ -25,7 +25,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "dial: %v\n", err)
 		os.Exit(1)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	client := mgmntv1.NewMovieManagementServiceClient(conn)
 
 	var (

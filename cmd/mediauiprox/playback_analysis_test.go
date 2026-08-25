@@ -62,9 +62,9 @@ func TestHandlePlaybackAnalysisDisabled(t *testing.T) {
 
 func TestFromAnalyzeResponseMapsTracks(t *testing.T) {
 	out := fromAnalyzeResponse("/stream/movies/m1", &ffprobev1.AnalyzeResponse{
-		Container:         "mkv",
-		DurationSeconds:   7200,
-		OverallBitrate:    12_000_000,
+		Container:       "mkv",
+		DurationSeconds: 7200,
+		OverallBitrate:  12_000_000,
 		Video: &ffprobev1.VideoStream{
 			Codec:           "hevc",
 			Height:          2160,

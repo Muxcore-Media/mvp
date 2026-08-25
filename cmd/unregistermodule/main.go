@@ -41,7 +41,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "dial: %v\n", err)
 		os.Exit(1)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	_, err = modulev1.NewModuleRegistrationClient(conn).Unregister(ctx, &modulev1.UnregisterRequest{ModuleId: id})
 	if err != nil {

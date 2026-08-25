@@ -21,11 +21,11 @@ type fixtureMoviesAPI struct {
 func (f fixtureMoviesAPI) ListMovies(_ context.Context, req *mgmntv1.ListMoviesRequest) (*mgmntv1.ListMoviesResponse, error) {
 	return &mgmntv1.ListMoviesResponse{
 		Movies: []*mgmntv1.MovieItem{{
-			Id:       "m1",
-			Title:    "Inception",
-			Year:     2010,
-			HasFile:  true,
-			Genres:   []string{"Sci-Fi"},
+			Id:          "m1",
+			Title:       "Inception",
+			Year:        2010,
+			HasFile:     true,
+			Genres:      []string{"Sci-Fi"},
 			VoteAverage: 8.8,
 		}},
 		Total:    1,
@@ -53,14 +53,14 @@ func dialMoviesAPIFixture(t *testing.T) mgmntv1.MovieManagementServiceClient {
 	}
 	srv := grpc.NewServer()
 	mgmntv1.RegisterMovieManagementServiceServer(srv, fixtureMoviesAPI{})
-	go srv.Serve(lis)
-	t.Cleanup(func() { srv.Stop(); lis.Close() })
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(func() { srv.Stop(); _ = lis.Close() })
 
 	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	return mgmntv1.NewMovieManagementServiceClient(conn)
 }
 
@@ -71,9 +71,9 @@ type fixtureTVAPI struct {
 func (f fixtureTVAPI) ListTVShows(_ context.Context, req *tvmgmtv1.ListTVShowsRequest) (*tvmgmtv1.ListTVShowsResponse, error) {
 	return &tvmgmtv1.ListTVShowsResponse{
 		Series: []*tvmgmtv1.TVSeries{{
-			Id:    "s1",
-			Name:  "Severance",
-			Year:  2022,
+			Id:     "s1",
+			Name:   "Severance",
+			Year:   2022,
 			Genres: []string{"Sci-Fi"},
 			Seasons: []*tvmgmtv1.TVSeason{{
 				Id:           "season-1",
@@ -122,14 +122,14 @@ func dialTVAPIFixture(t *testing.T) tvmgmtv1.TvManagementServiceClient {
 	}
 	srv := grpc.NewServer()
 	tvmgmtv1.RegisterTvManagementServiceServer(srv, fixtureTVAPI{})
-	go srv.Serve(lis)
-	t.Cleanup(func() { srv.Stop(); lis.Close() })
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(func() { srv.Stop(); _ = lis.Close() })
 
 	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	return tvmgmtv1.NewTvManagementServiceClient(conn)
 }
 

@@ -10,28 +10,28 @@ import (
 )
 
 type playbackAnalysisVideo struct {
-	Codec            string  `json:"codec,omitempty"`
-	CodecLong        string  `json:"codec_long,omitempty"`
-	Width            int32   `json:"width,omitempty"`
-	Height           int32   `json:"height,omitempty"`
-	ResolutionLabel  string  `json:"resolution_label,omitempty"`
-	FrameRate        float64 `json:"frame_rate,omitempty"`
-	BitrateKbps      int32   `json:"bitrate_kbps,omitempty"`
-	HDR              bool    `json:"hdr,omitempty"`
-	HDRType          string  `json:"hdr_type,omitempty"`
-	AspectRatio      string  `json:"aspect_ratio,omitempty"`
+	Codec           string  `json:"codec,omitempty"`
+	CodecLong       string  `json:"codec_long,omitempty"`
+	Width           int32   `json:"width,omitempty"`
+	Height          int32   `json:"height,omitempty"`
+	ResolutionLabel string  `json:"resolution_label,omitempty"`
+	FrameRate       float64 `json:"frame_rate,omitempty"`
+	BitrateKbps     int32   `json:"bitrate_kbps,omitempty"`
+	HDR             bool    `json:"hdr,omitempty"`
+	HDRType         string  `json:"hdr_type,omitempty"`
+	AspectRatio     string  `json:"aspect_ratio,omitempty"`
 }
 
 type playbackAnalysisAudio struct {
-	Index         int32   `json:"index"`
-	Codec         string  `json:"codec,omitempty"`
-	CodecLong     string  `json:"codec_long,omitempty"`
-	Language      string  `json:"language,omitempty"`
-	Channels      int32   `json:"channels,omitempty"`
-	ChannelLayout string  `json:"channel_layout,omitempty"`
-	BitrateKbps   int32   `json:"bitrate_kbps,omitempty"`
-	Profile       string  `json:"profile,omitempty"`
-	Label         string  `json:"label,omitempty"`
+	Index         int32  `json:"index"`
+	Codec         string `json:"codec,omitempty"`
+	CodecLong     string `json:"codec_long,omitempty"`
+	Language      string `json:"language,omitempty"`
+	Channels      int32  `json:"channels,omitempty"`
+	ChannelLayout string `json:"channel_layout,omitempty"`
+	BitrateKbps   int32  `json:"bitrate_kbps,omitempty"`
+	Profile       string `json:"profile,omitempty"`
+	Label         string `json:"label,omitempty"`
 }
 
 type playbackAnalysisSubtitle struct {
@@ -54,16 +54,16 @@ type playbackAnalysisQuality struct {
 }
 
 type playbackAnalysisResponse struct {
-	Src          string                     `json:"src"`
-	Enabled      bool                       `json:"enabled"`
-	Container    string                     `json:"container,omitempty"`
-	DurationSec  float64                    `json:"duration_seconds,omitempty"`
-	BitrateKbps  int32                      `json:"bitrate_kbps,omitempty"`
-	InfoLine     string                     `json:"info_line,omitempty"`
-	Video        *playbackAnalysisVideo     `json:"video,omitempty"`
-	Audio        []playbackAnalysisAudio    `json:"audio,omitempty"`
-	Subtitles    []playbackAnalysisSubtitle `json:"subtitles,omitempty"`
-	Quality      *playbackAnalysisQuality   `json:"quality,omitempty"`
+	Src         string                     `json:"src"`
+	Enabled     bool                       `json:"enabled"`
+	Container   string                     `json:"container,omitempty"`
+	DurationSec float64                    `json:"duration_seconds,omitempty"`
+	BitrateKbps int32                      `json:"bitrate_kbps,omitempty"`
+	InfoLine    string                     `json:"info_line,omitempty"`
+	Video       *playbackAnalysisVideo     `json:"video,omitempty"`
+	Audio       []playbackAnalysisAudio    `json:"audio,omitempty"`
+	Subtitles   []playbackAnalysisSubtitle `json:"subtitles,omitempty"`
+	Quality     *playbackAnalysisQuality   `json:"quality,omitempty"`
 }
 
 func bitrateKbps(bps float64) int32 {

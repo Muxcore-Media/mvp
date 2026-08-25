@@ -15,12 +15,12 @@ import (
 
 func TestCapabilitiesOptionalLibrariesDown(t *testing.T) {
 	s := &server{
-		movies:      stubMoviesClient{},
-		tv:          stubTVClient{},
-		requestHTTP: mustURL("http://127.0.0.1:1"),
-		musicHTTP:   mustURL("http://127.0.0.1:1"),
-		booksHTTP:   mustURL("http://127.0.0.1:1"),
-		livetv:      newLiveTVStore("", t.TempDir()),
+		movies:       stubMoviesClient{},
+		tv:           stubTVClient{},
+		requestHTTP:  mustURL("http://127.0.0.1:1"),
+		musicHTTP:    mustURL("http://127.0.0.1:1"),
+		booksHTTP:    mustURL("http://127.0.0.1:1"),
+		livetv:       newLiveTVStore("", t.TempDir()),
 		libraryPaths: newLibraryPathsStore("", t.TempDir()),
 		quickconnect: newQuickConnectStore(t.TempDir()),
 		userdata:     newServerUserdata(t.TempDir()),
@@ -124,10 +124,10 @@ func TestCapabilitiesRequestModuleSearchFallback(t *testing.T) {
 
 	reqURL, _ := url.Parse(reqMod.URL)
 	s := &server{
-		movies:      stubMoviesClient{},
-		tv:          stubTVClient{},
-		requestHTTP: reqURL,
-		livetv:      newLiveTVStore("", t.TempDir()),
+		movies:       stubMoviesClient{},
+		tv:           stubTVClient{},
+		requestHTTP:  reqURL,
+		livetv:       newLiveTVStore("", t.TempDir()),
 		libraryPaths: newLibraryPathsStore("", t.TempDir()),
 		quickconnect: newQuickConnectStore(t.TempDir()),
 		userdata:     newServerUserdata(t.TempDir()),
@@ -190,5 +190,9 @@ func TestCapabilitiesWatchlistWhenListSyncLive(t *testing.T) {
 }
 
 // stubMoviesClient / stubTVClient satisfy non-nil checks in handleCapabilities.
-type stubMoviesClient struct{ mgmntv1.MovieManagementServiceClient }
-type stubTVClient struct{ tvmgmtv1.TvManagementServiceClient }
+type stubMoviesClient struct {
+	mgmntv1.MovieManagementServiceClient
+}
+type stubTVClient struct {
+	tvmgmtv1.TvManagementServiceClient
+}
