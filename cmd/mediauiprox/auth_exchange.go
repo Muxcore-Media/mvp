@@ -69,7 +69,7 @@ func (s *server) exchangeAuthCode(code string) (*authExchangeResult, error) {
 	if err != nil {
 		return nil, newAuthErr(http.StatusServiceUnavailable, "auth unavailable", "auth.unavailable")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, newAuthErr(http.StatusUnauthorized, "code exchange failed", "auth.exchange_failed")
 	}

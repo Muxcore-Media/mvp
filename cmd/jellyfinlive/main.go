@@ -25,7 +25,7 @@ func main() {
 	if err != nil {
 		fail("dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	client := jellyfinv1.NewJellyfinBridgeClient(conn)
 
 	st, err := client.Status(ctx, &jellyfinv1.StatusRequest{})

@@ -51,14 +51,14 @@ func dialJellyfinFixture(t *testing.T, playURL, baseURL string, playFail bool) j
 	}
 	srv := grpc.NewServer()
 	jellyfinv1.RegisterJellyfinBridgeServer(srv, fixtureJellyfinBridge{playURL: playURL, baseURL: baseURL, playFail: playFail})
-	go srv.Serve(lis)
-	t.Cleanup(func() { srv.Stop(); lis.Close() })
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(func() { srv.Stop(); _ = lis.Close() })
 
 	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	return jellyfinv1.NewJellyfinBridgeClient(conn)
 }
 

@@ -46,7 +46,7 @@ func (s *server) handleTVLogin(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusServiceUnavailable, "auth unavailable", "auth.unavailable")
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode == http.StatusUnauthorized {
 		writeAPIError(w, http.StatusUnauthorized, "invalid username or password", "auth.invalid_credentials")
@@ -141,7 +141,7 @@ func (s *server) handleTVLoginTOTP(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusServiceUnavailable, "auth unavailable", "auth.unavailable")
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode == http.StatusUnauthorized {
 		writeAPIError(w, http.StatusUnauthorized, "invalid TOTP code", "auth.invalid_totp")

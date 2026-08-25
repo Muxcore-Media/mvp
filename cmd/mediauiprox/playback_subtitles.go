@@ -278,7 +278,7 @@ func (s *server) handlePlaybackSubtitleServe(w http.ResponseWriter, r *http.Requ
 			writeAPIError(w, http.StatusBadGateway, "subtitle unavailable", "subtitles.unavailable")
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusOK {
 			writeAPIError(w, resp.StatusCode, "subtitle not found", "subtitles.not_found")
 			return

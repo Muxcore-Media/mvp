@@ -38,7 +38,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "dial movies: %v\n", err)
 		os.Exit(1)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	client := mgmntv1.NewMovieManagementServiceClient(conn)
 
 	add, err := client.AddMovie(ctx, &mgmntv1.AddMovieRequest{
@@ -77,7 +77,7 @@ func ensureRoot(ctx context.Context, addr, path string) error {
 	if err != nil {
 		return fmt.Errorf("dial roots: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	client := rootsv1.NewRootFolderServiceClient(conn)
 
 	list, err := client.ListRoots(ctx, &rootsv1.ListRootsRequest{MediaKind: "movies"})

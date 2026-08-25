@@ -59,14 +59,14 @@ func dialListSyncFixture(t *testing.T) listsyncv1.ListSyncServiceClient {
 	}
 	srv := grpc.NewServer()
 	listsyncv1.RegisterListSyncServiceServer(srv, fixtureListSync{})
-	go srv.Serve(lis)
-	t.Cleanup(func() { srv.Stop(); lis.Close() })
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(func() { srv.Stop(); _ = lis.Close() })
 
 	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { conn.Close() })
+	t.Cleanup(func() { _ = conn.Close() })
 	return listsyncv1.NewListSyncServiceClient(conn)
 }
 

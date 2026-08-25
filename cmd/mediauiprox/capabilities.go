@@ -91,7 +91,7 @@ func (s *server) debridModuleLive(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return resp.StatusCode == http.StatusOK
 }
 
@@ -109,7 +109,7 @@ func (s *server) transcoderModuleLive(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return resp.StatusCode == http.StatusOK
 }
 
@@ -134,7 +134,7 @@ func (s *server) libraryModuleLive(ctx context.Context, kind libraryKind) bool {
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return resp.StatusCode == http.StatusOK
 }
 
@@ -146,7 +146,7 @@ func (s *server) requestModuleLive(ctx context.Context) bool {
 	u.Path = strings.TrimRight(s.requestHTTP.Path, "/") + "/healthz"
 	if req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil); err == nil {
 		if resp, err := upstreamClient.Do(req); err == nil {
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 			if resp.StatusCode == http.StatusOK {
 				return true
 			}
@@ -164,6 +164,6 @@ func (s *server) requestModuleLive(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 	return resp2.StatusCode != http.StatusNotFound
 }

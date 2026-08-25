@@ -91,7 +91,9 @@ func TestQuickConnectApproveRequiresLogin(t *testing.T) {
 	regW := httptest.NewRecorder()
 	s.handleQuickConnect(regW, httptest.NewRequest(http.MethodPost, "/api/quickconnect", strings.NewReader(`{"action":"register"}`)))
 	var reg map[string]any
-	json.Unmarshal(regW.Body.Bytes(), &reg)
+	if err := json.Unmarshal(regW.Body.Bytes(), &reg); err != nil {
+		t.Fatal(err)
+	}
 	code := reg["code"].(string)
 
 	approveW := httptest.NewRecorder()

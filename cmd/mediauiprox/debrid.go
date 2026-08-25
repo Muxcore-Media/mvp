@@ -29,7 +29,7 @@ func (s *server) handleDebridAdd(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusServiceUnavailable, "debrid unavailable", "debrid.unavailable")
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
@@ -70,7 +70,7 @@ func (s *server) proxyDebridGET(w http.ResponseWriter, r *http.Request, path str
 		writeAPIError(w, http.StatusServiceUnavailable, "debrid unavailable", "debrid.unavailable")
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	for _, h := range []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"} {
 		if v := resp.Header.Get(h); v != "" {
 			w.Header().Set(h, v)

@@ -20,14 +20,14 @@ import (
 	"sync"
 	"time"
 
+	metadatav1 "github.com/Muxcore-Media/contracts-metadata/muxcore/metadata/v1"
 	jellyfinv1 "github.com/Muxcore-Media/jellyfin/proto/jellyfinv1"
-	introoutrov1 "github.com/Muxcore-Media/media-intro-outro/proto/gen/muxcore/introoutro/v1"
 	ffprobev1 "github.com/Muxcore-Media/media-ffprobe/proto/ffprobev1"
+	introoutrov1 "github.com/Muxcore-Media/media-intro-outro/proto/gen/muxcore/introoutro/v1"
+	listsyncv1 "github.com/Muxcore-Media/media-list-sync/proto/listsyncv1"
 	mgmntv1 "github.com/Muxcore-Media/media-movies/proto/mgmntv1"
 	subtv1 "github.com/Muxcore-Media/media-subtitles/proto/subtv1"
 	tvmgmtv1 "github.com/Muxcore-Media/media-tvshows/proto/tvmgmtv1"
-	listsyncv1 "github.com/Muxcore-Media/media-list-sync/proto/listsyncv1"
-	metadatav1 "github.com/Muxcore-Media/contracts-metadata/muxcore/metadata/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -81,17 +81,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("dial movies: %v", err)
 	}
-	defer moviesConn.Close()
+	defer func() { _ = moviesConn.Close() }()
 	tvConn, err := grpc.NewClient(*tvGRPC, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatalf("dial tv: %v", err)
 	}
-	defer tvConn.Close()
+	defer func() { _ = tvConn.Close() }()
 	jellyfinConn, err := grpc.NewClient(*jellyfinGRPC, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatalf("dial jellyfin: %v", err)
 	}
-	defer jellyfinConn.Close()
+	defer func() { _ = jellyfinConn.Close() }()
 
 	var subtitlesClient subtv1.SubtitleServiceClient
 	if addr := strings.TrimSpace(*subtitlesGRPC); addr != "" {
@@ -99,7 +99,7 @@ func main() {
 		if err != nil {
 			log.Printf("warn: dial subtitles grpc %s: %v (subtitle tracks disabled)", addr, err)
 		} else {
-			defer subtitlesConn.Close()
+			defer func() { _ = subtitlesConn.Close() }()
 			subtitlesClient = subtv1.NewSubtitleServiceClient(subtitlesConn)
 		}
 	}
@@ -110,7 +110,7 @@ func main() {
 		if err != nil {
 			log.Printf("warn: dial metadata grpc %s: %v (discover details disabled)", addr, err)
 		} else {
-			defer metadataConn.Close()
+			defer func() { _ = metadataConn.Close() }()
 			metadataClient = metadatav1.NewMetadataServiceClient(metadataConn)
 		}
 	}
@@ -121,7 +121,7 @@ func main() {
 		if err != nil {
 			log.Printf("warn: dial list-sync grpc %s: %v (watchlist disabled)", addr, err)
 		} else {
-			defer listSyncConn.Close()
+			defer func() { _ = listSyncConn.Close() }()
 			listSyncClient = listsyncv1.NewListSyncServiceClient(listSyncConn)
 		}
 	}
@@ -132,7 +132,7 @@ func main() {
 		if err != nil {
 			log.Printf("warn: dial intro-outro grpc %s: %v (intro/outro skip disabled)", addr, err)
 		} else {
-			defer introOutroConn.Close()
+			defer func() { _ = introOutroConn.Close() }()
 			introOutroClient = introoutrov1.NewIntroOutroServiceClient(introOutroConn)
 		}
 	}
@@ -143,7 +143,7 @@ func main() {
 		if err != nil {
 			log.Printf("warn: dial ffprobe grpc %s: %v (chapter markers disabled)", addr, err)
 		} else {
-			defer ffprobeConn.Close()
+			defer func() { _ = ffprobeConn.Close() }()
 			ffprobeClient = ffprobev1.NewAnalysisServiceClient(ffprobeConn)
 		}
 	}
@@ -293,7 +293,7 @@ func (s *sessionStore) CreateWithRoles(userID, username, tenantID string, roles 
 	s.mu.Lock()
 	s.byID[tok] = sessionEntry{
 		userID: userID, username: username, tenantID: strings.TrimSpace(tenantID),
-		roles: append([]string(nil), roles...),
+		roles:  append([]string(nil), roles...),
 		expiry: time.Now().Add(s.ttl),
 	}
 	s.mu.Unlock()
@@ -796,10 +796,9 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 func reverseProxy(target *url.URL) http.Handler {
 	p := httputil.NewSingleHostReverseProxy(target)
-	orig := p.Director
-	p.Director = func(r *http.Request) {
-		orig(r)
-		r.Host = target.Host
+	p.Rewrite = func(pr *httputil.ProxyRequest) {
+		pr.SetURL(target)
+		pr.Out.Host = target.Host
 	}
 	p.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		http.Error(w, err.Error(), http.StatusBadGateway)
