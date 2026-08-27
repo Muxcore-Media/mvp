@@ -187,3 +187,21 @@ DOWNLOADER_ENGINE=fixture
 ```
 
 Then `./run-host.sh restart indexer-piratebay downloader-native-torrent`.
+
+---
+
+## Vault soak (desk → vault)
+
+Origin-pinned acquisition modules on the homelab vault MVP use Forgejo `main` pins — do not scp ad-hoc binaries.
+
+```bash
+# From umbrella workspace (desk/thin)
+_mvp/scripts/install-origin-module.sh media-scanner --verify-only
+MVP_DEPLOY_SSH=ender@fd2c:a2fd:5d9e:ab72:9d99:930d:f160:3e95 \
+  _mvp/scripts/install-origin-module.sh --verify-live
+
+_mvp/scripts/deploy-module-to-vault.sh media-scanner
+_mvp/scripts/smoke-vault-all.sh
+```
+
+See [`../../AGENTS.md`](../../AGENTS.md) (Agent deploy policy) and [`../scripts/install-origin-module.sh`](../scripts/install-origin-module.sh).

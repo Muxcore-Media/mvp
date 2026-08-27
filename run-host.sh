@@ -140,6 +140,29 @@ stop_one() {
   fi
 }
 
+# Remove pidfiles whose processes are no longer running (safe after crash or kill -9).
+cleanup_stale() {
+  local removed=0
+  for f in "$RUN"/*.pid; do
+    [[ -f "$f" ]] || continue
+    local name pid
+    name=$(basename "$f" .pid)
+    pid=$(cat "$f")
+    if kill -0 "$pid" 2>/dev/null; then
+      printf '  keep %s (pid %s running)\n' "$name" "$pid"
+    else
+      rm -f "$f"
+      printf '  removed stale %s (pid %s)\n' "$name" "$pid"
+      removed=$((removed + 1))
+    fi
+  done
+  if [[ "$removed" -eq 0 ]]; then
+    echo "cleanup-stale: no stale pidfiles"
+  else
+    echo "cleanup-stale: removed $removed stale pidfile(s)"
+  fi
+}
+
 unregister_best_effort() {
   local name="$1"
   [[ "$name" == "core" || "$name" == "healthtick" || "$name" == "media-ui" || "$name" == "admin-ui" ]] && return 0
@@ -200,6 +223,87 @@ case "$cmd" in
     unregister_best_effort "$2"
     sleep 0.5
     exec env START_ONLY="$2" bash "$0" up
+    ;;
+  status)
+    echo "MVP: $ROOT"
+    echo "mesh: $MESH  profile=${MUXCORE_PROFILE:-dev}  tls_insecure=${MUXCORE_INSECURE_DISABLE_TLS:-}"
+    echo "--- processes (pidfiles) ---"
+    found=0
+    stale=0
+    for f in "$RUN"/*.pid; do
+      [[ -f "$f" ]] || continue
+      name=$(basename "$f" .pid)
+      pid=$(cat "$f")
+      if kill -0 "$pid" 2>/dev/null; then
+        printf '  %-28s pid=%s running\n' "$name" "$pid"
+        found=1
+      else
+        printf '  %-28s pid=%s stale\n' "$name" "$pid"
+        stale=$((stale + 1))
+      fi
+    done
+    [[ "$found" -eq 1 ]] || echo "  (no running pidfiles)"
+    if [[ "$stale" -gt 0 ]]; then
+      echo "  hint: ./run-host.sh cleanup-stale  ($stale stale pidfile(s))"
+    fi
+    echo "--- health (HTTP) ---"
+    probe() {
+      local label="$1" url="$2"
+      local code
+      code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 2 "$url" 2>/dev/null || echo 000)
+      printf '  %-12s %s → %s\n' "$label" "$url" "$code"
+    }
+    if [[ "${MUXCORE_PROFILE:-}" == "staging" ]]; then
+      probe core 'https://127.0.0.1:8080/health'
+    else
+      probe core 'http://127.0.0.1:8080/health'
+    fi
+    probe admin 'http://127.0.0.1:8082/health'
+    probe media 'http://127.0.0.1:5173/'
+    probe auth 'http://127.0.0.1:9401/login'
+    probe api-rest 'http://127.0.0.1:18080/health'
+    if [[ -x "$BIN/muxcorectl" ]]; then
+      echo "--- mesh (muxcorectl) ---"
+      env MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MESH_DIAL_LOCAL=true MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-true}" \
+        "$BIN/muxcorectl" modules list 2>/dev/null | head -20 || echo "  (muxcorectl modules list failed)"
+    fi
+    exit 0
+    ;;
+  cleanup-stale|cleanup_stale)
+    cleanup_stale
+    exit 0
+    ;;
+  help|-h|--help)
+    cat <<EOF
+MuxCore MVP host runner — $ROOT
+
+Commands:
+  up                 Start full stack (or one service when START_ONLY is set)
+  stop               Stop all sidecars
+  stop-one <name>    Stop one service (preferred before binary swap)
+  restart <name>     stop-one + up for a single service
+  status             Pidfiles, HTTP health, muxcorectl modules (when available)
+  cleanup-stale      Remove pidfiles for processes that are no longer running
+  unregister <id>    Remove module from mesh registry
+  help               This text
+
+Paths:
+  bin/     $BIN
+  run/     $RUN  (logs, pidfiles, admin.token, VIEW-ME.txt)
+  data/    $DATA
+
+Vault deploy (from umbrella workspace):
+  scripts/deploy-module-to-vault.sh --list
+  scripts/deploy-module-to-vault.sh <module> --verify-public
+  scripts/muxcorectl-vault.sh health status
+  scripts/smoke-vault-health.sh
+  scripts/smoke-vault-public.sh
+  scripts/smoke-vault-all.sh
+  scripts/preflight-vault-ssh.sh
+
+Docs: ../AGENTS.md, PORTS.md, docs/ACQUISITION.md
+EOF
+    exit 0
     ;;
   up)
     if [[ -z "${START_ONLY:-}" ]]; then
@@ -426,6 +530,8 @@ case "$cmd" in
       AUTOMATION_KEEP_STALLED_PARTIALS="${AUTOMATION_KEEP_STALLED_PARTIALS:-false}" \
       AUTOMATION_DOWNLOAD_DIR="${MVP_DOWNLOADS_DIR:-$DATA/downloads}" \
       MVP_DOWNLOADS_DIR="${MVP_DOWNLOADS_DIR:-$DATA/downloads}" \
+      DOWNLOADER_ENGINE="${DOWNLOADER_ENGINE:-fixture}" \
+      AUTOMATION_DOWNLOADER_TORRENT="${AUTOMATION_DOWNLOADER_TORRENT:-downloader-native-torrent}" \
       "$BIN/media-automation"
 
     # Scoring + naming + analyze peers (default host).
@@ -1090,7 +1196,7 @@ case "$cmd" in
     fi
     ;;
   *)
-    echo "usage: $0 {up|stop|stop-one <name>|restart <name>|unregister <id>}" >&2
+    echo "usage: $0 {up|stop|stop-one <name>|restart <name>|status|unregister <id>|help}" >&2
     exit 2
     ;;
 esac

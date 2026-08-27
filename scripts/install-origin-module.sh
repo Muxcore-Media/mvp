@@ -54,7 +54,7 @@ verify_live_one() {
   local ssh="${MVP_DEPLOY_SSH:-}"
   local run_dir="${MVP_DEPLOY_RUN:-/mnt/fast-storage/appdata/muxcore/mvp/run}"
   if [[ -n "$ssh" ]]; then
-    log="$(ssh -o BatchMode=yes -o ConnectTimeout=20 "$ssh" "grep \"module registered with core id=${name}\" \"$run_dir/${name}.log\" | tail -1" || true)"
+    log="$(ssh -6 -o BatchMode=yes -o ConnectTimeout=20 "$ssh" "grep \"module registered with core id=${name}\" \"$run_dir/${name}.log\" | tail -1" || true)"
   elif [[ -f "$ROOT/run/${name}.log" ]]; then
     log="$(grep "module registered with core id=${name}" "$ROOT/run/${name}.log" | tail -1 || true)"
   fi
@@ -76,6 +76,9 @@ if [[ "${1:-}" == "--verify-live" ]]; then
   mods=("$@")
   if [[ ${#mods[@]} -eq 0 ]]; then
     mods=(media-scanner media-automation downloader-native-torrent)
+  fi
+  if [[ -n "${MVP_DEPLOY_SSH:-}" && "${MVP_SKIP_PREFLIGHT:-0}" != "1" ]]; then
+    MVP_DEPLOY_SSH="$MVP_DEPLOY_SSH" "$SCRIPT_DIR/preflight-vault-ssh.sh"
   fi
   for m in "${mods[@]}"; do
     verify_live_one "$m"

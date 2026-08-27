@@ -71,11 +71,11 @@ func loadPlaybackPolicy() playbackPolicy {
 	defer playbackPolicyMu.Unlock()
 	raw, err := os.ReadFile(playbackPolicyPath())
 	if err != nil {
-		return playbackPolicy{EnableResume: true, PreferDirectPlay: true, MaxBitrateMbps: "80"}
+		return playbackPolicy{EnableResume: true, EnableTranscode: true, PreferDirectPlay: true, MaxBitrateMbps: "80"}
 	}
 	var p playbackPolicy
 	if json.Unmarshal(raw, &p) != nil {
-		return playbackPolicy{EnableResume: true, PreferDirectPlay: true, MaxBitrateMbps: "80"}
+		return playbackPolicy{EnableResume: true, EnableTranscode: true, PreferDirectPlay: true, MaxBitrateMbps: "80"}
 	}
 	return p
 }
@@ -108,9 +108,17 @@ func (s *server) handlePlaybackResolve(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(src, "debrid:") {
 		id := strings.TrimPrefix(src, "debrid:")
 		streamURL = debridStreamURL(id)
-	} else if pol.EnableTranscode && !pol.PreferDirectPlay && transcoderAvail {
-		mode = "transcode"
-		streamURL = "/stream/transcode?src=" + url.QueryEscape(src)
+	} else if pol.EnableTranscode && transcoderAvail {
+		forceTranscode := !pol.PreferDirectPlay
+		if !forceTranscode {
+			if analysis := s.analyzeMediaBySrc(r.Context(), src); analysis != nil && !browserDirectPlayCompatible(analysis) {
+				forceTranscode = true
+			}
+		}
+		if forceTranscode {
+			mode = "transcode"
+			streamURL = "/stream/transcode?src=" + url.QueryEscape(src)
+		}
 	}
 	writeJSONStatus(w, http.StatusOK, playbackResolveResponse{
 		StreamURL:           streamURL,

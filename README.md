@@ -104,6 +104,8 @@ docker compose up --build -d
 # Single-module ops (core stays up; clears stale mesh registration on stop/restart):
 # ./run-host.sh stop-one media-scanner
 # ./run-host.sh restart admin-ui
+# ./run-host.sh status          # pidfiles + HTTP health
+# ./run-host.sh cleanup-stale   # remove dead pidfiles after crash
 # ./run-host.sh unregister media-scanner
 # Pin scanner/automation/downloader to origin/main (refuses unpublished versions):
 # ./scripts/install-origin-module.sh media-scanner --verify-only
