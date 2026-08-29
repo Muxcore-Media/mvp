@@ -146,3 +146,96 @@ Proxied from module health HTTP (defaults `:9641` music, `:9651` books, `:9661` 
 ```
 
 When the module responds, `available: true` and `items` are the upstream JSON array rows.
+
+---
+
+## Capabilities & discover
+
+### `GET /api/capabilities`
+
+Session required. Returns BFF feature flags and optional peer availability (transcoder, debrid, list-sync, library-plus modules, Jellyfin bridge).
+
+### `GET /api/discover/{movies|tv|people}?q=`
+
+TMDB-backed search/detail proxy when `metadata-tmdb` is reachable. Detail routes: `/api/discover/movies/{id}`, `/api/discover/tv/{id}`, `/api/discover/people/{id}`, cast/crew subpaths.
+
+## Userdata (session)
+
+### `GET|POST|DELETE /api/userdata`
+
+Progress, favorites, watched state, and preferences stored under `MEDIA_UI_USERDATA_DIR` / userdata-local when configured. JSON bodies mirror admin playback policy fields where shared.
+
+## Watchlist & collections
+
+### `GET|POST|DELETE /api/watchlist`
+
+Requires `media-list-sync` when adding external list sources; local watchlist rows stored in userdata.
+
+### `GET /api/collections` · `GET /api/collections/{id}`
+
+Curated rows from module catalogs + userdata; empty list is `{ "items": [] }`.
+
+## Invites & onboarding
+
+### `GET /api/invite/peek?token=`
+
+Public. Returns invite metadata before redemption.
+
+### `POST /api/invite/redeem`
+
+Public. Body: `{ "token", "username", "password" }` — creates auth-local user via auth HTTP.
+
+## Quick Connect & TV login
+
+### `GET|POST /api/quickconnect`
+
+Jellyfin-style quick connect code flow (file-backed store under userdata dir).
+
+### `GET|POST /api/tv/login` · `POST /api/tv/login/totp`
+
+Device/TV pairing: returns short code or completes TOTP step; redirects into session cookie on success.
+
+## Mobile auth handoff
+
+### `GET /api/mobile/auth/login` · `GET /api/mobile/auth/done` · `POST /api/mobile/session`
+
+Deep-link friendly mobile login: poll `done` after browser auth, exchange for bearer/session.
+
+## Password reset (consumer)
+
+### `POST /api/password-reset`
+
+Public. Queues reset request JSON (`MEDIA_UI_PASSWORD_RESET_FILE`, shared with admin-ui queue).
+
+## Debrid (optional)
+
+When `downloader-debrid` HTTP is up:
+
+- `POST /api/debrid/add` — enqueue magnet/hoster
+- `GET /api/debrid/vfs` — virtual file listing
+- `GET /api/debrid/stream` — proxied playback URL
+
+## Playback helpers (native player)
+
+Session required unless noted.
+
+| Route | Purpose |
+|-------|---------|
+| `GET /api/playback/subtitles?src=` | List subtitle tracks (`media-subtitles`) |
+| `GET /api/playback/subtitles/{id}?src=` | Serve subtitle bytes |
+| `GET /api/playback/segments?src=` | Intro/outro/credits skip segments (`media-intro-outro`) |
+| `GET /api/playback/chapters?src=` | Chapter markers (`media-ffprobe`) |
+| `GET /api/playback/analysis?src=` | Container/codec summary for OSD |
+| `GET /stream/transcode?src=` | On-the-fly transcode proxy (`media-transcoder`) |
+| `GET /stream/trickplay?src=` | Trickplay sprite sheet |
+
+All `/api/playback/*` routes return JSON errors `{ "error", "code" }` on upstream failure (no silent empty success for mutating paths).
+
+## Auth session
+
+- `GET /login` — redirect to `AUTH_HTTP_URL/login?redirect=…`
+- `GET /auth/callback?code=` — exchange OAuth-style code for `session` cookie
+- `GET /logout` — clear session
+
+Set `MEDIA_UI_PUBLIC_URL` and `MEDIA_UI_TRUSTED_PROXIES` (dawn/dusk `/128` CIDRs) when behind edge nginx so Secure cookies and callback origins match `https://mux.zem.systems`.
+

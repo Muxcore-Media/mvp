@@ -307,47 +307,58 @@ echo "OK admin-ui session established (+ /modules + health + CSS + cluster SSE +
 JELLYFIN_HTTP="${SMOKE_JELLYFIN_URL:-http://127.0.0.1:8475}"
 build_if_missing jellyfinstatus ./cmd/jellyfinstatus
 
-echo "==> jellyfin healthz ${JELLYFIN_HTTP}/healthz"
-deadline_jf=$((SECONDS + 60))
-until code=$(curl -s -o /tmp/muxcore-jellyfin-health.json -w '%{http_code}' "${JELLYFIN_HTTP}/healthz" || echo 000); \
-  [[ "$code" == "200" ]]; do
-  if (( SECONDS >= deadline_jf )); then
-    echo "FAIL: jellyfin healthz not HTTP 200 (last $code)" >&2
-    cat /tmp/muxcore-jellyfin-health.json 2>/dev/null || true
-    exit 1
+jellyfin_required=0
+if [[ "${MVP_ENABLE_JELLYFIN:-0}" == "1" ]]; then
+  jellyfin_required=1
+elif SMOKE_MODULES=jellyfin MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules" >/dev/null 2>&1; then
+  jellyfin_required=1
+fi
+
+if [[ "$jellyfin_required" == "1" ]]; then
+  echo "==> jellyfin healthz ${JELLYFIN_HTTP}/healthz"
+  deadline_jf=$((SECONDS + 60))
+  until code=$(curl -s -o /tmp/muxcore-jellyfin-health.json -w '%{http_code}' "${JELLYFIN_HTTP}/healthz" || echo 000); \
+    [[ "$code" == "200" ]]; do
+    if (( SECONDS >= deadline_jf )); then
+      echo "FAIL: jellyfin healthz not HTTP 200 (last $code)" >&2
+      cat /tmp/muxcore-jellyfin-health.json 2>/dev/null || true
+      exit 1
+    fi
+    sleep 1
+  done
+  echo "OK jellyfin healthz (HTTP $code)"
+
+  jf_grpc="${JELLYFIN_GRPC_CLIENT_ADDR:-}"
+  if [[ -z "$jf_grpc" ]]; then
+    jf_grpc="${JELLYFIN_GRPC_ADDR:-127.0.0.1:9475}"
+    [[ "$jf_grpc" == :* ]] && jf_grpc="127.0.0.1${jf_grpc}"
   fi
-  sleep 1
-done
-echo "OK jellyfin healthz (HTTP $code)"
+  echo "==> jellyfin Status via ${jf_grpc}"
+  "$BIN/jellyfinstatus" -addr "$jf_grpc"
 
-jf_grpc="${JELLYFIN_GRPC_CLIENT_ADDR:-}"
-if [[ -z "$jf_grpc" ]]; then
-  jf_grpc="${JELLYFIN_GRPC_ADDR:-127.0.0.1:9475}"
-  [[ "$jf_grpc" == :* ]] && jf_grpc="127.0.0.1${jf_grpc}"
-fi
-echo "==> jellyfin Status via ${jf_grpc}"
-"$BIN/jellyfinstatus" -addr "$jf_grpc"
+  build_if_missing jellyfinlink ./cmd/jellyfinlink
+  echo "==> jellyfin soft UpsertItemLink + webhook (no live Jellyfin)"
+  "$BIN/jellyfinlink" \
+    -addr "$jf_grpc" \
+    -webhook-url "${SMOKE_JELLYFIN_WEBHOOK:-${JELLYFIN_HTTP}/webhook}"
 
-build_if_missing jellyfinlink ./cmd/jellyfinlink
-echo "==> jellyfin soft UpsertItemLink + webhook (no live Jellyfin)"
-"$BIN/jellyfinlink" \
-  -addr "$jf_grpc" \
-  -webhook-url "${SMOKE_JELLYFIN_WEBHOOK:-${JELLYFIN_HTTP}/webhook}"
-
-# Live Jellyfin path: opt-in via SMOKE_LIVE_JELLYFIN=1, or auto when both server creds are set
-# (disable with SMOKE_LIVE_JELLYFIN=0). Requires jellyfin module env JELLYFIN_BASE_URL + JELLYFIN_API_KEY.
-live_jellyfin=0
-if [[ "${SMOKE_LIVE_JELLYFIN:-}" == "1" ]]; then
-  live_jellyfin=1
-elif [[ "${SMOKE_LIVE_JELLYFIN:-}" != "0" && -n "${JELLYFIN_BASE_URL:-}" && -n "${JELLYFIN_API_KEY:-}" ]]; then
-  live_jellyfin=1
-fi
-if [[ "$live_jellyfin" == "1" ]]; then
-  build_if_missing jellyfinlive ./cmd/jellyfinlive
-  echo "==> jellyfin LIVE (Status configured + RefreshLibrary + SyncLibrary)"
-  "$BIN/jellyfinstatus" -addr "$jf_grpc" -require-configured
-  "$BIN/jellyfinlive" -addr "$jf_grpc"
-  echo "OK jellyfin live smoke"
+  # Live Jellyfin path: opt-in via SMOKE_LIVE_JELLYFIN=1, or auto when both server creds are set
+  # (disable with SMOKE_LIVE_JELLYFIN=0). Requires jellyfin module env JELLYFIN_BASE_URL + JELLYFIN_API_KEY.
+  live_jellyfin=0
+  if [[ "${SMOKE_LIVE_JELLYFIN:-}" == "1" ]]; then
+    live_jellyfin=1
+  elif [[ "${SMOKE_LIVE_JELLYFIN:-}" != "0" && -n "${JELLYFIN_BASE_URL:-}" && -n "${JELLYFIN_API_KEY:-}" ]]; then
+    live_jellyfin=1
+  fi
+  if [[ "$live_jellyfin" == "1" ]]; then
+    build_if_missing jellyfinlive ./cmd/jellyfinlive
+    echo "==> jellyfin LIVE (Status configured + RefreshLibrary + SyncLibrary)"
+    "$BIN/jellyfinstatus" -addr "$jf_grpc" -require-configured
+    "$BIN/jellyfinlive" -addr "$jf_grpc"
+    echo "OK jellyfin live smoke"
+  fi
+else
+  echo "==> jellyfin bridge not enabled (MVP_ENABLE_JELLYFIN=0); skipping healthz/gRPC smoke"
 fi
 
 SCANNER_ADDR="${SCANNER_GRPC_CLIENT_ADDR:-127.0.0.1:9470}"

@@ -466,6 +466,7 @@ EOF
       ADMIN_UI_ADDR=":8082" \
       ADMIN_UI_CORE_ADDR="$MESH" \
       ADMIN_UI_INSECURE=true \
+      ADMIN_UI_DATA_DIR="${ADMIN_UI_DATA_DIR:-$DATA/media-ui}" \
       ADMIN_UI_AUTH_ADDR="${ADMIN_UI_AUTH_ADDR:-https://auth.gringotts}" \
       ADMIN_UI_AUTH_INTERNAL_ADDR="${ADMIN_UI_AUTH_INTERNAL_ADDR:-http://127.0.0.1:9401}" \
       ADMIN_UI_PUBLIC_URL="${ADMIN_UI_PUBLIC_URL:-https://admin.gringotts}" \
@@ -473,6 +474,12 @@ EOF
       ADMIN_UI_HEALTH_MONITOR_URL="${ADMIN_UI_HEALTH_MONITOR_URL:-http://127.0.0.1:9203}" \
       ADMIN_UI_LIVETV_FILE="${ADMIN_UI_LIVETV_FILE:-$DATA/media-ui/livetv.json}" \
       ADMIN_UI_BRANDING_FILE="${ADMIN_UI_BRANDING_FILE:-$DATA/media-ui/branding.json}" \
+      ADMIN_UI_NETWORKING_FILE="${ADMIN_UI_NETWORKING_FILE:-$DATA/media-ui/networking.json}" \
+      ADMIN_UI_PARENTAL_FILE="${ADMIN_UI_PARENTAL_FILE:-$DATA/media-ui/parental.json}" \
+      ADMIN_UI_PLAYBACK_FILE="${ADMIN_UI_PLAYBACK_FILE:-$DATA/media-ui/playback.json}" \
+      ADMIN_UI_PASSWORD_RESET_FILE="${ADMIN_UI_PASSWORD_RESET_FILE:-$DATA/media-ui/password-resets.json}" \
+      ADMIN_UI_SESSION_FILE="${ADMIN_UI_SESSION_FILE:-$DATA/media-ui/sessions.json}" \
+      ADMIN_UI_USERDATA_URL="${ADMIN_UI_USERDATA_URL:-http://127.0.0.1:9672}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
       "$BIN/admin-ui"
 

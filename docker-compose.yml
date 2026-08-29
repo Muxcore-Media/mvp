@@ -357,6 +357,71 @@ services:
     volumes:
       - request-data:/data
 
+  notification-default:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: notification-default }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: notification-default
+      WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-http://127.0.0.1:9/muxcore-notify-sink}
+
+  userdata-local:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: userdata-local }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: userdata-local
+      USERDATA_LOCAL_HTTP_ADDR: ":9672"
+      USERDATA_LOCAL_GRPC_ADDR: ":9673"
+    ports:
+      - "${USERDATA_LOCAL_PORT:-9672}:9672"
+
+  media-custom-formats:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-custom-formats }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-custom-formats
+
+  media-rename:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-rename }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-rename
+
+  media-ffprobe:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-ffprobe }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-ffprobe
+
+  media-subtitles:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-subtitles }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-subtitles
+
   jellyfin:
     <<: *module
     build:
@@ -404,7 +469,7 @@ services:
       - transcoder-data:/data
     profiles: ["transcoder"]
 
-  # Consumer SPA — media-ui-app clean extract (not polluted media-ui dump). Profile: media-ui
+  # Consumer SPA — media-ui-app + mediauiprox BFF (household manifest required peer)
   media-ui:
     build:
       context: ..
@@ -415,6 +480,8 @@ services:
       MOVIES_HTTP_URL: http://media-movies:9430
       TVSHOWS_HTTP_URL: http://media-tvshows:9450
       REQUEST_MEDIA_HTTP_URL: http://request-media:9380
+      AUTH_HTTP_URL: http://auth-local:9401
+      USERDATA_LOCAL_URL: http://userdata-local:9672
       TRANSCODER_HTTP_URL: http://media-transcoder:9526
     ports:
       - "${MEDIA_UI_HTTP_PORT:-5173}:5173"
@@ -422,7 +489,8 @@ services:
       - media-movies
       - media-tvshows
       - request-media
-    profiles: ["media-ui"]
+      - auth-local
+      - userdata-local
     networks: [muxcore]
     restart: unless-stopped
 
