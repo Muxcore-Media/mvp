@@ -54,9 +54,9 @@ optional_env_gated:
   - name: downloader-debrid
     env: MVP_ENABLE_DOWNLOADER_DEBRID
   - name: media-transcoder
-    env: MVP_ENABLE_TRANSCODER
+    env: MVP_ENABLE_MEDIA_TRANSCODER
   - name: media-list-sync
-    env: MVP_ENABLE_LIST_SYNC
+    env: MVP_ENABLE_MEDIA_LIST_SYNC
   - name: notification-apprise
     env: MVP_ENABLE_NOTIFICATION_APPRISE
 

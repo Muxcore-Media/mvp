@@ -46,3 +46,42 @@ while IFS= read -r gomod; do
 done < <(find "$WS" -name go.mod -not -path '*/vendor/*' -not -path '*/.git/*')
 
 echo "OK: ${updated} go.mod files (target ${VER})"
+
+# Sync household OCI tag defaults (compose + publish fallbacks) with the core pin.
+MANIFEST="$ROOT/household-manifest.yaml"
+if [[ -f "$MANIFEST" && "$DRY" != "1" ]]; then
+  if grep -q "^core_tag: ${VER}$" "$MANIFEST" 2>/dev/null || grep -q "^core_tag: \"${VER}\"$" "$MANIFEST" 2>/dev/null; then
+    :
+  else
+    sed -i -E "s|^core_tag:.*|core_tag: ${VER}|" "$MANIFEST"
+    echo "updated $MANIFEST core_tag -> ${VER}"
+  fi
+fi
+
+sync_tag_files=(
+  "$ROOT/docker-compose.registry.yml"
+  "$ROOT/docker-compose.ghcr.yml"
+  "$ROOT/README.md"
+  "$ROOT/docs/PUBLIC-INSTALL.md"
+  "$ROOT/scripts/publish-module-images.sh"
+  "$ROOT/scripts/publish-muxcored-local.sh"
+  "$ROOT/scripts/publish-muxcored-ghcr.sh"
+)
+for f in "${sync_tag_files[@]}"; do
+  [[ -f "$f" ]] || continue
+  if [[ "$DRY" == "1" ]]; then
+    if grep -q 'v0\.[0-9.]\+' "$f"; then
+      echo "would sync MUXCORE_IMAGE_TAG examples in $f -> ${VER}"
+    fi
+    continue
+  fi
+  if grep -q 'MUXCORE_IMAGE_TAG:-v' "$f" 2>/dev/null; then
+    sed -i -E "s/MUXCORE_IMAGE_TAG:-v[0-9.]+/MUXCORE_IMAGE_TAG:-${VER}/g" "$f"
+  fi
+  sed -i -E "s/export MUXCORE_IMAGE_TAG=v[0-9.]+/export MUXCORE_IMAGE_TAG=${VER}/g" "$f"
+  sed -i -E "s/publish-muxcored-local\.sh v[0-9.]+/publish-muxcored-local.sh ${VER}/g" "$f"
+  sed -i -E "s/publish-module-images\.sh v[0-9.]+/publish-module-images.sh ${VER}/g" "$f"
+  sed -i -E "s/publish-muxcored-ghcr\.sh v[0-9.]+/publish-muxcored-ghcr.sh ${VER}/g" "$f"
+  sed -i -E "s/smoke-ghcr-build\.sh v[0-9.]+/smoke-ghcr-build.sh ${VER}/g" "$f"
+  echo "synced image tag examples in $f -> ${VER}"
+done

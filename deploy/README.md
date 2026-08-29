@@ -1,12 +1,13 @@
 # Kubernetes deploy scaffolds
 
-Phase 3 starting point for [MASTER-ROADMAP §4.1](../../MASTER-ROADMAP.md) — **Helm chart / Kustomize production overlays**.
+Phase 3 starting point — **Helm chart / Kustomize production overlays** aligned with [`docker-compose.registry.yml`](../docker-compose.registry.yml) and [`household-manifest.yaml`](../household-manifest.yaml).
 
-These manifests mirror the **minimal platform** slice of `docker-compose.yml` (core + api-rest + auth-local + sqlite + secrets + encryption + call/publish policy + health-monitor + admin-ui). Media peers can be added as extra resources later.
+These manifests mirror the **minimal platform** slice (core + api-rest + auth-local + sqlite + secrets + encryption + call/publish policy + health-monitor + admin-ui). Enable `media.enabled` for the household media stack.
 
 ## Prerequisites
 
-- Images published to `ghcr.io/muxcore-media/*` (see P0 GHCR publish; local `run-host.sh` remains the verified path today).
+- Images published to **Forgejo or LAN OCI** (`MUXCORE_REGISTRY`, default `git.zem.systems/muxcore`) — see [`docs/PUBLIC-INSTALL.md`](../docs/PUBLIC-INSTALL.md).
+- `coreTag` / image strings in `helm/muxcore/values.yaml` track `household-manifest.yaml` `core_tag` (currently **v0.5.8**).
 - Cluster with a default StorageClass for PVCs.
 - Secrets created out-of-band (do not commit credentials):
 
@@ -44,7 +45,9 @@ helm upgrade --install muxcore deploy/helm/muxcore \
   --namespace muxcore --set media.enabled=true --set acquisition.enabled=true
 ```
 
-Override image tags / `insecureDisableTLS` via `--set` or a values overlay.
+Override `registry`, `coreTag`, or individual `images.*` strings via `--set` or a values overlay.
+
+Public **GHCR** mirror (`docker-compose.ghcr.yml`) remains optional when `write:packages` exists — not the origin install path.
 
 ## Acquisition sidecars (Helm)
 

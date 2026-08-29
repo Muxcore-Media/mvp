@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TAG="${1:-v0.5.4}"
+TAG="${1:-v0.5.8}"
 
 echo "== Forgejo registry smoke (BUILD_ONLY) =="
 BUILD_ONLY=1 "$ROOT/scripts/publish-muxcored-local.sh" "$TAG"

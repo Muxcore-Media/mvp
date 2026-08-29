@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -28,8 +29,6 @@ import (
 	mgmntv1 "github.com/Muxcore-Media/media-movies/proto/mgmntv1"
 	subtv1 "github.com/Muxcore-Media/media-subtitles/proto/subtv1"
 	tvmgmtv1 "github.com/Muxcore-Media/media-tvshows/proto/tvmgmtv1"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -77,17 +76,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	moviesConn, err := grpc.NewClient(*moviesGRPC, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	moviesConn, err := dialMeshGRPC(*moviesGRPC)
 	if err != nil {
 		log.Fatalf("dial movies: %v", err)
 	}
 	defer func() { _ = moviesConn.Close() }()
-	tvConn, err := grpc.NewClient(*tvGRPC, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	tvConn, err := dialMeshGRPC(*tvGRPC)
 	if err != nil {
 		log.Fatalf("dial tv: %v", err)
 	}
 	defer func() { _ = tvConn.Close() }()
-	jellyfinConn, err := grpc.NewClient(*jellyfinGRPC, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	jellyfinConn, err := dialMeshGRPC(*jellyfinGRPC)
 	if err != nil {
 		log.Fatalf("dial jellyfin: %v", err)
 	}
@@ -95,7 +94,7 @@ func main() {
 
 	var subtitlesClient subtv1.SubtitleServiceClient
 	if addr := strings.TrimSpace(*subtitlesGRPC); addr != "" {
-		subtitlesConn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		subtitlesConn, err := dialMeshGRPC(addr)
 		if err != nil {
 			log.Printf("warn: dial subtitles grpc %s: %v (subtitle tracks disabled)", addr, err)
 		} else {
@@ -106,7 +105,7 @@ func main() {
 
 	var metadataClient metadatav1.MetadataServiceClient
 	if addr := strings.TrimSpace(*metadataGRPC); addr != "" {
-		metadataConn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		metadataConn, err := dialMeshGRPC(addr)
 		if err != nil {
 			log.Printf("warn: dial metadata grpc %s: %v (discover details disabled)", addr, err)
 		} else {
@@ -117,7 +116,7 @@ func main() {
 
 	var listSyncClient listsyncv1.ListSyncServiceClient
 	if addr := strings.TrimSpace(*listSyncGRPC); addr != "" {
-		listSyncConn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		listSyncConn, err := dialMeshGRPC(addr)
 		if err != nil {
 			log.Printf("warn: dial list-sync grpc %s: %v (watchlist disabled)", addr, err)
 		} else {
@@ -128,7 +127,7 @@ func main() {
 
 	var introOutroClient introoutrov1.IntroOutroServiceClient
 	if addr := strings.TrimSpace(*introOutroGRPC); addr != "" {
-		introOutroConn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		introOutroConn, err := dialMeshGRPC(addr)
 		if err != nil {
 			log.Printf("warn: dial intro-outro grpc %s: %v (intro/outro skip disabled)", addr, err)
 		} else {
@@ -139,7 +138,7 @@ func main() {
 
 	var ffprobeClient ffprobev1.AnalysisServiceClient
 	if addr := strings.TrimSpace(*ffprobeGRPC); addr != "" {
-		ffprobeConn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		ffprobeConn, err := dialMeshGRPC(addr)
 		if err != nil {
 			log.Printf("warn: dial ffprobe grpc %s: %v (chapter markers disabled)", addr, err)
 		} else {
@@ -175,6 +174,7 @@ func main() {
 		authHTTP:       authPublic,
 		authInternal:   authInt,
 		publicURL:      strings.TrimRight(*publicURL, "/"),
+		trustedProxies: trustedProxiesFromEnv(),
 		dist:           *dist,
 		requireAuth:    *requireAuth,
 		sessions:       newSessionStore(24 * time.Hour),
@@ -345,6 +345,7 @@ type server struct {
 	authHTTP       string // browser redirects
 	authInternal   string // server-side code exchange
 	publicURL      string // optional fixed public origin
+	trustedProxies []net.IPNet
 	dist           string
 	requireAuth    bool
 	sessions       *sessionStore
@@ -466,12 +467,16 @@ func (s *server) publicOrigin(r *http.Request) string {
 		return s.publicURL
 	}
 	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+	if r.TLS != nil {
+		scheme = "https"
+	} else if requestFromTrustedProxy(r, s.trustedProxies) && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
 		scheme = "https"
 	}
-	host := r.Header.Get("X-Forwarded-Host")
-	if host == "" {
-		host = r.Host
+	host := r.Host
+	if requestFromTrustedProxy(r, s.trustedProxies) {
+		if fwd := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); fwd != "" {
+			host = fwd
+		}
 	}
 	if host == "" {
 		host = "127.0.0.1:5173"

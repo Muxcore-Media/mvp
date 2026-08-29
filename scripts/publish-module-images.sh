@@ -2,9 +2,9 @@
 # Build and push sidecar module images to Forgejo/LAN OCI registry (MASTER-ROADMAP P0).
 #
 # Usage:
-#   ./scripts/publish-module-images.sh v0.5.4
-#   MODULES="api-rest auth-local media-automation" ./scripts/publish-module-images.sh v0.5.4
-#   BUILD_ONLY=1 MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-module-images.sh v0.5.4
+#   ./scripts/publish-module-images.sh v0.5.8
+#   MODULES="api-rest auth-local media-automation" ./scripts/publish-module-images.sh v0.5.8
+#   BUILD_ONLY=1 MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-module-images.sh v0.5.8
 #
 # Defaults MODULES to the MVP registry compose set in docker-compose.registry.yml.
 set -euo pipefail
@@ -44,7 +44,7 @@ detect_runtime() {
 }
 
 if [[ -z "$TAG" ]]; then
-  die "usage: $0 <tag> (e.g. v0.5.4)"
+  die "usage: $0 <tag> (e.g. v0.5.8)"
 fi
 [[ -f "$DOCKERFILE" ]] || die "missing $DOCKERFILE"
 
@@ -55,8 +55,12 @@ for name in "${MODULE_LIST[@]}"; do
   mod_dir="$WS/$name"
   [[ -d "$mod_dir" ]] || die "module dir not found: $mod_dir"
   image="${REGISTRY}/${name}:${TAG}"
+  dockerfile="$DOCKERFILE"
+  if [[ "$name" == "media-ui" ]]; then
+    dockerfile="$ROOT/dockerfiles/media-ui.Dockerfile"
+  fi
   echo "==> build $name -> $image"
-  "$RT" build -f "$DOCKERFILE" \
+  "$RT" build -f "$dockerfile" \
     --build-arg MODULE="$name" \
     --build-arg VERSION="${TAG#v}" \
     -t "$image" \

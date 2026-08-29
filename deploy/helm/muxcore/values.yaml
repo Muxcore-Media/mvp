@@ -1,23 +1,27 @@
 # Default values for the MuxCore minimal platform chart.
-# Image tags track spool catalog pins where possible; muxcored tracks core releases.
+# Origin/household install uses Forgejo or LAN OCI (`docker-compose.registry.yml`).
+# Override `registry` + `coreTag`, or set full image strings under `images.*`.
 
 namespace: muxcore
 createNamespace: true
 
 insecureDisableTLS: true
 
+registry: git.zem.systems/muxcore
+coreTag: v0.5.8
+
 images:
   pullPolicy: IfNotPresent
-  muxcored: ghcr.io/muxcore-media/muxcored:v0.5.2
-  apiRest: ghcr.io/muxcore-media/api-rest:v0.1.6
-  authLocal: ghcr.io/muxcore-media/auth-local:v0.1.5
-  databaseSqlite: ghcr.io/muxcore-media/database-sqlite:v0.1.5
-  secretsFile: ghcr.io/muxcore-media/secrets-file:v0.1.6
-  encryptionAesgcm: ghcr.io/muxcore-media/encryption-aesgcm:v0.2.6
-  callPolicy: ghcr.io/muxcore-media/call-policy-default:v0.3.3
-  publishPolicy: ghcr.io/muxcore-media/publish-policy-default:v0.2.2
-  healthMonitor: ghcr.io/muxcore-media/health-monitor:v0.1.5
-  adminUi: ghcr.io/muxcore-media/admin-ui:v0.1.10
+  muxcored: git.zem.systems/muxcore/muxcored:v0.5.8
+  apiRest: git.zem.systems/muxcore/api-rest:v0.5.8
+  authLocal: git.zem.systems/muxcore/auth-local:v0.5.8
+  databaseSqlite: git.zem.systems/muxcore/database-sqlite:v0.5.8
+  secretsFile: git.zem.systems/muxcore/secrets-file:v0.5.8
+  encryptionAesgcm: git.zem.systems/muxcore/encryption-aesgcm:v0.5.8
+  callPolicy: git.zem.systems/muxcore/call-policy-default:v0.5.8
+  publishPolicy: git.zem.systems/muxcore/publish-policy-default:v0.5.8
+  healthMonitor: git.zem.systems/muxcore/health-monitor:v0.5.8
+  adminUi: git.zem.systems/muxcore/admin-ui:v0.5.8
 
 persistence:
   coreSize: 5Gi
@@ -26,7 +30,6 @@ persistence:
   secretsSize: 1Gi
 
 auth:
-  # Create separately: kubectl -n muxcore create secret generic muxcore-auth --from-literal=admin-password=...
   existingSecret: muxcore-auth
   passwordKey: admin-password
 
@@ -38,30 +41,26 @@ resources:
     cpu: 500m
     memory: 256Mi
 
-# Optional media MVP stack (movies/TV/request/automation/scanner + consumer UI).
 media:
   enabled: false
   images:
-    metadataTmdb: ghcr.io/muxcore-media/metadata-tmdb:v0.1.5
-    mediaMovies: ghcr.io/muxcore-media/media-movies:v0.1.8
-    mediaTvshows: ghcr.io/muxcore-media/media-tvshows:v0.1.8
-    requestMedia: ghcr.io/muxcore-media/request-media:v0.1.9
-    mediaAutomation: ghcr.io/muxcore-media/media-automation:v0.1.11
-    mediaScanner: ghcr.io/muxcore-media/media-scanner:v0.1.7
-    mediaFfprobe: ghcr.io/muxcore-media/media-ffprobe:v0.1.5
-    notificationDefault: ghcr.io/muxcore-media/notification-default:v0.1.5
-    userdataLocal: ghcr.io/muxcore-media/userdata-local:v0.1.4
-    cacheLocal: ghcr.io/muxcore-media/cache-local:v0.1.5
-    loggingFile: ghcr.io/muxcore-media/logging-file:v0.1.5
-    mediaUi: ghcr.io/muxcore-media/media-ui-app:v0.1.12
+    metadataTmdb: git.zem.systems/muxcore/metadata-tmdb:v0.5.8
+    mediaMovies: git.zem.systems/muxcore/media-movies:v0.5.8
+    mediaTvshows: git.zem.systems/muxcore/media-tvshows:v0.5.8
+    requestMedia: git.zem.systems/muxcore/request-media:v0.5.8
+    mediaAutomation: git.zem.systems/muxcore/media-automation:v0.5.8
+    mediaScanner: git.zem.systems/muxcore/media-scanner:v0.5.8
+    mediaFfprobe: git.zem.systems/muxcore/media-ffprobe:v0.5.8
+    notificationDefault: git.zem.systems/muxcore/notification-default:v0.5.8
+    userdataLocal: git.zem.systems/muxcore/userdata-local:v0.5.8
+    mediaUi: git.zem.systems/muxcore/media-ui:v0.5.8
   persistence:
     userdataSize: 2Gi
 
-# Optional acquisition sidecars (torrent / usenet / debrid / torznab). Requires media stack for end-to-end acquire.
 acquisition:
   enabled: false
   images:
-    indexerTorznab: ghcr.io/muxcore-media/indexer-torznab:v0.1.4
-    downloaderNativeTorrent: ghcr.io/muxcore-media/downloader-native-torrent:v0.1.6
-    downloaderSabnzbd: ghcr.io/muxcore-media/downloader-sabnzbd:v0.1.5
-    downloaderDebrid: ghcr.io/muxcore-media/downloader-debrid:v0.1.3
+    indexerTorznab: git.zem.systems/muxcore/indexer-torznab:v0.5.8
+    downloaderNativeTorrent: git.zem.systems/muxcore/downloader-native-torrent:v0.5.8
+    downloaderSabnzbd: git.zem.systems/muxcore/downloader-sabnzbd:v0.5.8
+    downloaderDebrid: git.zem.systems/muxcore/downloader-debrid:v0.5.8

@@ -1,5 +1,5 @@
 # Consumer media-ui: Vite SPA + thin gRPC BFF (mediauiprox).
-# Build context: MuxCore workspace root.
+# Build context: MuxCore workspace root (sibling module clones).
 ARG GO_VERSION=1.26
 ARG NODE_VERSION=22
 
@@ -12,9 +12,21 @@ RUN npm run build
 
 FROM golang:${GO_VERSION}-bookworm AS bff
 WORKDIR /ws
+# COPY every _mvp/go.mod replace sibling the BFF imports (direct + transitive).
 COPY _mvp /ws/_mvp
+COPY core /ws/core
+COPY contracts-automation /ws/contracts-automation
+COPY contracts-metadata /ws/contracts-metadata
+COPY contracts-scanner /ws/contracts-scanner
+COPY contracts-media /ws/contracts-media
+COPY jellyfin /ws/jellyfin
+COPY media-ffprobe /ws/media-ffprobe
+COPY media-intro-outro /ws/media-intro-outro
+COPY media-list-sync /ws/media-list-sync
 COPY media-movies /ws/media-movies
+COPY media-subtitles /ws/media-subtitles
 COPY media-tvshows /ws/media-tvshows
+COPY userdata-local /ws/userdata-local
 WORKDIR /ws/_mvp
 RUN CGO_ENABLED=0 go build -o /mediauiprox ./cmd/mediauiprox
 

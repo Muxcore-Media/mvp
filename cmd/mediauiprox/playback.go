@@ -101,6 +101,17 @@ func (s *server) handlePlaybackResolve(w http.ResponseWriter, r *http.Request) {
 		writePlaybackError(w, newPlaybackErr(http.StatusBadRequest, "src required", "playback.src_required"))
 		return
 	}
+	if s.userdata != nil {
+		scope := s.userdata.scopeFromRequest(r, s.sessions)
+		blob := s.userdata.load(scope)
+		tags := strings.TrimSpace(r.URL.Query().Get("tags"))
+		rating := strings.TrimSpace(r.URL.Query().Get("parental_rating"))
+		unrated := r.URL.Query().Get("unrated") == "1" || strings.EqualFold(r.URL.Query().Get("unrated"), "true")
+		if parentalBlocksPlayback(blob.Prefs, tags, rating, unrated) {
+			writePlaybackError(w, newPlaybackErr(http.StatusForbidden, "blocked by parental controls", "playback.parental_blocked"))
+			return
+		}
+	}
 	pol := loadPlaybackPolicy()
 	transcoderAvail := s.transcoderHTTP != nil && strings.TrimSpace(s.transcoderHTTP.String()) != ""
 	mode := "direct"

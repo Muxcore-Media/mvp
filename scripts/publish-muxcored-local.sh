@@ -6,24 +6,24 @@
 #   - For push: login to the registry (Forgejo package token, or insecure local registry)
 #
 # Usage:
-#   ./scripts/publish-muxcored-local.sh                 # tag from core HEAD / v0.5.4
-#   ./scripts/publish-muxcored-local.sh v0.5.4
-#   BUILD_ONLY=1 ./scripts/publish-muxcored-local.sh v0.5.4   # build+tag, skip push
-#   MUXCORE_REGISTRY=git.zem.systems/muxcore ./scripts/publish-muxcored-local.sh v0.5.4
-#   MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-muxcored-local.sh v0.5.4
+#   ./scripts/publish-muxcored-local.sh                 # tag from core HEAD / v0.5.8
+#   ./scripts/publish-muxcored-local.sh v0.5.8
+#   BUILD_ONLY=1 ./scripts/publish-muxcored-local.sh v0.5.8   # build+tag, skip push
+#   MUXCORE_REGISTRY=git.zem.systems/muxcore ./scripts/publish-muxcored-local.sh v0.5.8
+#   MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-muxcored-local.sh v0.5.8
 #
 # Defaults:
 #   MUXCORE_REGISTRY=git.zem.systems/muxcore   (Forgejo org packages)
 #   LAN registry: set MUXCORE_REGISTRY=localhost:5000/muxcore (see ../local-registry.sh)
 #
 # Compose consumers pull via docker-compose.registry.yml:
-#   export MUXCORE_REGISTRY=… MUXCORE_IMAGE_TAG=v0.5.4
+#   export MUXCORE_REGISTRY=… MUXCORE_IMAGE_TAG=v0.5.8
 #   docker compose -f docker-compose.registry.yml up -d
 #
 # Docker equivalent (when podman is absent):
-#   docker build --build-arg VERSION=0.5.4 -t localhost/muxcored:v0.5.4 -f ../core/Dockerfile ../core
-#   docker tag localhost/muxcored:v0.5.4 ${MUXCORE_REGISTRY:-git.zem.systems/muxcore}/muxcored:v0.5.4
-#   docker push ${MUXCORE_REGISTRY:-git.zem.systems/muxcore}/muxcored:v0.5.4
+#   docker build --build-arg VERSION=0.5.8 -t localhost/muxcored:v0.5.8 -f ../core/Dockerfile ../core
+#   docker tag localhost/muxcored:v0.5.8 ${MUXCORE_REGISTRY:-git.zem.systems/muxcore}/muxcored:v0.5.8
+#   docker push ${MUXCORE_REGISTRY:-git.zem.systems/muxcore}/muxcored:v0.5.8
 set -euo pipefail
 
 TAG="${1:-}"
@@ -82,7 +82,7 @@ fi
 
 if [[ -z "$TAG" ]]; then
   TAG="$(git -C "$CORE_DIR" describe --tags --abbrev=0 2>/dev/null || true)"
-  TAG="${TAG:-v0.5.4}"
+  TAG="${TAG:-v0.5.8}"
 fi
 
 if ! RUNTIME="$(detect_runtime)"; then
