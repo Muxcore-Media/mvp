@@ -27,6 +27,10 @@ spec:
               value: database-sqlite
             - name: MUXCORE_INSECURE_DISABLE_TLS
               value: "true"
+            - name: SQLITE_DB_PATH
+              value: /data/muxcore.db
+            - name: DATABASE_GRPC_ADDR
+              value: 127.0.0.1:9700
           volumeMounts:
             - name: data
               mountPath: /data

@@ -6,7 +6,10 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 |------|--------|-------|
 | 9101 | call-policy-default | |
 | 9102 | publish-policy-default | |
+| 9200 | scheduler-cron | default HTTP (`SCHEDULER_HTTP_ADDR`; compose / systemd) |
+| 9204 | scheduler-cron | `_mvp/run-host.sh` when `MVP_ENABLE_SCHEDULER_CRON=1` (`127.0.0.1:9204`) |
 | 9202 / 9203 | health-monitor gRPC / HTTP | |
+| 9300 | worker-pool-memory HTTP | optional (`MVP_ENABLE_WORKER_POOL=1`; default `127.0.0.1:9300`) |
 | 9380 / 9481 | request-media HTTP / gRPC | |
 | 9400 | api-rest gRPC | |
 | 9401 | auth-local HTTP | |
@@ -44,7 +47,9 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9602 | cache-local | |
 | 9603 | workflow-tapestry | optional (`MVP_ENABLE_WORKFLOW_TAPESTRY=1`) |
 | 9604 | distributed-lock-sqlite | |
+| 9605 | executor-shell | optional (`MVP_ENABLE_EXECUTOR_SHELL=1`) |
 | 9610 / 9611 | storage-s3 | optional S3/MinIO StorageProvider (gRPC / health) |
+| 9613 | tracing-otlp | optional (`MVP_ENABLE_TRACING_OTLP=1`) |
 | 9614 | config-watcher | optional (`MVP_ENABLE_CONFIG_WATCHER=1`) |
 | 9620 / 9621 | downloader-sabnzbd | optional SABnzbd usenet bridge (gRPC / health) |
 | 9622 / 9623 | downloader-native-usenet | native usenet engine (gRPC / health) |
@@ -63,12 +68,14 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9680 / 9681 | storage-ceph | optional Ceph/Rook RGW StorageProvider (gRPC / health) |
 | 9690 / 9691 | storage-overlay | optional storage overlay encrypt/compress/dedup (gRPC / health) |
 | 9700 | database-sqlite | SQLite DatabaseProvider (gRPC) |
+| 9701 | database-postgres | PostgreSQL DatabaseProvider (gRPC) |
 | 9710 / 9711 | media-intro-outro | optional intro/outro detection (gRPC / health) |
 | 9720 / 9721 | media-transcoder-pool | optional transcode worker pool (gRPC / health) |
 | 9730 / 9731 | media-graph | optional unified media graph (gRPC / health) |
 | 9740 / 9741 | media-tagging | optional content tagging / classification (gRPC / health) |
 | 9750 / 9751 / 8751 | media-dlna | optional DLNA/UPnP server (DLNA HTTP / gRPC / health); `MVP_ENABLE_MEDIA_DLNA=1` |
 | 9800 | ratelimit-tokenbucket | spool `default` (fail-open until `RATELIMIT_ENABLED`) |
+| 9900 / 9901 | metrics-prometheus gRPC / HTTP | Prometheus scrape on HTTP |
 | 18080 | api-rest HTTP | |
 
 When adding a module, pick a free port and update this table.
