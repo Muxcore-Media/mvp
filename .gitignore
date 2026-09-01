@@ -14,3 +14,4 @@ muxcore.db
 /wg.conf
 /wg-mux.conf
 *.wg.conf
+scripts/muxidx/__pycache__/
