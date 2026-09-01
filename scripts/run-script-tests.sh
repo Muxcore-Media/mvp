@@ -4,6 +4,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 failed=0
+WS="$(cd "$ROOT/.." && pwd)"
+echo "==> check-proto-drift.sh"
+if ! bash "$WS/scripts/check-proto-drift.sh"; then
+  failed=1
+fi
+echo "==> check-proto-drift_test.sh"
+if ! bash "$WS/scripts/check-proto-drift_test.sh"; then
+  failed=1
+fi
 echo "==> check-household-manifest.sh"
 if ! bash "$ROOT/scripts/check-household-manifest.sh"; then
   failed=1
