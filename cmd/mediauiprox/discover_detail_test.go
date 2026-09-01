@@ -20,7 +20,7 @@ type fixtureMetadataDiscover struct {
 
 func (f fixtureMetadataDiscover) GetMovieDetails(_ context.Context, req *metadatav1.GetMovieDetailsRequest) (*metadatav1.GetMovieDetailsResponse, error) {
 	return &metadatav1.GetMovieDetailsResponse{
-		Id:          req.GetTmdbId(),
+		Id:          req.GetId(),
 		Title:       "Fight Club",
 		ReleaseDate: "1999-10-15",
 		Overview:    "soap",
@@ -31,7 +31,7 @@ func (f fixtureMetadataDiscover) GetMovieDetails(_ context.Context, req *metadat
 
 func (f fixtureMetadataDiscover) GetTVDetails(_ context.Context, req *metadatav1.GetTVDetailsRequest) (*metadatav1.GetTVDetailsResponse, error) {
 	return &metadatav1.GetTVDetailsResponse{
-		Id:           req.GetTmdbId(),
+		Id:           req.GetId(),
 		Name:         "Breaking Bad",
 		FirstAirDate: "2008-01-20",
 		Overview:     "chemistry teacher",
