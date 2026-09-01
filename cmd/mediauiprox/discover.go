@@ -68,7 +68,7 @@ func (s *server) handleDiscover(w http.ResponseWriter, r *http.Request) {
 	switch kind {
 	case "movie", "movies":
 		resp, err := s.metadata.GetMovieDetails(r.Context(), &metadatav1.GetMovieDetailsRequest{
-			TmdbId:           int32(id),
+			Id:               int32(id),
 			AppendToResponse: []string{"videos", "credits"},
 		})
 		if err != nil {
@@ -78,7 +78,7 @@ func (s *server) handleDiscover(w http.ResponseWriter, r *http.Request) {
 		writeJSONStatus(w, http.StatusOK, mapMovieDiscover(resp))
 	case "tv", "series", "show", "shows":
 		resp, err := s.metadata.GetTVDetails(r.Context(), &metadatav1.GetTVDetailsRequest{
-			TmdbId:           int32(id),
+			Id:               int32(id),
 			AppendToResponse: []string{"videos", "credits"},
 		})
 		if err != nil {

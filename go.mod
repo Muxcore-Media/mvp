@@ -3,8 +3,8 @@ module github.com/Muxcore-Media/mvp-smoke
 go 1.26.5
 
 require (
-	github.com/Muxcore-Media/contracts-automation v0.1.0
-	github.com/Muxcore-Media/contracts-metadata v0.1.0
+	github.com/Muxcore-Media/contracts-automation v0.1.1-0.20260824174909-b7b0cb83d8b3
+	github.com/Muxcore-Media/contracts-metadata v0.1.1-0.20260824175102-c62591db5268
 	github.com/Muxcore-Media/contracts-scanner v0.1.0
 	github.com/Muxcore-Media/core v0.5.8
 	github.com/Muxcore-Media/core/sdk/go/client v0.5.8
