@@ -735,7 +735,7 @@ EOF
       fi
       maybe_start indexer-torznab env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=indexer-torznab MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
-        TORZNAB_GRPC_ADDR=":9486" TORZNAB_HTTP_ADDR=":9488" \
+        TORZNAB_GRPC_ADDR=":9486" \
         TORZNAB_URL="${TORZNAB_URL:-}" TORZNAB_API_KEY="${TORZNAB_API_KEY:-}" \
         PROWLARR_URL="${PROWLARR_URL:-}" PROWLARR_API_KEY="${PROWLARR_API_KEY:-}" \
         "${ACQ_VPN_ENV[@]}" \
@@ -880,8 +880,9 @@ EOF
       fi
       maybe_start media-tagging env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-tagging MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
-        TAGGING_GRPC_ADDR=":9740" \
-        MUXCORE_HTTP_ADDR=":9741" \
+        TAGGING_DATA_DIR="$DATA/tagging" \
+        TAGGING_GRPC_ADDR="127.0.0.1:9740" \
+        MUXCORE_HTTP_ADDR="127.0.0.1:9741" \
         "$BIN/media-tagging"
     fi
 
@@ -926,6 +927,7 @@ EOF
     if [[ "${MVP_ENABLE_MEDIA_INTRO_OUTRO:-0}" == "1" ]]; then
       maybe_start media-intro-outro env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-intro-outro MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        INTRO_OUTRO_DATA_DIR="$DATA/intro-outro" \
         MUXCORE_HTTP_ADDR=":9711" \
         "$BIN/media-intro-outro"
     fi
@@ -943,8 +945,8 @@ EOF
     if [[ "${MVP_ENABLE_STORAGE_S3:-0}" == "1" ]]; then
       maybe_start storage-s3 env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=storage-s3 MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
-        STORAGE_S3_GRPC_ADDR=":9610" \
-        STORAGE_S3_HTTP_ADDR=":9612" \
+        STORAGE_S3_GRPC_ADDR="127.0.0.1:9610" \
+        STORAGE_S3_HTTP_ADDR="127.0.0.1:9611" \
         "$BIN/storage-s3"
     fi
 
@@ -959,8 +961,20 @@ EOF
     if [[ "${MVP_ENABLE_STORAGE_OVERLAY:-0}" == "1" ]]; then
       maybe_start storage-overlay env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=storage-overlay MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        MUXCORE_MESH_DIAL_LOCAL=true \
         STORAGE_OVERLAY_GRPC_ADDR=":9690" \
         STORAGE_OVERLAY_HTTP_ADDR=":9691" \
+        OVERLAY_BACKEND="${OVERLAY_BACKEND:-minio}" \
+        OVERLAY_AES_KEY_HEX="${OVERLAY_AES_KEY_HEX:?MVP_ENABLE_STORAGE_OVERLAY requires OVERLAY_AES_KEY_HEX}" \
+        OVERLAY_ENCRYPT="${OVERLAY_ENCRYPT:-true}" \
+        OVERLAY_COMPRESS="${OVERLAY_COMPRESS:-true}" \
+        OVERLAY_DEDUP="${OVERLAY_DEDUP:-true}" \
+        OVERLAY_S3_ENDPOINT="${OVERLAY_S3_ENDPOINT:-${S3_ENDPOINT:-127.0.0.1:9000}}" \
+        OVERLAY_S3_BUCKET="${OVERLAY_S3_BUCKET:-${S3_BUCKET:-muxcore}}" \
+        OVERLAY_S3_ACCESS_KEY="${OVERLAY_S3_ACCESS_KEY:-${S3_ACCESS_KEY:-minioadmin}}" \
+        OVERLAY_S3_SECRET_KEY="${OVERLAY_S3_SECRET_KEY:-${S3_SECRET_KEY:-minioadmin}}" \
+        OVERLAY_S3_PATH_STYLE="${OVERLAY_S3_PATH_STYLE:-true}" \
+        OVERLAY_S3_USE_SSL="${OVERLAY_S3_USE_SSL:-false}" \
         "$BIN/storage-overlay"
     fi
 
@@ -1066,9 +1080,11 @@ EOF
     fi
 
     if [[ "${MVP_ENABLE_SCHEDULER_CRON:-0}" == "1" ]]; then
+      mkdir -p "$DATA/scheduler-cron"
       maybe_start scheduler-cron env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=scheduler-cron MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
-        SCHEDULER_HTTP_ADDR=":9204" \
+        SCHEDULER_HTTP_ADDR="127.0.0.1:9204" \
+        SCHEDULER_STORE_PATH="$DATA/scheduler-cron/tasks.json" \
         "$BIN/scheduler-cron"
     fi
 
@@ -1082,7 +1098,10 @@ EOF
     if [[ "${MVP_ENABLE_SPOOL_RESOLVER:-0}" == "1" ]]; then
       maybe_start spool-resolver-http env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=spool-resolver-http MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
-        SPOOL_RESOLVER_GRPC_ADDR=":9675" \
+        SPOOL_RESOLVER_GRPC_ADDR="127.0.0.1:9675" \
+        SPOOL_RESOLVER_ALLOWED_HOSTS="${SPOOL_RESOLVER_ALLOWED_HOSTS:-github.com,raw.githubusercontent.com}" \
+        SPOOL_RESOLVER_ALLOW_HTTP="${SPOOL_RESOLVER_ALLOW_HTTP:-false}" \
+        SPOOL_RESOLVER_ALLOW_PRIVATE="${SPOOL_RESOLVER_ALLOW_PRIVATE:-false}" \
         "$BIN/spool-resolver-http"
     fi
 
@@ -1096,7 +1115,7 @@ EOF
     if [[ "${MVP_ENABLE_WORKER_POOL:-0}" == "1" ]]; then
       maybe_start worker-pool-memory env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=worker-pool-memory MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
-        WORKER_POOL_HTTP_ADDR=":9300" \
+        WORKER_POOL_HTTP_ADDR="127.0.0.1:9300" \
         "$BIN/worker-pool-memory"
     fi
 

@@ -43,35 +43,76 @@ build_checksum() {
   local name="${repo##*/}"
   name="${name%.git}"
   local local_dir="$ROOT/$name"
-  local worktree_added=0
+  local target bin sum
+  bin="$TMP/${name}-$$"
 
-  if [[ -d "$local_dir/.git" && -f "$local_dir/go.mod" ]]; then
-    echo "  local: $name@$version" >&2
-    if git -C "$local_dir" worktree add --detach "$build_dir" "$version" >/dev/null 2>&1 \
-      || git -C "$local_dir" worktree add --detach "$build_dir" "tags/$version" >/dev/null 2>&1; then
-      worktree_added=1
+  git config --global url."https://git.zem.systems/muxcore/".insteadOf "https://github.com/Muxcore-Media/" >/dev/null 2>&1 || true
+
+  try_build() {
+    local dir="$1"
+    target="$(module_build_target "$dir")"
+    rm -f "$bin"
+    mkdir -p "$TMP/gocache"
+    (cd "$dir" && GOCACHE="$TMP/gocache" GOSUMDB=off GONOSUMDB='github.com/Muxcore-Media/*' GOPRIVATE='github.com/Muxcore-Media/*' \
+      "$GO" build -mod=mod -o "$bin" "$target") >&2
+    [[ -f "$bin" ]]
+  }
+
+  apply_workspace_replaces() {
+    local dir="$1"
+    local args=()
+    for mod in core contracts-media contracts-notification contracts-playback \
+      contracts-scanner contracts-automation contracts-metadata contracts-media-admin \
+      contracts-downloader contracts-indexer; do
+      [[ -d "$ROOT/$mod" ]] && args+=(-replace "github.com/Muxcore-Media/$mod=$ROOT/$mod")
+    done
+    [[ -d "$ROOT/core/pkg/contracts" ]] && args+=(-replace "github.com/Muxcore-Media/core/pkg/contracts=$ROOT/core/pkg/contracts")
+    [[ -d "$ROOT/core/pkg/tenant" ]] && args+=(-replace "github.com/Muxcore-Media/core/pkg/tenant=$ROOT/core/pkg/tenant")
+    [[ -d "$ROOT/core/sdk/go/client" ]] && args+=(-replace "github.com/Muxcore-Media/core/sdk/go/client=$ROOT/core/sdk/go/client")
+    [[ -d "$ROOT/core/sdk/go/module" ]] && args+=(-replace "github.com/Muxcore-Media/core/sdk/go/module=$ROOT/core/sdk/go/module")
+    ((${#args[@]})) || return 0
+    (cd "$dir" && "$GO" mod edit "${args[@]}") >/dev/null 2>&1 || true
+  }
+
+  local origin="https://git.zem.systems/muxcore/${name}.git"
+  local cloned=0
+  local clone_label=""
+
+  if [[ ( -d "$local_dir/.git" || -f "$local_dir/.git" ) && -f "$local_dir/go.mod" ]]; then
+    echo "  local: $name@$version (workspace)" >&2
+    apply_workspace_replaces "$local_dir"
+    if try_build "$local_dir"; then
+      :
     else
-      cp -a "$local_dir" "$build_dir"
+      echo "  workspace build failed; trying origin tag" >&2
+      cloned=0
     fi
-  elif [[ "$version" =~ ^[0-9a-fA-F]{40}$ ]]; then
-    git clone --depth 1 "$repo" "$build_dir" >/dev/null 2>&1
-    git -C "$build_dir" fetch --depth 1 origin "$version" >/dev/null 2>&1
-    git -C "$build_dir" checkout "$version" >/dev/null 2>&1
-  else
-    git clone --depth 1 --branch "$version" "$repo" "$build_dir" >/dev/null 2>&1
   fi
 
-  local target bin
-  target="$(module_build_target "$build_dir")"
-  bin="$build_dir/muxcore-module"
-  (cd "$build_dir" && "$GO" build -o "$bin" "$target") >&2
-  [[ -f "$bin" ]] || die "build produced no binary for $repo@$version"
+  if [[ ! -f "$bin" ]]; then
+    if [[ "$version" =~ ^[0-9a-fA-F]{40}$ ]]; then
+      if git -c credential.helper= clone --depth 1 "$origin" "$build_dir" >/dev/null 2>&1 \
+        && git -C "$build_dir" fetch --depth 1 origin "$version" >/dev/null 2>&1 \
+        && git -C "$build_dir" checkout "$version" >/dev/null 2>&1; then
+        cloned=1
+        clone_label="$version"
+      fi
+    elif git -c credential.helper= clone --depth 1 --branch "$version" "$origin" "$build_dir" >/dev/null 2>&1 \
+      || git -c credential.helper= clone --depth 1 --branch "${version#v}" "$origin" "$build_dir" >/dev/null 2>&1; then
+      cloned=1
+      clone_label="$version"
+    fi
+    [[ "$cloned" == "1" ]] || die "build failed for $repo@$version (workspace and origin)"
+    echo "  origin: $name@$clone_label" >&2
+    rm -f "$build_dir/go.sum"
+    try_build "$build_dir" || {
+      apply_workspace_replaces "$build_dir"
+      try_build "$build_dir" || die "build produced no binary for $repo@$version"
+    }
+  fi
 
   sha256sum "$bin" | awk '{print "sha256:" $1}'
-
-  if [[ "$worktree_added" == "1" ]]; then
-    git -C "$local_dir" worktree remove --force "$build_dir" >/dev/null 2>&1 || rm -rf "$build_dir"
-  fi
+  rm -f "$bin"
 }
 
 mapfile -t modules < <(jq -c '.modules[]' "$ROOT/$TAG_FILE")
