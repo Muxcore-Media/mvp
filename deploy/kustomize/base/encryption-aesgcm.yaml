@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
         - name: encryption-aesgcm
-          image: ghcr.io/muxcore-media/encryption-aesgcm:v0.2.6
+          image: git.zem.systems/muxcore/encryption-aesgcm:v0.5.7
           imagePullPolicy: IfNotPresent
           env:
             - name: MUXCORE_GRPC_ADDR

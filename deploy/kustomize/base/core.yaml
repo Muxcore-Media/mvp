@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: muxcored
-          image: ghcr.io/muxcore-media/muxcored:v0.5.2
+          image: git.zem.systems/muxcore/muxcored:v0.5.7
           imagePullPolicy: IfNotPresent
           env:
             - name: MUXCORE_CONFIG

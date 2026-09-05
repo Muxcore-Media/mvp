@@ -34,7 +34,7 @@
 
 ### P0 — Distribution & CI
 
-- [ ] **Public GHCR consumer mirror** — scripts + `Dockerfile.monorepo` + `core/scripts/publish-muxcored-vault-ghcr.sh` (vault BUILD_ONLY verified 2026-08-22); **push** needs `gh auth refresh -s write:packages,read:packages,repo` then vault script or `publish-muxcored-ghcr.sh`
+- [ ] **Public GHCR consumer mirror** — `docker-compose.ghcr.yml` + `scripts/publish-muxcored-ghcr.sh` + `scripts/smoke-ghcr-build.sh` (BUILD_ONLY verified 2026-08-22); **push** needs `gh auth refresh -s write:packages,read:packages,repo` then `publish-muxcored-ghcr.sh` or GitHub Release workflow on `Muxcore-Media/core`
 
 ### P1 — Platform engineering
 

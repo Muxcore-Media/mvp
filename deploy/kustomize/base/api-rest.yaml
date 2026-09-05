@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: api-rest
-          image: ghcr.io/muxcore-media/api-rest:v0.1.6
+          image: git.zem.systems/muxcore/api-rest:v0.5.7
           imagePullPolicy: IfNotPresent
           env:
             - name: MUXCORE_GRPC_ADDR

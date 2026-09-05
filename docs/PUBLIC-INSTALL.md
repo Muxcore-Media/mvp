@@ -14,7 +14,7 @@ Developers keep using [`../run-host.sh`](../run-host.sh). GHCR ([`../docker-comp
 
 ```bash
 cd _mvp
-./scripts/local-registry.sh start
+./local-registry.sh start
 export MUXCORE_REGISTRY=localhost:5000/muxcore
 ./scripts/publish-muxcored-local.sh v0.5.7
 ```
@@ -105,15 +105,13 @@ gh auth refresh -h github.com -s write:packages,read:packages,repo
 
 Alternative when desk lacks packages scope: trigger the **GitHub Release** workflow on `Muxcore-Media/core` (GoReleaser publishes `ghcr.io/muxcore-media/muxcored` via Actions `packages:write`). Self-hosted runners mirror Forgejo — tag `refs/tags/v*` on GitHub must match the mirror or checkout must pin `github.sha` (see `core/.github/workflows/release.yml`; pushing workflow files needs `workflow` scope on `gh`).
 
-**Vault host-build path** (desk without podman; verified BUILD_ONLY 2026-08-22):
+Build-only on a host without podman/docker (no push):
 
 ```bash
-gh auth refresh -h github.com -s write:packages,read:packages,repo   # required for push
-GHCR_TOKEN="$(gh auth token)" ../../core/scripts/publish-muxcored-vault-ghcr.sh v0.5.7
-# BUILD_ONLY: BUILD_ONLY=1 ../../core/scripts/publish-muxcored-vault-ghcr.sh v0.5.7
+BUILD_ONLY=1 ./scripts/publish-muxcored-ghcr.sh v0.5.7
 ```
 
-Forgejo Actions on vault is currently failing all jobs (~2s); use the script above until runner CI is repaired.
+There is no separate vault GHCR publish script in this repo or `Muxcore-Media/core`; use `publish-muxcored-ghcr.sh` on a desk with a container runtime, or trigger the GitHub Release workflow on `Muxcore-Media/core` for Actions-driven GHCR publish.
 
 Until `write:packages` is on the gh token, Forgejo/LAN is the supported non-dev path.
 

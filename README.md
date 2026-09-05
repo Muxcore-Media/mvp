@@ -58,7 +58,7 @@ kubectl apply -k deploy/kustomize/overlays/dev
 helm upgrade --install muxcore deploy/helm/muxcore -n muxcore --create-namespace
 ```
 
-Images default to `ghcr.io/muxcore-media/*` (same GHCR P0 dependency). Host `./run-host.sh` remains the verified operator path.
+Images default to `git.zem.systems/muxcore/*` at `household-manifest.yaml` `core_tag` (currently **v0.5.7**), matching Helm. GHCR (`docker-compose.ghcr.yml`) is optional. Host `./run-host.sh` remains the verified operator path.
 
 ## Quick start
 
