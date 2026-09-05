@@ -32,6 +32,31 @@ fi
 
 die() { echo "FAIL: $*" >&2; exit 1; }
 
+resolve_mvp_dir() {
+  if [[ -d "$WS/mvp" ]]; then
+    echo mvp
+  elif [[ -d "$WS/_mvp" ]]; then
+    echo _mvp
+  else
+    die "mvp module dir not found in workspace $WS (expected mvp/ or legacy _mvp/)"
+  fi
+}
+
+media_ui_siblings=(
+  media-ui-app core contracts-automation contracts-metadata contracts-scanner
+  contracts-media jellyfin media-ffprobe media-intro-outro media-list-sync
+  media-movies media-subtitles media-tvshows userdata-local
+)
+
+preflight_media_ui_context() {
+  local mvp_dir="$1"
+  local path
+  [[ -d "$WS/$mvp_dir" ]] || die "media-ui build missing $WS/$mvp_dir"
+  for path in "${media_ui_siblings[@]}"; do
+    [[ -d "$WS/$path" ]] || die "media-ui build missing sibling: $WS/$path"
+  done
+}
+
 detect_runtime() {
   if [[ -n "${CONTAINER_RUNTIME:-}" ]]; then
     command -v "$CONTAINER_RUNTIME" >/dev/null 2>&1 || die "CONTAINER_RUNTIME not found"
@@ -56,13 +81,18 @@ for name in "${MODULE_LIST[@]}"; do
   [[ -d "$mod_dir" ]] || die "module dir not found: $mod_dir"
   image="${REGISTRY}/${name}:${TAG}"
   dockerfile="$DOCKERFILE"
+  extra_build_args=()
   if [[ "$name" == "media-ui" ]]; then
+    mvp_dir="$(resolve_mvp_dir)"
+    preflight_media_ui_context "$mvp_dir"
     dockerfile="$ROOT/dockerfiles/media-ui.Dockerfile"
+    extra_build_args=(--build-arg "MVP_DIR=$mvp_dir")
   fi
   echo "==> build $name -> $image"
   "$RT" build -f "$dockerfile" \
     --build-arg MODULE="$name" \
     --build-arg VERSION="${TAG#v}" \
+    "${extra_build_args[@]}" \
     -t "$image" \
     "$WS"
   if [[ "$BUILD_ONLY" != "1" ]]; then

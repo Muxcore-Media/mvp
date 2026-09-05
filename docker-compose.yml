@@ -11,7 +11,7 @@ name: muxcore-mvp
 x-module: &module
   build:
     context: ..
-    dockerfile: _mvp/dockerfiles/module.Dockerfile
+    dockerfile: mvp/dockerfiles/module.Dockerfile
     args:
       GO_VERSION: "1.26"
   environment: &module_env
@@ -55,7 +55,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: api-rest }
     environment:
       <<: *module_env
@@ -70,7 +70,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: auth-local }
     environment:
       <<: *module_env
@@ -88,7 +88,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: database-sqlite }
     environment:
       <<: *module_env
@@ -100,7 +100,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: secrets-file }
     environment:
       <<: *module_env
@@ -112,7 +112,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: encryption-aesgcm }
     environment:
       <<: *module_env
@@ -122,7 +122,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: call-policy-default }
     environment:
       <<: *module_env
@@ -132,7 +132,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: publish-policy-default }
     environment:
       <<: *module_env
@@ -142,7 +142,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: health-monitor }
     environment:
       <<: *module_env
@@ -160,7 +160,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: metrics-prometheus }
     environment:
       <<: *module_env
@@ -177,7 +177,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: tracing-otlp }
     environment:
       <<: *module_env
@@ -195,7 +195,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: admin-ui }
     environment:
       <<: *module_env
@@ -213,7 +213,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: metadata-tmdb }
     environment:
       <<: *module_env
@@ -225,7 +225,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: metadata-musicbrainz }
     environment:
       <<: *module_env
@@ -237,7 +237,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: media-movies }
     environment:
       <<: *module_env
@@ -253,7 +253,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: media-tvshows }
     environment:
       <<: *module_env
@@ -269,7 +269,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: media-music }
     environment:
       <<: *module_env
@@ -288,7 +288,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: media-automation }
     environment:
       <<: *module_env
@@ -305,7 +305,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: media-scanner }
     environment:
       <<: *module_env
@@ -329,7 +329,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: media-root-folders }
     environment:
       <<: *module_env
@@ -343,7 +343,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: request-media }
     environment:
       <<: *module_env
@@ -361,7 +361,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: notification-default }
     environment:
       <<: *module_env
@@ -372,7 +372,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: userdata-local }
     environment:
       <<: *module_env
@@ -386,7 +386,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: media-custom-formats }
     environment:
       <<: *module_env
@@ -396,7 +396,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: media-rename }
     environment:
       <<: *module_env
@@ -406,7 +406,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: media-ffprobe }
     environment:
       <<: *module_env
@@ -416,7 +416,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: media-subtitles }
     environment:
       <<: *module_env
@@ -426,7 +426,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: jellyfin }
     environment:
       <<: *module_env
@@ -452,7 +452,7 @@ services:
     <<: *module
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/module.Dockerfile
+      dockerfile: mvp/dockerfiles/module.Dockerfile
       args: { MODULE: media-transcoder }
     environment:
       <<: *module_env
@@ -473,7 +473,7 @@ services:
   media-ui:
     build:
       context: ..
-      dockerfile: _mvp/dockerfiles/media-ui.Dockerfile
+      dockerfile: mvp/dockerfiles/media-ui.Dockerfile
     environment:
       MOVIES_GRPC_CLIENT_ADDR: media-movies:9420
       TVSHOWS_GRPC_CLIENT_ADDR: media-tvshows:9440

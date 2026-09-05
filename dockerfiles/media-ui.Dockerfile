@@ -11,9 +11,10 @@ COPY media-ui-app/ ./
 RUN npm run build
 
 FROM golang:${GO_VERSION}-bookworm AS bff
+ARG MVP_DIR=mvp
 WORKDIR /ws
-# COPY every _mvp/go.mod replace sibling the BFF imports (direct + transitive).
-COPY _mvp /ws/_mvp
+# COPY mvp (or legacy _mvp via --build-arg MVP_DIR) plus every go.mod replace sibling.
+COPY ${MVP_DIR} /ws/mvp
 COPY core /ws/core
 COPY contracts-automation /ws/contracts-automation
 COPY contracts-metadata /ws/contracts-metadata
@@ -27,7 +28,7 @@ COPY media-movies /ws/media-movies
 COPY media-subtitles /ws/media-subtitles
 COPY media-tvshows /ws/media-tvshows
 COPY userdata-local /ws/userdata-local
-WORKDIR /ws/_mvp
+WORKDIR /ws/mvp
 RUN CGO_ENABLED=0 go build -o /mediauiprox ./cmd/mediauiprox
 
 FROM debian:bookworm-slim
