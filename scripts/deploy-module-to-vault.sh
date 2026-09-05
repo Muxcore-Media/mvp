@@ -27,6 +27,7 @@ REMOTE_MEDIA_UI_DIST="${MVP_DEPLOY_MEDIA_UI_DIST:-/mnt/fast-storage/appdata/muxc
 
 BUILD_ONLY=0
 NO_RESTART=0
+NO_VERIFY=0
 VERIFY=0
 VERIFY_PUBLIC=0
 VERIFY_ALL=0
@@ -37,9 +38,10 @@ MODULE=""
 ORIGIN_PINNED=(media-scanner media-automation downloader-native-torrent)
 
 usage() {
-  echo "usage: $0 <module> [--build-only] [--no-restart] [--verify] [--verify-public] [--verify-all]" >&2
+  echo "usage: $0 <module> [--build-only] [--no-restart] [--no-verify] [--verify] [--verify-public] [--verify-all]" >&2
   echo "       $0 --list" >&2
   echo "  module: service name (admin-ui, media-ui, core, muxcorectl, media-ui-app, …)" >&2
+  echo "  post-deploy module health runs by default; use --no-verify to skip" >&2
   echo "  --verify-all: health + public edge + muxcorectl mesh (implies --verify and --verify-public)" >&2
   echo "  env: MVP_SKIP_PREFLIGHT=1 to skip SSH preflight" >&2
   exit 2
@@ -71,13 +73,14 @@ list_modules() {
   echo "  scripts/smoke-vault-all.sh"
   echo "  scripts/preflight-vault-ssh.sh"
   echo "  scripts/muxcorectl-vault.sh health status"
-  echo "  deploy flags: --verify --verify-public --verify-all"
+  echo "  deploy flags: --no-verify --verify --verify-public --verify-all"
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --build-only) BUILD_ONLY=1; shift ;;
     --no-restart) NO_RESTART=1; shift ;;
+    --no-verify) NO_VERIFY=1; shift ;;
     --verify) VERIFY=1; shift ;;
     --verify-public) VERIFY_PUBLIC=1; shift ;;
     --verify-all) VERIFY_ALL=1; shift ;;
@@ -235,15 +238,79 @@ remote_install_binary() {
   local remote_name="$1"
   local svc="$2"
   local remote_tmp="/tmp/${remote_name}.new"
-  local remote_bin="$REMOTE_MVP/bin/${remote_name}"
+  local remote_bin_dir="$REMOTE_MVP/bin"
+  local atomic="$REMOTE_MVP/scripts/deploy-atomic.sh"
 
-  if [[ -n "$svc" ]]; then
-    ssh -6 -o BatchMode=yes -o ConnectTimeout=30 "$SSH_TARGET" \
-      "cd '$REMOTE_MVP' && ./run-host.sh stop-one '$svc' && mv '$remote_tmp' '$remote_bin' && chmod +x '$remote_bin' && ./run-host.sh restart '$svc'"
-  else
-    ssh -6 -o BatchMode=yes -o ConnectTimeout=30 "$SSH_TARGET" \
-      "mv '$remote_tmp' '$remote_bin' && chmod +x '$remote_bin'"
+  echo "==> bootstrap deploy-atomic.sh on vault"
+  scp -6 -o BatchMode=yes -o ConnectTimeout=30 \
+    "$SCRIPT_DIR/deploy-atomic.sh" "${SSH_TARGET}:${atomic}"
+
+  local install_args=(
+    install
+    --bin-dir "$remote_bin_dir"
+    --name "$remote_name"
+    --new "$remote_tmp"
+    --mvp-root "$REMOTE_MVP"
+  )
+  if [[ -n "$svc" && "$NO_RESTART" -eq 0 ]]; then
+    install_args+=(--service "$svc")
   fi
+
+  echo "==> atomic install $remote_name on vault"
+  ssh -6 -o BatchMode=yes -o ConnectTimeout=30 "$SSH_TARGET" \
+    "bash '$atomic' ${install_args[*]}"
+}
+
+remote_verify_module() {
+  local module="$1"
+  local atomic="$REMOTE_MVP/scripts/deploy-atomic.sh"
+  ssh -6 -o BatchMode=yes -o ConnectTimeout=30 "$SSH_TARGET" \
+    "bash '$atomic' verify --module '$module' --mvp-root '$REMOTE_MVP'"
+}
+
+remote_rollback_binary() {
+  local remote_name="$1"
+  local svc="$2"
+  local remote_bin_dir="$REMOTE_MVP/bin"
+  local atomic="$REMOTE_MVP/scripts/deploy-atomic.sh"
+  local rollback_args=(
+    rollback
+    --bin-dir "$remote_bin_dir"
+    --name "$remote_name"
+    --mvp-root "$REMOTE_MVP"
+  )
+  if [[ -n "$svc" && "$NO_RESTART" -eq 0 ]]; then
+    rollback_args+=(--service "$svc")
+  fi
+  echo "==> rolling back $remote_name from .prev"
+  ssh -6 -o BatchMode=yes -o ConnectTimeout=30 "$SSH_TARGET" \
+    "bash '$atomic' ${rollback_args[*]}"
+}
+
+post_deploy_verify() {
+  local module="$1"
+  local bin_name="$2"
+  local svc="$3"
+  local verify_module=1
+
+  if [[ "$NO_VERIFY" -eq 1 ]]; then
+    verify_module=0
+  fi
+  if [[ "$NO_RESTART" -eq 1 && -z "$svc" ]]; then
+    verify_module=0
+  fi
+
+  if [[ "$verify_module" -eq 1 ]]; then
+    if ! remote_verify_module "$module"; then
+      remote_rollback_binary "$bin_name" "$svc" || true
+      echo "deploy-module: health check failed; rolled back $module" >&2
+      return 1
+    fi
+  fi
+
+  [[ "$VERIFY" -eq 1 ]] && verify_health
+  [[ "$VERIFY_PUBLIC" -eq 1 ]] && verify_public
+  [[ "$VERIFY_ALL" -eq 1 ]] && verify_mesh
 }
 
 rsync_media_ui_app() {
@@ -308,6 +375,12 @@ main() {
     fi
     [[ "$BUILD_ONLY" -eq 1 ]] && exit 0
     rsync_media_ui_app
+    if [[ "$NO_VERIFY" -eq 0 ]]; then
+      remote_verify_module media-ui || {
+        echo "deploy-module: media-ui health failed after dist-app rsync" >&2
+        exit 1
+      }
+    fi
     [[ "$VERIFY" -eq 1 || "$VERIFY_PUBLIC" -eq 1 || "$VERIFY_ALL" -eq 1 ]] && run_verify
     echo "==> done (media-ui-app SPA)"
     return 0
@@ -329,13 +402,12 @@ main() {
   scp_to_vault "$local_out" "$bin_name"
 
   if [[ "$NO_RESTART" -eq 1 ]]; then
-    ssh -6 -o BatchMode=yes -o ConnectTimeout=30 "$SSH_TARGET" \
-      "mv '/tmp/${bin_name}.new' '$REMOTE_MVP/bin/${bin_name}' && chmod +x '$REMOTE_MVP/bin/${bin_name}'"
+    remote_install_binary "$bin_name" ""
   else
     remote_install_binary "$bin_name" "$svc"
   fi
 
-  [[ "$VERIFY" -eq 1 || "$VERIFY_PUBLIC" -eq 1 || "$VERIFY_ALL" -eq 1 ]] && run_verify
+  post_deploy_verify "$MODULE" "$bin_name" "$svc"
   echo "==> done ($MODULE → $bin_name${svc:+, restarted $svc})"
 }
 

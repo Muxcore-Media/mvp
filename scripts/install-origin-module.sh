@@ -11,11 +11,14 @@
 #   MVP_DEPLOY_SSH   ssh target for --verify-live (optional)
 #   MVP_DEPLOY_RUN   remote run dir (default /mnt/fast-storage/appdata/muxcore/mvp/run)
 #   MVP_ORIGIN_RECORD  host log path (default $ROOT/run/ORIGIN-BINARIES.log)
+#   MVP_DEPLOY_MVP   mvp root for atomic install + health (optional; enables restart on install)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$SCRIPT_DIR/origin-module.sh"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/deploy-atomic.sh"
 
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 WS="$(cd "$ROOT/.." && pwd)"
@@ -23,8 +26,9 @@ BIN="${MVP_BIN:-$ROOT/bin}"
 RECORD="${MVP_ORIGIN_RECORD:-$ROOT/run/ORIGIN-BINARIES.log}"
 
 usage() {
-  echo "usage: $0 <module> [--dest DIR] [--verify-only] [--build-only]" >&2
+  echo "usage: $0 <module> [--dest DIR] [--verify-only] [--build-only] [--no-verify] [--restart]" >&2
   echo "       $0 --verify-live [module ...]" >&2
+  echo "  atomic install (flock + .prev) runs when staging to --dest; health verify is default" >&2
   exit 2
 }
 
@@ -86,17 +90,25 @@ if [[ "${1:-}" == "--verify-live" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+fi
+
 [[ $# -ge 1 ]] || usage
 NAME="$1"
 shift
 DEST=""
 VERIFY_ONLY=0
 BUILD_ONLY=0
+NO_VERIFY=0
+DO_RESTART=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dest) DEST="${2:-}"; shift 2 ;;
     --verify-only) VERIFY_ONLY=1; shift ;;
     --build-only) BUILD_ONLY=1; shift ;;
+    --no-verify) NO_VERIFY=1; shift ;;
+    --restart) DO_RESTART=1; shift ;;
     -h|--help) usage ;;
     *) echo "unknown arg: $1" >&2; usage ;;
   esac
@@ -134,8 +146,28 @@ if [[ -z "$DEST" ]]; then
   DEST="$BIN"
 fi
 mkdir -p "$DEST"
-cp -f "$OUT" "$DEST/${NAME}.new"
+STAGE_NEW="$DEST/${NAME}.new"
+cp -f "$OUT" "$STAGE_NEW"
 cp -f "${OUT}.origin" "$DEST/${NAME}.origin"
-echo "staged $DEST/${NAME}.new ($LINE)"
-echo "install: stop the module, mv ${NAME}.new $NAME, chmod +x, restart"
+
+MVP_ROOT="${MVP_DEPLOY_MVP:-}"
+SERVICE=""
+if [[ "$DO_RESTART" -eq 1 || -n "$MVP_ROOT" ]]; then
+  SERVICE="$(module_service_name "$NAME")"
+fi
+if [[ -n "$SERVICE" && -n "$MVP_ROOT" ]]; then
+  atomic_bin_install "$DEST" "$NAME" "$STAGE_NEW" "$SERVICE" "$MVP_ROOT"
+else
+  atomic_bin_install "$DEST" "$NAME" "$STAGE_NEW" "" "${MVP_ROOT:-$ROOT}"
+fi
+
+if [[ "$NO_VERIFY" -eq 0 && ( "$DO_RESTART" -eq 1 || -n "$MVP_ROOT" ) ]]; then
+  if ! verify_module_health "$NAME" "${MVP_ROOT:-$ROOT}"; then
+    atomic_bin_rollback "$DEST" "$NAME" "$SERVICE" "${MVP_ROOT:-$ROOT}" || true
+    echo "origin-module: health failed; rolled back $NAME" >&2
+    exit 1
+  fi
+fi
+
+echo "installed $DEST/$NAME ($LINE)"
 echo "record appended to $RECORD"
