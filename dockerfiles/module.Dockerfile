@@ -1,5 +1,5 @@
 # Build any MuxCore module from the workspace root.
-#   docker build -f _mvp/dockerfiles/module.Dockerfile --build-arg MODULE=auth-local -t muxcore/auth-local .
+#   docker build -f mvp/dockerfiles/module.Dockerfile --build-arg MODULE=auth-local -t muxcore/auth-local .
 ARG MODULE
 ARG GO_VERSION=1.26
 
