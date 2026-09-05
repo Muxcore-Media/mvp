@@ -102,7 +102,7 @@ func (s *server) handlePlaybackResolve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.userdata != nil {
-		scope := s.userdata.scopeFromRequest(r, s.sessions)
+		scope := s.userdata.scopeFromRequest(r, s.sessions, s.sessionHasPrivilegedRole(r))
 		blob := s.userdata.load(scope)
 		tags := strings.TrimSpace(r.URL.Query().Get("tags"))
 		rating := strings.TrimSpace(r.URL.Query().Get("parental_rating"))
