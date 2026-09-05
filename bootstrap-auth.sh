@@ -5,6 +5,15 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
 [[ -f "$ROOT/.env" ]] && source "$ROOT/.env" || true
 
+# shellcheck disable=SC1091
+source "$ROOT/scripts/lib/smoke-cmd.sh"
+smoke_cmd_init
+
+if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
+  registry_smoke_bootstrap_auth
+  exit 0
+fi
+
 USER="${MVP_ADMIN_USER:-admin}"
 PASS="${MVP_ADMIN_PASSWORD:-admin-dev-only}"
 AUTH_ADDR="${AUTH_GRPC_ADDR:-127.0.0.1:9403}"
