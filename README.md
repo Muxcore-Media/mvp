@@ -4,7 +4,7 @@ Local reference compose for the media MVP path. Sibling clones under `/home/user
 
 **P0 Media MVP status: met** (Wave 21 stack + smoke; Wave 22 packaging freeze). Operator URLs after `./run-host.sh up`: [`run/VIEW-ME.txt`](run/VIEW-ME.txt).
 
-**Core pin:** published [`v0.5.8`](https://github.com/Muxcore-Media/core/releases/tag/v0.5.8) (remote storage sidecar dial; Settings mesh + chunked Put; mTLS from v0.5.1). Nested: `pkg/contracts` @ **v0.5.8**; `sdk/go/module` / `sdk/go/client` still @ **v0.5.3**. Modules pinning without `replace` (`GOPRIVATE=github.com/Muxcore-Media/*`, `gh` HTTPS):
+**Core pin:** published [`v0.5.7`](https://github.com/Muxcore-Media/core/releases/tag/v0.5.7) (latest GitHub release; includes remote storage sidecar dial from v0.5.4, Settings mesh + chunked Put from v0.5.2, mTLS from v0.5.1). Nested: `pkg/contracts` @ **v0.5.4**; `sdk/go/module` / `sdk/go/client` @ **v0.5.2**. Modules pinning without `replace` (`GOPRIVATE=github.com/Muxcore-Media/*`, `gh` HTTPS):
 
 Historical wave pins (still accurate as of each wave; later patch tags supersede — see spool catalog **2.4.13**):
 - **Waves 25–26 (core-adjacent):** `auth-local`, `call-policy-default`, `publish-policy-default`, `secrets-file`, `encryption-aesgcm`, `api-rest`, `jellyfin@v0.2.1`, `media-root-folders@v0.1.1`, `health-monitor`, `metadata-tmdb@v0.1.1`, `database-sqlite`, `secrets-vault`
@@ -31,7 +31,7 @@ Operator references in this repo: [`PORTS.md`](PORTS.md) (default gRPC/HTTP port
 
 ```bash
 export MUXCORE_REGISTRY=localhost:5000/muxcore   # or git.zem.systems/muxcore
-export MUXCORE_IMAGE_TAG=v0.5.8
+export MUXCORE_IMAGE_TAG=v0.5.7
 export DOWNLOADER_ENGINE=fixture
 docker compose -f docker-compose.registry.yml pull
 docker compose -f docker-compose.registry.yml up -d
@@ -41,8 +41,8 @@ docker compose -f docker-compose.registry.yml up -d
 Publish `muxcored` (podman or docker):
 
 ```bash
-./scripts/publish-muxcored-local.sh v0.5.8
-# or: MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-muxcored-local.sh v0.5.8
+./scripts/publish-muxcored-local.sh v0.5.7
+# or: MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-muxcored-local.sh v0.5.7
 # LAN helper: ./local-registry.sh start
 ```
 

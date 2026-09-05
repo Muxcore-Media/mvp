@@ -16,7 +16,7 @@ Developers keep using [`../run-host.sh`](../run-host.sh). GHCR ([`../docker-comp
 cd _mvp
 ./scripts/local-registry.sh start
 export MUXCORE_REGISTRY=localhost:5000/muxcore
-./scripts/publish-muxcored-local.sh v0.5.8
+./scripts/publish-muxcored-local.sh v0.5.7
 ```
 
 ## Install (primary)
@@ -24,7 +24,7 @@ export MUXCORE_REGISTRY=localhost:5000/muxcore
 ```bash
 cd _mvp
 export MUXCORE_REGISTRY=localhost:5000/muxcore   # or git.zem.systems/muxcore
-export MUXCORE_IMAGE_TAG=v0.5.8
+export MUXCORE_IMAGE_TAG=v0.5.7
 export DOWNLOADER_ENGINE=fixture
 docker compose -f docker-compose.registry.yml pull
 docker compose -f docker-compose.registry.yml up -d
@@ -43,14 +43,14 @@ Build and push `muxcored` with [`../scripts/publish-muxcored-local.sh`](../scrip
 
 ```bash
 # Forgejo package registry (default MUXCORE_REGISTRY)
-./scripts/publish-muxcored-local.sh v0.5.8
+./scripts/publish-muxcored-local.sh v0.5.7
 
 # LAN registry (see ../local-registry.sh)
 ./local-registry.sh start
-MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-muxcored-local.sh v0.5.8
+MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-muxcored-local.sh v0.5.7
 
 # Build + tag only (no push)
-BUILD_ONLY=1 MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-muxcored-local.sh v0.5.8
+BUILD_ONLY=1 MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-muxcored-local.sh v0.5.7
 ```
 
 `MUXCORE_REGISTRY` defaults to `git.zem.systems/muxcore`. Compose defaults to `localhost:5000/muxcore` when unset — set the same value on publish and install hosts.
@@ -63,10 +63,10 @@ The publish script prefers `podman`, then `docker` (`CONTAINER_RUNTIME` override
 
 ```bash
 cd ../core
-docker build --build-arg VERSION=0.5.8 -t localhost/muxcored:v0.5.8 -f Dockerfile .
-docker tag localhost/muxcored:v0.5.8 ${MUXCORE_REGISTRY:-git.zem.systems/muxcore}/muxcored:v0.5.8
+docker build --build-arg VERSION=0.5.7 -t localhost/muxcored:v0.5.7 -f Dockerfile .
+docker tag localhost/muxcored:v0.5.7 ${MUXCORE_REGISTRY:-git.zem.systems/muxcore}/muxcored:v0.5.7
 # push when ready:
-docker push ${MUXCORE_REGISTRY:-git.zem.systems/muxcore}/muxcored:v0.5.8
+docker push ${MUXCORE_REGISTRY:-git.zem.systems/muxcore}/muxcored:v0.5.7
 ```
 
 Same commands work with `podman` instead of `docker`.
@@ -91,14 +91,14 @@ Smoke and day-1 demos must use `DOWNLOADER_ENGINE=fixture`. Do not require live 
 Build-only smoke (no push); uses `core/Dockerfile.monorepo` when monorepo siblings exist (verified vault podman 2026-08-22):
 
 ```bash
-./scripts/smoke-ghcr-build.sh v0.5.8
+./scripts/smoke-ghcr-build.sh v0.5.7
 ```
 
 Unlock push (interactive on desk — needs read:packages + write:packages):
 
 ```bash
 gh auth refresh -h github.com -s write:packages,read:packages,repo
-./scripts/publish-muxcored-ghcr.sh v0.5.8
+./scripts/publish-muxcored-ghcr.sh v0.5.7
 ```
 
 Alternative when desk lacks packages scope: trigger the **GitHub Release** workflow on `Muxcore-Media/core` (GoReleaser publishes `ghcr.io/muxcore-media/muxcored` via Actions `packages:write`). Self-hosted runners mirror Forgejo — tag `refs/tags/v*` on GitHub must match the mirror or checkout must pin `github.sha` (see `core/.github/workflows/release.yml`; pushing workflow files needs `workflow` scope on `gh`).
@@ -107,8 +107,8 @@ Alternative when desk lacks packages scope: trigger the **GitHub Release** workf
 
 ```bash
 gh auth refresh -h github.com -s write:packages,read:packages,repo   # required for push
-GHCR_TOKEN="$(gh auth token)" ../../core/scripts/publish-muxcored-vault-ghcr.sh v0.5.8
-# BUILD_ONLY: BUILD_ONLY=1 ../../core/scripts/publish-muxcored-vault-ghcr.sh v0.5.8
+GHCR_TOKEN="$(gh auth token)" ../../core/scripts/publish-muxcored-vault-ghcr.sh v0.5.7
+# BUILD_ONLY: BUILD_ONLY=1 ../../core/scripts/publish-muxcored-vault-ghcr.sh v0.5.7
 ```
 
 Forgejo Actions on vault is currently failing all jobs (~2s); use the script above until runner CI is repaired.
