@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
         - name: call-policy-default
-          image: ghcr.io/muxcore-media/call-policy-default:v0.3.3
+          image: git.zem.systems/muxcore/call-policy-default:v0.5.7
           imagePullPolicy: IfNotPresent
           env:
             - name: MUXCORE_GRPC_ADDR
@@ -55,7 +55,7 @@ spec:
     spec:
       containers:
         - name: publish-policy-default
-          image: ghcr.io/muxcore-media/publish-policy-default:v0.2.2
+          image: git.zem.systems/muxcore/publish-policy-default:v0.5.7
           imagePullPolicy: IfNotPresent
           env:
             - name: MUXCORE_GRPC_ADDR

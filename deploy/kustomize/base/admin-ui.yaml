@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: admin-ui
-          image: ghcr.io/muxcore-media/admin-ui:v0.1.10
+          image: git.zem.systems/muxcore/admin-ui:v0.5.7
           imagePullPolicy: IfNotPresent
           env:
             - name: MUXCORE_GRPC_ADDR
