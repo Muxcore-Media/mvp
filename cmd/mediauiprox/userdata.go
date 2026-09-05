@@ -49,26 +49,33 @@ func newServerUserdata(dir string) *serverUserdata {
 	}
 }
 
-func (u *serverUserdata) scopeFromRequest(r *http.Request, sessions *sessionStore) store.Scope {
+// scopeFromRequest derives userdata scope from the authenticated session.
+// Client user_id / tenant_id query params and X-Tenant-ID are ignored unless
+// allowClientOverride is true (admin/manager principals).
+func (u *serverUserdata) scopeFromRequest(r *http.Request, sessions *sessionStore, allowClientOverride bool) store.Scope {
 	userID := "anonymous"
 	sessionTenant := ""
-	if c, err := r.Cookie("session"); err == nil && sessions != nil {
-		if uid, _, tid, ok := sessions.LookupTenant(c.Value); ok && uid != "" {
+	if tok := sessionTokenFromRequest(r); tok != "" && sessions != nil {
+		if uid, _, tid, ok := sessions.LookupTenant(tok); ok && uid != "" {
 			userID = uid
 			sessionTenant = tid
 		}
 	}
-	if q := strings.TrimSpace(r.URL.Query().Get("user_id")); q != "" {
-		userID = q
+	if allowClientOverride {
+		if q := strings.TrimSpace(r.URL.Query().Get("user_id")); q != "" {
+			userID = q
+		}
 	}
 	tenantID := ""
 	if os.Getenv("TENANT_MODE") == "1" {
 		tenantID = strings.TrimSpace(sessionTenant)
-		if tenantID == "" {
-			tenantID = strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
-		}
-		if tenantID == "" {
-			tenantID = strings.TrimSpace(r.URL.Query().Get("tenant_id"))
+		if allowClientOverride {
+			if tenantID == "" {
+				tenantID = strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
+			}
+			if tenantID == "" {
+				tenantID = strings.TrimSpace(r.URL.Query().Get("tenant_id"))
+			}
 		}
 		if tenantID == "" {
 			tenantID = "default"
@@ -213,7 +220,7 @@ func (s *server) handleUserdataGet(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusServiceUnavailable, "userdata disabled", "userdata.disabled")
 		return
 	}
-	scope := s.userdata.scopeFromRequest(r, s.sessions)
+	scope := s.userdata.scopeFromRequest(r, s.sessions, s.sessionHasPrivilegedRole(r))
 	writeJSON(w, s.userdata.load(scope))
 }
 
@@ -231,7 +238,7 @@ func (s *server) handleUserdataPut(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid json", "userdata.invalid_json")
 		return
 	}
-	scope := s.userdata.scopeFromRequest(r, s.sessions)
+	scope := s.userdata.scopeFromRequest(r, s.sessions, s.sessionHasPrivilegedRole(r))
 	merged, err := s.userdata.save(scope, blob)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err.Error(), "userdata.save_failed")
