@@ -33,7 +33,7 @@ docker compose -f docker-compose.registry.yml up -d
 
 Operator UI defaults ([`PORTS.md`](../PORTS.md)):
 
-- Admin UI: `http://127.0.0.1:9080`
+- Admin UI: `http://127.0.0.1:8082`
 - API: `http://127.0.0.1:18080`
 - Core health: `http://127.0.0.1:8080/health`
 
@@ -87,6 +87,8 @@ Smoke and day-1 demos must use `DOWNLOADER_ENGINE=fixture`. Do not require live 
 ## Future: public GHCR mirror
 
 [`../docker-compose.ghcr.yml`](../docker-compose.ghcr.yml) + [`../scripts/publish-muxcored-ghcr.sh`](../scripts/publish-muxcored-ghcr.sh) + [`../scripts/smoke-ghcr-build.sh`](../scripts/smoke-ghcr-build.sh) for a public `ghcr.io/muxcore-media/*` mirror.
+
+GHCR compose maps Admin UI to host **`:9080`** (`ADMIN_UI_PORT`, container `:8080`) — not the registry compose default **`:8082`** above.
 
 Build-only smoke (no push); uses `core/Dockerfile.monorepo` when monorepo siblings exist (verified vault podman 2026-08-22):
 
