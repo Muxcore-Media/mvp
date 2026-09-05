@@ -35,7 +35,7 @@ export MUXCORE_IMAGE_TAG=v0.5.8
 export DOWNLOADER_ENGINE=fixture
 docker compose -f docker-compose.registry.yml pull
 docker compose -f docker-compose.registry.yml up -d
-./smoke.sh
+./scripts/smoke-registry.sh   # or ./smoke.sh (auto-detects registry mode)
 ```
 
 Publish `muxcored` (podman or docker):

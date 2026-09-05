@@ -7,7 +7,7 @@
 #   export DOWNLOADER_ENGINE=fixture
 #   docker compose -f docker-compose.registry.yml pull
 #   docker compose -f docker-compose.registry.yml up -d
-#   ./smoke.sh
+#   ./scripts/smoke-registry.sh    # no host Go / sibling clones (or ./smoke.sh auto-detects)
 #
 # Publish muxcored (operator / origin host):
 #   MUXCORE_REGISTRY=… ./scripts/publish-muxcored-local.sh v0.5.8
@@ -75,6 +75,8 @@ services:
       AUTH_DB_PATH: /data/auth.db
       AUTH_GRPC_ADDR: ":9403"
       AUTH_HTTP_ADDR: ":9401"
+      AUTH_BOOTSTRAP_USER: ${MVP_ADMIN_USER:-admin}
+      AUTH_BOOTSTRAP_PASSWORD: ${MVP_ADMIN_PASSWORD:-admin-dev-only}
     ports:
       - "${AUTH_LOCAL_PORT:-9403}:9403"
       - "${AUTH_HTTP_PORT:-9401}:9401"

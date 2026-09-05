@@ -28,8 +28,10 @@ export MUXCORE_IMAGE_TAG=v0.5.8
 export DOWNLOADER_ENGINE=fixture
 docker compose -f docker-compose.registry.yml pull
 docker compose -f docker-compose.registry.yml up -d
-./smoke.sh
+./scripts/smoke-registry.sh
 ```
+
+`./scripts/smoke-registry.sh` (or `./smoke.sh` when the registry compose stack is up and host `go build` is unavailable) verifies the install using **curl**, **docker compose**, and a **grpcurl** container only — no sibling clones and no Go toolchain on the host.
 
 Operator UI defaults ([`PORTS.md`](../PORTS.md)):
 

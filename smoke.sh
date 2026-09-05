@@ -4,6 +4,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
 [[ -f "$ROOT/.env" ]] && source "$ROOT/.env" || true
+# shellcheck disable=SC1091
+source "$ROOT/scripts/lib/smoke-cmd.sh"
+smoke_cmd_init
+
+if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
+  echo "==> registry smoke mode (curl + containerized grpcurl; no host Go / siblings)"
+fi
 
 CORE_URL="${SMOKE_CORE_URL:-http://127.0.0.1:8080}"
 API_URL="${SMOKE_API_URL:-http://127.0.0.1:18080}"
@@ -37,30 +44,21 @@ until curl -sf "${API_URL}/api/v1/health" >/dev/null 2>&1; do
 done
 echo "OK api-rest health"
 
-build_if_missing() {
-  local name="$1" pkg="$2"
-  if [[ ! -x "$BIN/$name" ]]; then
-    echo "==> building $name"
-    (cd "$ROOT" && go build -o "$BIN/$name" "$pkg")
-  fi
-}
-build_if_missing listmodules ./cmd/listmodules
-# Always rebuild listmodules — tiny helper; carries catalog version checks.
-echo "==> building listmodules"
-(cd "$ROOT" && go build -o "$BIN/listmodules" ./cmd/listmodules)
-build_if_missing gettoken ./cmd/gettoken
-build_if_missing addmovie ./cmd/addmovie
-build_if_missing addtvshow ./cmd/addtvshow
-
 echo "==> resolving modules via core discovery (${MESH})"
 listmods_env=(MUXCORE_GRPC_ADDR="$MESH")
 if [[ -f "${SMOKE_CATALOG:-$ROOT/../spool/catalog.json}" ]]; then
   listmods_env+=(SMOKE_CATALOG="${SMOKE_CATALOG:-$ROOT/../spool/catalog.json}")
 fi
-env "${listmods_env[@]}" "$BIN/listmodules"
+if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
+  env "${listmods_env[@]}" smoke_cmd listmodules
+else
+  env "${listmods_env[@]}" smoke_cmd_listmodules
+fi
 # Optional workflow engine (MVP_ENABLE_WORKFLOW_TAPESTRY=1)
-if SMOKE_MODULES=workflow-tapestry MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules" >/dev/null 2>&1; then
-  if ! ss -lptn 2>/dev/null | grep -q ':9603'; then
+if SMOKE_MODULES=workflow-tapestry MUXCORE_GRPC_ADDR="$MESH" smoke_cmd listmodules >/dev/null 2>&1; then
+  if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
+    echo "OK workflow-tapestry registered (registry discovery)"
+  elif ! ss -lptn 2>/dev/null | grep -q ':9603'; then
     echo "FAIL: workflow-tapestry registered but not listening on :9603" >&2
     ss -lptn 2>/dev/null | grep -E 'workflow|9603' || true
     exit 1
@@ -68,24 +66,30 @@ if SMOKE_MODULES=workflow-tapestry MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules" 
   echo "OK workflow-tapestry listening on :9603"
 fi
 # Optional spool-default cache peer (MVP_ENABLE_CACHE_REDIS=1 / REDIS_ADDR)
-if SMOKE_MODULES=cache-redis MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules" >/dev/null 2>&1; then
-  if ! ss -lptn 2>/dev/null | grep -q ':9600'; then
+if SMOKE_MODULES=cache-redis MUXCORE_GRPC_ADDR="$MESH" smoke_cmd listmodules >/dev/null 2>&1; then
+  if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
+    echo "OK cache-redis registered (registry discovery)"
+  elif ! ss -lptn 2>/dev/null | grep -q ':9600'; then
     echo "FAIL: cache-redis registered but not listening on :9600" >&2
     exit 1
   fi
   echo "OK cache-redis listening on :9600"
 fi
 # Optional FFmpeg transcoder (MVP_ENABLE_MEDIA_TRANSCODER=1)
-if SMOKE_MODULES=media-transcoder MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules" >/dev/null 2>&1; then
-  if ! ss -lptn 2>/dev/null | grep -q ':9525'; then
+if SMOKE_MODULES=media-transcoder MUXCORE_GRPC_ADDR="$MESH" smoke_cmd listmodules >/dev/null 2>&1; then
+  if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
+    echo "OK media-transcoder registered (registry discovery)"
+  elif ! ss -lptn 2>/dev/null | grep -q ':9525'; then
     echo "FAIL: media-transcoder registered but not listening on :9525" >&2
     exit 1
   fi
   echo "OK media-transcoder listening on :9525"
 fi
 # Optional Apprise notification peer (MVP_ENABLE_NOTIFICATION_APPRISE=1)
-if SMOKE_MODULES=notification-apprise MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules" >/dev/null 2>&1; then
-  if ! ss -lptn 2>/dev/null | grep -q ':9445'; then
+if SMOKE_MODULES=notification-apprise MUXCORE_GRPC_ADDR="$MESH" smoke_cmd listmodules >/dev/null 2>&1; then
+  if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
+    echo "OK notification-apprise registered (registry discovery)"
+  elif ! ss -lptn 2>/dev/null | grep -q ':9445'; then
     echo "FAIL: notification-apprise registered but not listening on :9445" >&2
     exit 1
   fi
@@ -113,14 +117,22 @@ echo "$mods" | grep -qi 'api-rest\|media-movies\|auth-local\|media-tvshows' || {
 echo "OK authenticated modules list"
 
 echo "==> AddMovie / ListMovies via ${MOVIES_ADDR}"
-movie_root="${MVP_LIBRARY_ROOT:-$ROOT/data/library}"
-[[ "$movie_root" != /* ]] && movie_root="$ROOT/${movie_root#./}"
-"$BIN/addmovie" -addr "$MOVIES_ADDR" -root "$movie_root"
+if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
+  movie_root="${MVP_LIBRARY_ROOT:-/data/movies}"
+else
+  movie_root="${MVP_LIBRARY_ROOT:-$ROOT/data/library}"
+  [[ "$movie_root" != /* ]] && movie_root="$ROOT/${movie_root#./}"
+fi
+smoke_cmd addmovie -addr "$MOVIES_ADDR" -root "$movie_root"
 
 echo "==> AddTVShow / ListTVShows via ${TVSHOWS_ADDR}"
-tv_root="${MVP_TV_LIBRARY_ROOT:-$ROOT/data/library/tv}"
-[[ "$tv_root" != /* ]] && tv_root="$ROOT/${tv_root#./}"
-"$BIN/addtvshow" -addr "$TVSHOWS_ADDR" -root "$tv_root"
+if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
+  tv_root="${MVP_TV_LIBRARY_ROOT:-/data/shows}"
+else
+  tv_root="${MVP_TV_LIBRARY_ROOT:-$ROOT/data/library/tv}"
+  [[ "$tv_root" != /* ]] && tv_root="$ROOT/${tv_root#./}"
+fi
+smoke_cmd addtvshow -addr "$TVSHOWS_ADDR" -root "$tv_root"
 
 ADMIN_URL="${SMOKE_ADMIN_URL:-http://localhost:8082}"
 AUTH_HTTP="${AUTH_HTTP_URL:-http://127.0.0.1:9401}"
@@ -241,7 +253,7 @@ grep -qi 'jellyfin-page\|Configured\|Item links\|Soft OK' /tmp/muxcore-admin-jel
 }
 # Optional import-list peer (MVP_ENABLE_MEDIA_LIST_SYNC=1)
 list_sync_ok=""
-if SMOKE_MODULES=media-list-sync MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules" >/dev/null 2>&1; then
+if SMOKE_MODULES=media-list-sync MUXCORE_GRPC_ADDR="$MESH" smoke_cmd listmodules >/dev/null 2>&1; then
   ls_code=$(curl -s -c "$jar" -b "$jar" -o /tmp/muxcore-admin-list-sync.html -w '%{http_code}' "${ADMIN_URL}/list-sync")
   [[ "$ls_code" == "200" ]] || {
     echo "FAIL: /list-sync HTTP $ls_code (media-list-sync registered)" >&2
@@ -305,28 +317,31 @@ grep -qi 'cluster-update' /tmp/muxcore-admin-sse.txt || {
 echo "OK admin-ui session established (+ /modules + health + CSS + cluster SSE + /dashboard/monitor + /automation + /jellyfin${list_sync_ok})"
 
 JELLYFIN_HTTP="${SMOKE_JELLYFIN_URL:-http://127.0.0.1:8475}"
-build_if_missing jellyfinstatus ./cmd/jellyfinstatus
 
 jellyfin_required=0
 if [[ "${MVP_ENABLE_JELLYFIN:-0}" == "1" ]]; then
   jellyfin_required=1
-elif SMOKE_MODULES=jellyfin MUXCORE_GRPC_ADDR="$MESH" "$BIN/listmodules" >/dev/null 2>&1; then
+elif SMOKE_MODULES=jellyfin MUXCORE_GRPC_ADDR="$MESH" smoke_cmd listmodules >/dev/null 2>&1; then
   jellyfin_required=1
 fi
 
 if [[ "$jellyfin_required" == "1" ]]; then
-  echo "==> jellyfin healthz ${JELLYFIN_HTTP}/healthz"
-  deadline_jf=$((SECONDS + 60))
-  until code=$(curl -s -o /tmp/muxcore-jellyfin-health.json -w '%{http_code}' "${JELLYFIN_HTTP}/healthz" || echo 000); \
-    [[ "$code" == "200" ]]; do
-    if (( SECONDS >= deadline_jf )); then
-      echo "FAIL: jellyfin healthz not HTTP 200 (last $code)" >&2
-      cat /tmp/muxcore-jellyfin-health.json 2>/dev/null || true
-      exit 1
-    fi
-    sleep 1
-  done
-  echo "OK jellyfin healthz (HTTP $code)"
+  if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
+    echo "==> jellyfin bridge registered (registry compose; HTTP healthz not host-published)"
+  else
+    echo "==> jellyfin healthz ${JELLYFIN_HTTP}/healthz"
+    deadline_jf=$((SECONDS + 60))
+    until code=$(curl -s -o /tmp/muxcore-jellyfin-health.json -w '%{http_code}' "${JELLYFIN_HTTP}/healthz" || echo 000); \
+      [[ "$code" == "200" ]]; do
+      if (( SECONDS >= deadline_jf )); then
+        echo "FAIL: jellyfin healthz not HTTP 200 (last $code)" >&2
+        cat /tmp/muxcore-jellyfin-health.json 2>/dev/null || true
+        exit 1
+      fi
+      sleep 1
+    done
+    echo "OK jellyfin healthz (HTTP $code)"
+  fi
 
   jf_grpc="${JELLYFIN_GRPC_CLIENT_ADDR:-}"
   if [[ -z "$jf_grpc" ]]; then
@@ -334,16 +349,13 @@ if [[ "$jellyfin_required" == "1" ]]; then
     [[ "$jf_grpc" == :* ]] && jf_grpc="127.0.0.1${jf_grpc}"
   fi
   echo "==> jellyfin Status via ${jf_grpc}"
-  "$BIN/jellyfinstatus" -addr "$jf_grpc"
+  smoke_cmd jellyfinstatus -addr "$jf_grpc"
 
-  build_if_missing jellyfinlink ./cmd/jellyfinlink
   echo "==> jellyfin soft UpsertItemLink + webhook (no live Jellyfin)"
-  "$BIN/jellyfinlink" \
+  smoke_cmd jellyfinlink \
     -addr "$jf_grpc" \
     -webhook-url "${SMOKE_JELLYFIN_WEBHOOK:-${JELLYFIN_HTTP}/webhook}"
 
-  # Live Jellyfin path: opt-in via SMOKE_LIVE_JELLYFIN=1, or auto when both server creds are set
-  # (disable with SMOKE_LIVE_JELLYFIN=0). Requires jellyfin module env JELLYFIN_BASE_URL + JELLYFIN_API_KEY.
   live_jellyfin=0
   if [[ "${SMOKE_LIVE_JELLYFIN:-}" == "1" ]]; then
     live_jellyfin=1
@@ -351,10 +363,9 @@ if [[ "$jellyfin_required" == "1" ]]; then
     live_jellyfin=1
   fi
   if [[ "$live_jellyfin" == "1" ]]; then
-    build_if_missing jellyfinlive ./cmd/jellyfinlive
     echo "==> jellyfin LIVE (Status configured + RefreshLibrary + SyncLibrary)"
-    "$BIN/jellyfinstatus" -addr "$jf_grpc" -require-configured
-    "$BIN/jellyfinlive" -addr "$jf_grpc"
+    smoke_cmd jellyfinstatus -addr "$jf_grpc" -require-configured
+    smoke_cmd jellyfinlive -addr "$jf_grpc"
     echo "OK jellyfin live smoke"
   fi
 else
@@ -363,36 +374,51 @@ fi
 
 SCANNER_ADDR="${SCANNER_GRPC_CLIENT_ADDR:-127.0.0.1:9470}"
 [[ "$SCANNER_ADDR" == :* ]] && SCANNER_ADDR="127.0.0.1${SCANNER_ADDR}"
-build_if_missing importscan ./cmd/importscan
 
 echo "==> scanner ImportPath fixture"
-"$BIN/importscan" \
-  -addr "$SCANNER_ADDR" \
-  -watch "${MVP_DOWNLOADS_DIR:-$ROOT/data/downloads}" \
-  -library "${MVP_LIBRARY_ROOT:-$ROOT/data/library}"
+if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
+  smoke_cmd importscan \
+    -addr "$SCANNER_ADDR" \
+    -watch "${MVP_DOWNLOADS_DIR:-/data/downloads}" \
+    -library "${MVP_LIBRARY_ROOT:-/data/movies}"
+else
+  smoke_cmd importscan \
+    -addr "$SCANNER_ADDR" \
+    -watch "${MVP_DOWNLOADS_DIR:-$ROOT/data/downloads}" \
+    -library "${MVP_LIBRARY_ROOT:-$ROOT/data/library}"
+fi
 
 AUTOMATION_ADDR="${AUTOMATION_GRPC_CLIENT_ADDR:-127.0.0.1:9460}"
 [[ "$AUTOMATION_ADDR" == :* ]] && AUTOMATION_ADDR="127.0.0.1${AUTOMATION_ADDR}"
-build_if_missing automationqueue ./cmd/automationqueue
 
 echo "==> automation queue soft"
-"$BIN/automationqueue" -addr "$AUTOMATION_ADDR"
+smoke_cmd automationqueue -addr "$AUTOMATION_ADDR"
 
 HM_ADDR="${HEALTH_MONITOR_GRPC_CLIENT_ADDR:-127.0.0.1:9202}"
 [[ "$HM_ADDR" == :* ]] && HM_ADDR="127.0.0.1${HM_ADDR}"
 HM_STATUS="${SMOKE_HEALTH_MONITOR_STATUS:-http://127.0.0.1:9203/status}"
-build_if_missing healthreport ./cmd/healthreport
 
 echo "==> health-monitor ReportHealth + /status"
 deadline_hm=$((SECONDS + 60))
-until curl -sf "http://127.0.0.1:9203/health" >/dev/null 2>&1; do
-  if (( SECONDS >= deadline_hm )); then
-    echo "FAIL: health-monitor HTTP not ready" >&2
-    exit 1
-  fi
-  sleep 1
-done
-"$BIN/healthreport" -addr "$HM_ADDR" -status-url "$HM_STATUS"
+if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
+  until docker run --rm --network "$(registry_smoke_network)" curlimages/curl:8.5.0 \
+    -sf "http://health-monitor:9203/health" >/dev/null 2>&1; do
+    if (( SECONDS >= deadline_hm )); then
+      echo "FAIL: health-monitor HTTP not ready (registry network)" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+else
+  until curl -sf "http://127.0.0.1:9203/health" >/dev/null 2>&1; do
+    if (( SECONDS >= deadline_hm )); then
+      echo "FAIL: health-monitor HTTP not ready" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+fi
+smoke_cmd healthreport -addr "$HM_ADDR" -status-url "$HM_STATUS"
 
 echo "==> admin-ui /events health filter (mesh module.degraded)"
 # Give admin-ui subscription a moment to ingest the fan-out from healthreport.
@@ -512,13 +538,12 @@ for it in d.get("items") or []:
       exit 1
       ;;
   esac
-  build_if_missing mediarequest ./cmd/mediarequest
   echo "==> media-ui → request-media search/request"
   mr_flags=(-base "$MEDIA_UI_URL" -cookie-jar "$media_cj")
   if [[ "${TMDB_FIXTURE:-}" == "1" || "${SMOKE_REQUIRE_TMDB_SEARCH:-}" == "1" || -n "${TMDB_API_KEY:-}" ]]; then
     mr_flags+=(-require-search)
   fi
-  "$BIN/mediarequest" "${mr_flags[@]}"
+  smoke_cmd mediarequest "${mr_flags[@]}"
   rm -f "$media_cj" "$media_hdr"
 else
   echo "==> media-ui not running (set MVP_ENABLE_MEDIA_UI=1 / build dist-app); skipping"
