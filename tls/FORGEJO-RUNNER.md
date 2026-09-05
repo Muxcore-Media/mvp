@@ -39,3 +39,5 @@ The host runner packages are declared in `forgejo-runner.nix` (`hostPackages`). 
 ## GitHub (public, later)
 
 When the public org exists again, origin (Forgejo) pushes to GitHub. Consumers `go get` / pull GHCR from GitHub. Until then, operators clone `ssh://forgejo@git.zem.systems:2222/muxcore/<repo>.git`.
+
+**GitHub merge → self-hosted CI:** runners fetch through Forgejo; mirror lag causes `upload-pack: not our ref`. See [`GITHUB-FORGEJO-MIRROR.md`](GITHUB-FORGEJO-MIRROR.md) (`mirror-github-to-forgejo.sh`, audit, checkout fallback).
