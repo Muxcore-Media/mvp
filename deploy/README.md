@@ -18,6 +18,8 @@ kubectl -n muxcore create secret generic muxcore-auth \
 
 ## Kustomize
 
+Image strings use **Forgejo/LAN OCI** (`git.zem.systems/muxcore/*`) at `household-manifest.yaml` `core_tag` — same defaults as Helm `values.yaml`. GHCR is optional (`docker-compose.ghcr.yml`).
+
 ```bash
 # Dev (insecure TLS flag for mesh bring-up)
 kubectl apply -k deploy/kustomize/overlays/dev
