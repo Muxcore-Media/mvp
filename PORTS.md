@@ -76,6 +76,8 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9750 / 9751 / 8751 | media-dlna | optional DLNA/UPnP server (DLNA HTTP / gRPC / health); `MVP_ENABLE_MEDIA_DLNA=1` |
 | 9800 | ratelimit-tokenbucket | spool `default` (fail-open until `RATELIMIT_ENABLED`) |
 | 9900 / 9901 | metrics-prometheus gRPC / HTTP | Prometheus scrape on HTTP |
+| 8082 | admin-ui HTTP | registry / dev compose (`ADMIN_UI_HTTP_PORT`; `run-host.sh` `ADMIN_UI_ADDR`) |
+| 5173 | media-ui HTTP | consumer SPA (`MEDIA_UI_PORT`; registry compose) |
 | 18080 | api-rest HTTP | |
 
 When adding a module, pick a free port and update this table.
