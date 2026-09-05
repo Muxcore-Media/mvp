@@ -27,7 +27,7 @@ cd _mvp
 ./scripts/check-household-manifest.sh
 
 # Origin install (see docs/PUBLIC-INSTALL.md)
-export MUXCORE_REGISTRY=git.zem.systems/muxcore MUXCORE_IMAGE_TAG=v0.5.8
+export MUXCORE_REGISTRY=git.zem.systems/muxcore MUXCORE_IMAGE_TAG=v0.5.7
 docker compose -f docker-compose.registry.yml up -d
 
 # Vault deploy (from workspace root)

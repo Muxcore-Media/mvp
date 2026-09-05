@@ -7,7 +7,7 @@ These manifests mirror the **minimal platform** slice (core + api-rest + auth-lo
 ## Prerequisites
 
 - Images published to **Forgejo or LAN OCI** (`MUXCORE_REGISTRY`, default `git.zem.systems/muxcore`) — see [`docs/PUBLIC-INSTALL.md`](../docs/PUBLIC-INSTALL.md).
-- `coreTag` / image strings in `helm/muxcore/values.yaml` track `household-manifest.yaml` `core_tag` (currently **v0.5.8**).
+- `coreTag` / image strings in `helm/muxcore/values.yaml` track `household-manifest.yaml` `core_tag` (currently **v0.5.7**).
 - Cluster with a default StorageClass for PVCs.
 - Secrets created out-of-band (do not commit credentials):
 

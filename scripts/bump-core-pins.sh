@@ -2,8 +2,8 @@
 # Bump github.com/Muxcore-Media/core and sdk/go/* pins across module go.mod files.
 #
 # Usage:
-#   ./scripts/bump-core-pins.sh v0.5.8
-#   DRY_RUN=1 ./scripts/bump-core-pins.sh v0.5.8
+#   ./scripts/bump-core-pins.sh v0.5.7
+#   DRY_RUN=1 ./scripts/bump-core-pins.sh v0.5.7
 #
 # Updates direct requires for:
 #   github.com/Muxcore-Media/core
@@ -15,7 +15,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WS="$(cd "$ROOT/.." && pwd)"
 VER="${1:-}"
 DRY="${DRY_RUN:-0}"
-[[ -n "$VER" ]] || { echo "usage: $0 <core-version e.g. v0.5.8>" >&2; exit 2; }
+[[ -n "$VER" ]] || { echo "usage: $0 <core-version e.g. v0.5.7>" >&2; exit 2; }
 
 pkgs=(
   "github.com/Muxcore-Media/core[[:space:]]"

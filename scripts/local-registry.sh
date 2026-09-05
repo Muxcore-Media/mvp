@@ -4,7 +4,7 @@
 # Usage:
 #   ./scripts/local-registry.sh          # start registry on :5000
 #   ./scripts/local-registry.sh stop
-#   MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-muxcored-local.sh v0.5.8
+#   MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-muxcored-local.sh v0.5.7
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -37,7 +37,7 @@ case "$ACTION" in
       echo "registry started: http://127.0.0.1:${PORT}/v2/"
     fi
     echo "export MUXCORE_REGISTRY=localhost:${PORT}/muxcore"
-    echo "then: ./scripts/publish-muxcored-local.sh v0.5.8"
+    echo "then: ./scripts/publish-muxcored-local.sh v0.5.7"
     ;;
   stop)
     "$RT" stop "$NAME" >/dev/null 2>&1 || true

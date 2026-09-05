@@ -3,14 +3,14 @@
 #
 # Usage (from this directory):
 #   export MUXCORE_REGISTRY=localhost:5000/muxcore          # or git.zem.systems/muxcore
-#   export MUXCORE_IMAGE_TAG=v0.5.8
+#   export MUXCORE_IMAGE_TAG=v0.5.7
 #   export DOWNLOADER_ENGINE=fixture
 #   docker compose -f docker-compose.registry.yml pull
 #   docker compose -f docker-compose.registry.yml up -d
 #   ./smoke.sh
 #
 # Publish muxcored (operator / origin host):
-#   MUXCORE_REGISTRY=… ./scripts/publish-muxcored-local.sh v0.5.8
+#   MUXCORE_REGISTRY=… ./scripts/publish-muxcored-local.sh v0.5.7
 # Module images must be tagged under the same MUXCORE_REGISTRY prefix.
 #
 # Prefer ./run-host.sh when developing from sibling clones.
@@ -19,7 +19,7 @@
 name: muxcore-mvp-registry
 
 x-image: &image
-  image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/${MUXCORE_SERVICE:-muxcored}:${MUXCORE_IMAGE_TAG:-v0.5.8}
+  image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/${MUXCORE_SERVICE:-muxcored}:${MUXCORE_IMAGE_TAG:-v0.5.7}
   restart: unless-stopped
   networks: [muxcore]
   environment: &module_env
@@ -29,7 +29,7 @@ x-image: &image
 
 services:
   core:
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/muxcored:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/muxcored:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       MUXCORE_CONFIG: /app/muxcore.json
       MUXCORE_SERVER_ADDR: ":8080"
@@ -53,7 +53,7 @@ services:
 
   api-rest:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/api-rest:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/api-rest:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: api-rest
@@ -68,7 +68,7 @@ services:
 
   auth-local:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/auth-local:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/auth-local:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: auth-local
@@ -86,7 +86,7 @@ services:
 
   database-sqlite:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/database-sqlite:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/database-sqlite:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: database-sqlite
@@ -98,7 +98,7 @@ services:
 
   secrets-file:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/secrets-file:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/secrets-file:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: secrets-file
@@ -108,7 +108,7 @@ services:
 
   encryption-aesgcm:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/encryption-aesgcm:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/encryption-aesgcm:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: encryption-aesgcm
@@ -118,7 +118,7 @@ services:
 
   call-policy-default:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/call-policy-default:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/call-policy-default:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: call-policy-default
@@ -128,7 +128,7 @@ services:
 
   publish-policy-default:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/publish-policy-default:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/publish-policy-default:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: publish-policy-default
@@ -138,7 +138,7 @@ services:
 
   health-monitor:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/health-monitor:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/health-monitor:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: health-monitor
@@ -148,7 +148,7 @@ services:
 
   admin-ui:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/admin-ui:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/admin-ui:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: admin-ui
@@ -164,7 +164,7 @@ services:
 
   media-movies:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-movies:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-movies:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-movies
@@ -174,7 +174,7 @@ services:
 
   media-tvshows:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-tvshows:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-tvshows:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-tvshows
@@ -184,7 +184,7 @@ services:
 
   media-automation:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-automation:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-automation:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-automation
@@ -199,7 +199,7 @@ services:
 
   media-scanner:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-scanner:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-scanner:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-scanner
@@ -215,7 +215,7 @@ services:
 
   request-media:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/request-media:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/request-media:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: request-media
@@ -227,7 +227,7 @@ services:
 
   metadata-tmdb:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/metadata-tmdb:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/metadata-tmdb:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: metadata-tmdb
@@ -238,7 +238,7 @@ services:
 
   media-custom-formats:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-custom-formats:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-custom-formats:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-custom-formats
@@ -248,7 +248,7 @@ services:
 
   media-rename:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-rename:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-rename:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-rename
@@ -258,7 +258,7 @@ services:
 
   media-ffprobe:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-ffprobe:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-ffprobe:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-ffprobe
@@ -268,7 +268,7 @@ services:
 
   media-subtitles:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-subtitles:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-subtitles:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-subtitles
@@ -278,7 +278,7 @@ services:
 
   media-root-folders:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-root-folders:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-root-folders:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-root-folders
@@ -288,7 +288,7 @@ services:
 
   notification-default:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/notification-default:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/notification-default:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: notification-default
@@ -299,7 +299,7 @@ services:
 
   userdata-local:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/userdata-local:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/userdata-local:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: userdata-local
@@ -313,7 +313,7 @@ services:
 
   media-ui:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-ui:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-ui:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-ui
@@ -333,7 +333,7 @@ services:
 
   jellyfin-bridge:
     <<: *image
-    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/jellyfin:${MUXCORE_IMAGE_TAG:-v0.5.8}
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/jellyfin:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: jellyfin

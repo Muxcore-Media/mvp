@@ -2,9 +2,9 @@
 # Build and push sidecar module images to Forgejo/LAN OCI registry (MASTER-ROADMAP P0).
 #
 # Usage:
-#   ./scripts/publish-module-images.sh v0.5.8
-#   MODULES="api-rest auth-local media-automation" ./scripts/publish-module-images.sh v0.5.8
-#   BUILD_ONLY=1 MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-module-images.sh v0.5.8
+#   ./scripts/publish-module-images.sh v0.5.7
+#   MODULES="api-rest auth-local media-automation" ./scripts/publish-module-images.sh v0.5.7
+#   BUILD_ONLY=1 MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-module-images.sh v0.5.7
 #
 # Defaults MODULES to the MVP registry compose set in docker-compose.registry.yml.
 set -euo pipefail
@@ -44,7 +44,7 @@ detect_runtime() {
 }
 
 if [[ -z "$TAG" ]]; then
-  die "usage: $0 <tag> (e.g. v0.5.8)"
+  die "usage: $0 <tag> (e.g. v0.5.7)"
 fi
 [[ -f "$DOCKERFILE" ]] || die "missing $DOCKERFILE"
 
