@@ -97,9 +97,10 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: admin-ui
-      ADMIN_UI_HTTP_ADDR: ":8080"
+      ADMIN_UI_ADDR: ":8082"
+      ADMIN_UI_AUTH_ADDR: http://auth-local:9401
     ports:
-      - "${ADMIN_UI_PORT:-9080}:8080"
+      - "${ADMIN_UI_HTTP_PORT:-8082}:8082"
     depends_on:
       core:
         condition: service_healthy
