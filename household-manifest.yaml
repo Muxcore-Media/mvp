@@ -57,6 +57,8 @@ optional_env_gated:
     env: MVP_ENABLE_MEDIA_TRANSCODER
   - name: media-list-sync
     env: MVP_ENABLE_MEDIA_LIST_SYNC
+  - name: media-library-maintainer
+    env: MVP_ENABLE_MEDIA_LIBRARY_MAINTAINER
   - name: media-books
     env: MVP_ENABLE_MEDIA_BOOKS
   - name: media-comics
