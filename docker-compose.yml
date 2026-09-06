@@ -581,6 +581,31 @@ services:
       - transcoder-data:/data
     profiles: ["transcoder"]
 
+  # Optional unified media graph — profile: graph
+  #   docker compose --profile graph up -d
+  # run-host: MVP_ENABLE_MEDIA_GRAPH=1
+  media-graph:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-graph }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-graph
+      GRAPH_GRPC_ADDR: ":9730"
+      MUXCORE_HTTP_ADDR: ":9731"
+      GRAPH_DB_PATH: /data/graph/graph.db
+      GRAPH_AUTO_LINK: ${GRAPH_AUTO_LINK:-true}
+      GRAPH_INGEST_ENABLED: ${GRAPH_INGEST_ENABLED:-true}
+      GRAPH_INGEST_INTERVAL: ${GRAPH_INGEST_INTERVAL:-15m}
+    ports:
+      - "${MEDIA_GRAPH_GRPC_PORT:-9730}:9730"
+      - "${MEDIA_GRAPH_HTTP_PORT:-9731}:9731"
+    volumes:
+      - graph-data:/data/graph
+    profiles: ["graph"]
+
   # Consumer SPA — media-ui-app + mediauiprox BFF (household manifest required peer)
   media-ui:
     build:
@@ -596,6 +621,8 @@ services:
       USERDATA_LOCAL_URL: http://userdata-local:9672
       TRANSCODER_HTTP_URL: http://media-transcoder:9526
       LISTSYNC_GRPC_CLIENT_ADDR: media-list-sync:9530
+      GRAPH_HTTP_URL: http://media-graph:9731
+      GRAPH_MODULE_TOKEN: ${GRAPH_MODULE_TOKEN:-}
       # Shared with admin-ui /password-resets queue (umbrella #111).
       MEDIA_UI_PASSWORD_RESET_FILE: /data/media-ui/password-resets.json
     ports:
@@ -636,4 +663,5 @@ volumes:
   userdata-data:
   backup-data:
   listsync-data:
+  graph-data:
   media-ui-data:
