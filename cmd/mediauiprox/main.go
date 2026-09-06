@@ -195,6 +195,8 @@ func main() {
 	mux.HandleFunc("/logout", s.handleLogout)
 
 	mux.HandleFunc("GET /api/capabilities", s.handleCapabilities)
+	mux.HandleFunc("GET /api/session", s.handleSessionMe)
+	mux.HandleFunc("GET /api/me", s.handleSessionMe)
 	mux.HandleFunc("/api/movies", s.handleListMovies)
 	mux.HandleFunc("/api/movies/", s.handleMovieByID)
 	mux.HandleFunc("GET /api/collections", s.handleListCollections)

@@ -165,6 +165,8 @@ TMDB-backed search/detail proxy when `metadata-tmdb` is reachable. Detail routes
 
 Progress, favorites, watched state, and preferences stored under `MEDIA_UI_USERDATA_DIR` / userdata-local when configured. JSON bodies mirror admin playback policy fields where shared.
 
+GET/PUT responses include `user_id` (household id used as the parental PIN salt: `SHA-256(userID+":"+pin)`) and echo `X-MuxCore-User-Id` with the same value. Scope is the session principal; admin/manager may override via `?user_id=` or `X-MuxCore-User-Id` (same header as admin-ui userdata sync).
+
 ## Watchlist & collections
 
 ### `GET|POST|DELETE /api/watchlist`
@@ -236,6 +238,7 @@ All `/api/playback/*` routes return JSON errors `{ "error", "code" }` on upstrea
 - `GET /login` — redirect to `AUTH_HTTP_URL/login?redirect=…`
 - `GET /auth/callback?code=` — exchange OAuth-style code for `session` cookie
 - `GET /logout` — clear session
+- `GET /api/session` · `GET /api/me` — current household identity (`user_id`, `username`, `roles`, optional `tenant_id`). Session required. Also sets `X-MuxCore-User-Id`. Used by media-ui `refreshCurrentUserId` for PIN salt.
 
 Set `MEDIA_UI_PUBLIC_URL` and `MEDIA_UI_TRUSTED_PROXIES` (dawn/dusk `/128` CIDRs) when behind edge nginx so Secure cookies and callback origins match `https://mux.zem.systems`.
 
