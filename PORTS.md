@@ -55,7 +55,7 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9620 / 9621 | downloader-sabnzbd | optional SABnzbd usenet bridge (gRPC / health); compose `downloader-sabnzbd` |
 | 9622 / 9623 | downloader-native-usenet | native usenet engine (gRPC / health); compose `downloader-usenet` |
 | 9625 | logging-file | |
-| 9630 / 9631 | downloader-debrid | optional Real-Debrid/AllDebrid bridge (gRPC / health); compose `downloader-debrid` |
+| 9630 / 9631 | downloader-debrid | optional Real-Debrid/AllDebrid bridge (gRPC / health); compose `downloader-debrid` publishes gRPC only (HTTP loopback `127.0.0.1:9631` unless operator sets open bind + `DEBRID_HTTP_TOKEN`) |
 | 9635 | serialization-safe | |
 | 9640 / 9641 | media-music | optional Lidarr-class music manager (gRPC / health) |
 | 9645 | circuitbreaker-simple | |
