@@ -156,8 +156,12 @@ services:
       MUXCORE_MODULE_ID: admin-ui
       ADMIN_UI_ADDR: ":8082"
       ADMIN_UI_AUTH_ADDR: http://auth-local:9401
+      # Shared with media-ui consumer POST /api/password-reset (umbrella #111).
+      ADMIN_UI_PASSWORD_RESET_FILE: /data/media-ui/password-resets.json
     ports:
       - "${ADMIN_UI_HTTP_PORT:-8082}:8082"
+    volumes:
+      - media-ui-data:/data/media-ui
     depends_on:
       core:
         condition: service_healthy
@@ -323,8 +327,12 @@ services:
       MEDIA_UI_REQUIRE_AUTH: "1"
       AUTH_HTTP_INTERNAL_URL: http://auth-local:9401
       USERDATA_LOCAL_URL: http://userdata-local:9672
+      # Shared with admin-ui /password-resets queue (umbrella #111).
+      MEDIA_UI_PASSWORD_RESET_FILE: /data/media-ui/password-resets.json
     ports:
       - "${MEDIA_UI_PORT:-5173}:5173"
+    volumes:
+      - media-ui-data:/data/media-ui
     depends_on:
       core:
         condition: service_healthy
@@ -359,3 +367,4 @@ volumes:
   downloads:
   movies:
   shows:
+  media-ui-data:
