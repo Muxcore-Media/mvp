@@ -26,16 +26,48 @@ func sessionTokenFromRequest(r *http.Request) string {
 	return bearerSessionToken(r)
 }
 
-func (s *server) sessionIdentity(r *http.Request) (username string, roles []string, ok bool) {
+func (s *server) sessionPrincipal(r *http.Request) (userID, username, tenantID string, roles []string, ok bool) {
 	if s.sessions == nil {
-		return "", nil, false
+		return "", "", "", nil, false
 	}
 	tok := sessionTokenFromRequest(r)
 	if tok == "" {
-		return "", nil, false
+		return "", "", "", nil, false
 	}
-	_, username, _, roles, ok = s.sessions.LookupRoles(tok)
+	return s.sessions.LookupRoles(tok)
+}
+
+func (s *server) sessionIdentity(r *http.Request) (username string, roles []string, ok bool) {
+	_, username, _, roles, ok = s.sessionPrincipal(r)
 	return username, roles, ok
+}
+
+// handleSessionMe is GET /api/session and GET /api/me (media-ui refreshCurrentUserId).
+func (s *server) handleSessionMe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeAPIMethodNotAllowed(w)
+		return
+	}
+	userID, username, tenantID, roles, ok := s.sessionPrincipal(r)
+	if !ok {
+		writeAPIUnauthorized(w)
+		return
+	}
+	if roles == nil {
+		roles = []string{}
+	}
+	if userID != "" {
+		w.Header().Set(muxcoreUserIDHeader, userID)
+	}
+	body := map[string]any{
+		"user_id":  userID,
+		"username": username,
+		"roles":    roles,
+	}
+	if tenantID != "" {
+		body["tenant_id"] = tenantID
+	}
+	writeJSON(w, body)
 }
 
 func (s *server) sessionHasPrivilegedRole(r *http.Request) bool {

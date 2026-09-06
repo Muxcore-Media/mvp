@@ -235,3 +235,152 @@ func TestUserdataAdminCanOverrideUserID(t *testing.T) {
 		t.Fatalf("admin override: want bob progress 42, got %d", p.PositionSec)
 	}
 }
+
+func TestUserdataGetIncludesScopedUserID(t *testing.T) {
+	dir := t.TempDir()
+	u := newServerUserdata(dir)
+	sessions := newSessionStore(time.Hour)
+	tok, err := sessions.Create("alice", "Alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{userdata: u, sessions: sessions}
+
+	get := httptest.NewRequest(http.MethodGet, "/api/userdata", nil)
+	get.AddCookie(&http.Cookie{Name: "session", Value: tok})
+	w := httptest.NewRecorder()
+	s.handleUserdataGet(w, get)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d %s", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("X-MuxCore-User-Id"); got != "alice" {
+		t.Fatalf("X-MuxCore-User-Id=%q want alice", got)
+	}
+	var body struct {
+		UserID string `json:"user_id"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.UserID != "alice" {
+		t.Fatalf("user_id=%q want alice", body.UserID)
+	}
+}
+
+func TestUserdataPutIncludesScopedUserID(t *testing.T) {
+	dir := t.TempDir()
+	u := newServerUserdata(dir)
+	sessions := newSessionStore(time.Hour)
+	tok, err := sessions.Create("alice", "Alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{userdata: u, sessions: sessions}
+
+	put := httptest.NewRequest(http.MethodPut, "/api/userdata", strings.NewReader(
+		`{"progress":{"m1":{"id":"m1","positionSec":3,"updatedAt":"2026-01-01T00:00:00Z"}}}`))
+	put.AddCookie(&http.Cookie{Name: "session", Value: tok})
+	w := httptest.NewRecorder()
+	s.handleUserdataPut(w, put)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d %s", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("X-MuxCore-User-Id"); got != "alice" {
+		t.Fatalf("X-MuxCore-User-Id=%q want alice", got)
+	}
+	var body struct {
+		UserID string `json:"user_id"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.UserID != "alice" {
+		t.Fatalf("user_id=%q want alice", body.UserID)
+	}
+}
+
+func TestUserdataAdminHeaderOverrideSetsBlobUserID(t *testing.T) {
+	dir := t.TempDir()
+	u := newServerUserdata(dir)
+	sessions := newSessionStore(time.Hour)
+	adminTok, _ := sessions.CreateWithRoles("admin-1", "admin", "", []string{"admin"})
+	bobTok, _ := sessions.Create("bob", "Bob")
+	s := &server{userdata: u, sessions: sessions}
+
+	putBob := httptest.NewRequest(http.MethodPut, "/api/userdata", strings.NewReader(
+		`{"progress":{"m1":{"id":"m1","positionSec":42,"updatedAt":"2026-01-01T00:00:00Z"}}}`))
+	putBob.AddCookie(&http.Cookie{Name: "session", Value: bobTok})
+	wBob := httptest.NewRecorder()
+	s.handleUserdataPut(wBob, putBob)
+	if wBob.Code != http.StatusOK {
+		t.Fatalf("bob put %d %s", wBob.Code, wBob.Body.String())
+	}
+
+	getAsBob := httptest.NewRequest(http.MethodGet, "/api/userdata", nil)
+	getAsBob.AddCookie(&http.Cookie{Name: "session", Value: adminTok})
+	getAsBob.Header.Set("X-MuxCore-User-Id", "bob")
+	wAdmin := httptest.NewRecorder()
+	s.handleUserdataGet(wAdmin, getAsBob)
+	if wAdmin.Code != http.StatusOK {
+		t.Fatalf("admin get %d %s", wAdmin.Code, wAdmin.Body.String())
+	}
+	if got := wAdmin.Header().Get("X-MuxCore-User-Id"); got != "bob" {
+		t.Fatalf("X-MuxCore-User-Id=%q want bob (scoped override)", got)
+	}
+	var blob struct {
+		store.Blob
+		UserID string `json:"user_id"`
+	}
+	if err := json.NewDecoder(wAdmin.Body).Decode(&blob); err != nil {
+		t.Fatal(err)
+	}
+	if blob.UserID != "bob" {
+		t.Fatalf("user_id=%q want bob", blob.UserID)
+	}
+	var p struct {
+		PositionSec int `json:"positionSec"`
+	}
+	if err := json.Unmarshal(blob.Progress["m1"], &p); err != nil {
+		t.Fatalf("admin header override should read bob: %v blob=%#v", err, blob.Progress)
+	}
+	if p.PositionSec != 42 {
+		t.Fatalf("admin header override: want bob progress 42, got %d", p.PositionSec)
+	}
+}
+
+func TestUserdataIgnoresCrossUserHeaderOverride(t *testing.T) {
+	dir := t.TempDir()
+	u := newServerUserdata(dir)
+	sessions := newSessionStore(time.Hour)
+	aliceTok, _ := sessions.Create("alice", "Alice")
+	bobTok, _ := sessions.Create("bob", "Bob")
+	s := &server{userdata: u, sessions: sessions}
+
+	putBob := httptest.NewRequest(http.MethodPut, "/api/userdata", strings.NewReader(
+		`{"progress":{"m1":{"id":"m1","positionSec":99,"updatedAt":"2026-01-01T00:00:00Z"}}}`))
+	putBob.AddCookie(&http.Cookie{Name: "session", Value: bobTok})
+	wBob := httptest.NewRecorder()
+	s.handleUserdataPut(wBob, putBob)
+	if wBob.Code != http.StatusOK {
+		t.Fatalf("bob put %d %s", wBob.Code, wBob.Body.String())
+	}
+
+	getAsBob := httptest.NewRequest(http.MethodGet, "/api/userdata", nil)
+	getAsBob.AddCookie(&http.Cookie{Name: "session", Value: aliceTok})
+	getAsBob.Header.Set("X-MuxCore-User-Id", "bob")
+	wAlice := httptest.NewRecorder()
+	s.handleUserdataGet(wAlice, getAsBob)
+	var blob struct {
+		store.Blob
+		UserID string `json:"user_id"`
+	}
+	if err := json.NewDecoder(wAlice.Body).Decode(&blob); err != nil {
+		t.Fatal(err)
+	}
+	if len(blob.Progress) != 0 {
+		t.Fatalf("alice should not see bob progress via X-MuxCore-User-Id, got %#v", blob.Progress)
+	}
+	if blob.UserID != "alice" {
+		t.Fatalf("user_id=%q want alice (header override ignored)", blob.UserID)
+	}
+}
