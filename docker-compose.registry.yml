@@ -311,11 +311,43 @@ services:
       MUXCORE_MODULE_ID: userdata-local
       USERDATA_LOCAL_HTTP_ADDR: ":9672"
       USERDATA_LOCAL_GRPC_ADDR: ":9673"
+      USERDATA_LOCAL_DB_PATH: /data/userdata.db
     ports:
       - "${USERDATA_LOCAL_PORT:-9672}:9672"
+    volumes:
+      - userdata-data:/data
     depends_on:
       core:
         condition: service_healthy
+
+  # Optional household backup — profile: backup-local
+  #   docker compose -f docker-compose.registry.yml --profile backup-local up -d
+  backup-local:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/backup-local:${MUXCORE_IMAGE_TAG:-v0.5.7}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: backup-local
+      BACKUP_DIR: /data/backups
+      BACKUP_SOURCE_DIRS: ${BACKUP_SOURCE_DIRS:-/source/auth,/source/sqlite,/source/userdata}
+      BACKUP_SCHEDULE_CRON: ${BACKUP_SCHEDULE_CRON:-}
+      BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-10}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-0}
+    volumes:
+      - backup-data:/data/backups
+      - auth-data:/source/auth:ro
+      - sqlite-data:/source/sqlite:ro
+      - userdata-data:/source/userdata:ro
+    depends_on:
+      core:
+        condition: service_healthy
+      auth-local:
+        condition: service_started
+      database-sqlite:
+        condition: service_started
+      userdata-local:
+        condition: service_started
+    profiles: ["backup-local"]
 
   media-ui:
     <<: *image
@@ -367,4 +399,6 @@ volumes:
   downloads:
   movies:
   shows:
+  userdata-data:
+  backup-data:
   media-ui-data:

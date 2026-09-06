@@ -383,8 +383,11 @@ services:
       MUXCORE_MODULE_ID: userdata-local
       USERDATA_LOCAL_HTTP_ADDR: ":9672"
       USERDATA_LOCAL_GRPC_ADDR: ":9673"
+      USERDATA_LOCAL_DB_PATH: /data/userdata.db
     ports:
       - "${USERDATA_LOCAL_PORT:-9672}:9672"
+    volumes:
+      - userdata-data:/data
 
   media-custom-formats:
     <<: *module
@@ -450,6 +453,29 @@ services:
       - "${JELLYFIN_GRPC_PORT:-9475}:9475"
     volumes:
       - jellyfin-data:/data
+
+  # Optional household backup — profile: backup-local
+  #   docker compose --profile backup-local up -d
+  backup-local:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: backup-local }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: backup-local
+      BACKUP_DIR: /data/backups
+      BACKUP_SOURCE_DIRS: ${BACKUP_SOURCE_DIRS:-/source/auth,/source/sqlite,/source/userdata}
+      BACKUP_SCHEDULE_CRON: ${BACKUP_SCHEDULE_CRON:-}
+      BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-10}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-0}
+    volumes:
+      - backup-data:/data/backups
+      - auth-data:/source/auth:ro
+      - sqlite-data:/source/sqlite:ro
+      - userdata-data:/source/userdata:ro
+    profiles: ["backup-local"]
 
   # Optional FFmpeg transcoder — profile: transcoder
   media-transcoder:
@@ -521,4 +547,6 @@ volumes:
   jellyfin-data:
   request-data:
   transcoder-data:
+  userdata-data:
+  backup-data:
   media-ui-data:

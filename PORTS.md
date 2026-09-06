@@ -10,6 +10,7 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9204 | scheduler-cron | `_mvp/run-host.sh` when `MVP_ENABLE_SCHEDULER_CRON=1` (`127.0.0.1:9204`) |
 | 9202 / 9203 | health-monitor gRPC / HTTP | |
 | 9300 | worker-pool-memory HTTP | optional (`MVP_ENABLE_WORKER_POOL=1`; default `127.0.0.1:9300`) |
+| 9302 / 9303 | backup-local gRPC / health | optional (`MVP_ENABLE_BACKUP_LOCAL=1` / compose `backup-local`) |
 | 9380 / 9481 | request-media HTTP / gRPC | |
 | 9400 | api-rest gRPC | |
 | 9401 | auth-local HTTP | |
