@@ -350,6 +350,26 @@ services:
       - library-data:/library
     profiles: ["audiobooks"]
 
+  # Optional import-list sync (Trakt/IMDb/Plex/Jellyfin/Radarr/Sonarr) — compose profile: list-sync
+  #   docker compose --profile list-sync up -d
+  # run-host equivalent: MVP_ENABLE_MEDIA_LIST_SYNC=1
+  media-list-sync:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-list-sync }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-list-sync
+      LISTSYNC_GRPC_ADDR: ":9530"
+      LISTSYNC_DB_PATH: /data/listsync/listsync.db
+    ports:
+      - "${LISTSYNC_GRPC_PORT:-9530}:9530"
+    volumes:
+      - listsync-data:/data
+    profiles: ["list-sync"]
+
   media-automation:
     <<: *module
     build:
@@ -575,6 +595,7 @@ services:
       AUTH_HTTP_URL: http://auth-local:9401
       USERDATA_LOCAL_URL: http://userdata-local:9672
       TRANSCODER_HTTP_URL: http://media-transcoder:9526
+      LISTSYNC_GRPC_CLIENT_ADDR: media-list-sync:9530
       # Shared with admin-ui /password-resets queue (umbrella #111).
       MEDIA_UI_PASSWORD_RESET_FILE: /data/media-ui/password-resets.json
     ports:
@@ -614,4 +635,5 @@ volumes:
   transcoder-data:
   userdata-data:
   backup-data:
+  listsync-data:
   media-ui-data:
