@@ -12,6 +12,10 @@ import (
 	"github.com/Muxcore-Media/userdata-local/store"
 )
 
+// muxcoreUserIDHeader is the household user id used as the parental PIN salt
+// (admin-ui sync + userdata-local auth). Same value as JSON user_id.
+const muxcoreUserIDHeader = "X-MuxCore-User-Id"
+
 // serverUserdata is the BFF durable store for Jellyfin-style userdata
 // (progress/favorites/prefs/queue). Scoped per session user (+ tenant when
 // TENANT_MODE=1).
@@ -50,8 +54,9 @@ func newServerUserdata(dir string) *serverUserdata {
 }
 
 // scopeFromRequest derives userdata scope from the authenticated session.
-// Client user_id / tenant_id query params and X-Tenant-ID are ignored unless
-// allowClientOverride is true (admin/manager principals).
+// Client user_id / X-MuxCore-User-Id / tenant_id / X-Tenant-ID are ignored
+// unless allowClientOverride is true (admin/manager principals). Header
+// X-MuxCore-User-Id matches admin-ui → userdata-local sync.
 func (u *serverUserdata) scopeFromRequest(r *http.Request, sessions *sessionStore, allowClientOverride bool) store.Scope {
 	userID := "anonymous"
 	sessionTenant := ""
@@ -62,7 +67,9 @@ func (u *serverUserdata) scopeFromRequest(r *http.Request, sessions *sessionStor
 		}
 	}
 	if allowClientOverride {
-		if q := strings.TrimSpace(r.URL.Query().Get("user_id")); q != "" {
+		if h := strings.TrimSpace(r.Header.Get(muxcoreUserIDHeader)); h != "" {
+			userID = h
+		} else if q := strings.TrimSpace(r.URL.Query().Get("user_id")); q != "" {
 			userID = q
 		}
 	}
@@ -221,7 +228,7 @@ func (s *server) handleUserdataGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scope := s.userdata.scopeFromRequest(r, s.sessions, s.sessionHasPrivilegedRole(r))
-	writeJSON(w, s.userdata.load(scope))
+	writeUserdataJSON(w, scope, s.userdata.load(scope))
 }
 
 func (s *server) handleUserdataPut(w http.ResponseWriter, r *http.Request) {
@@ -244,5 +251,31 @@ func (s *server) handleUserdataPut(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, err.Error(), "userdata.save_failed")
 		return
 	}
-	writeJSON(w, merged)
+	writeUserdataJSON(w, scope, merged)
+}
+
+// writeUserdataJSON returns the blob plus the scoped household user_id so
+// media-ui hashPin can salt SHA-256(userID+":"+pin) without a separate lookup.
+func writeUserdataJSON(w http.ResponseWriter, scope store.Scope, blob store.Blob) {
+	raw, err := json.Marshal(blob)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error(), "userdata.encode_failed")
+		return
+	}
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		writeAPIError(w, http.StatusInternalServerError, err.Error(), "userdata.encode_failed")
+		return
+	}
+	if out == nil {
+		out = map[string]any{}
+	}
+	if scope.UserID != "" {
+		out["user_id"] = scope.UserID
+		w.Header().Set(muxcoreUserIDHeader, scope.UserID)
+	}
+	if scope.TenantID != "" {
+		out["tenant_id"] = scope.TenantID
+	}
+	writeJSON(w, out)
 }
