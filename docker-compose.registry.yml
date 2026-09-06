@@ -304,13 +304,14 @@ services:
         condition: service_healthy
     profiles: ["downloader-sabnzbd"]
 
+  # HTTP defaults to loopback 127.0.0.1:9631 (soft-empty; no DEBRID_HTTP_TOKEN).
+  # Open host HTTP: set MUXCORE_HTTP_ADDR=0.0.0.0:9631, DEBRID_HTTP_TOKEN, and publish :9631.
   downloader-debrid:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/downloader-debrid:${MUXCORE_IMAGE_TAG:-v0.5.7}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: downloader-debrid
-      MUXCORE_HTTP_ADDR: ":9631"
       DEBRID_PROVIDER: ${DEBRID_PROVIDER:-}
       DEBRID_TOKEN: ${DEBRID_TOKEN:-}
       REAL_DEBRID_TOKEN: ${REAL_DEBRID_TOKEN:-}
@@ -318,7 +319,6 @@ services:
       DEBRID_HTTP_TOKEN: ${DEBRID_HTTP_TOKEN:-}
     ports:
       - "${DOWNLOADER_DEBRID_GRPC_PORT:-9630}:9630"
-      - "${DOWNLOADER_DEBRID_HTTP_PORT:-9631}:9631"
     depends_on:
       core:
         condition: service_healthy
