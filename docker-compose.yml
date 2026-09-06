@@ -534,6 +534,55 @@ services:
       - "${DOWNLOADER_DEBRID_HTTP_PORT:-9631}:9631"
     profiles: ["downloader-debrid"]
 
+  # Optional acquisition indexers — compose profiles (off by default; not in Path A stack).
+  # run-host equivalents: MVP_ENABLE_INDEXER_*=1 (see .env.example).
+  #   docker compose --profile indexer-piratebay up -d
+  #   docker compose --profile indexer-piratebay --profile indexer-torznab up -d
+  # Fixture by default; live requires WG_CONF / operator credentials.
+  indexer-piratebay:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: indexer-piratebay }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: indexer-piratebay
+      PIRATEBAY_GRPC_ADDR: ":9485"
+      PIRATEBAY_HTTP_ADDR: ":9487"
+      INDEXER_FIXTURE: ${INDEXER_FIXTURE:-1}
+      PIRATEBAY_API_BASE: ${PIRATEBAY_API_BASE:-}
+      WG_CONF: ${WG_CONF:-}
+      WG_USE_WG_QUICK: ${WG_USE_WG_QUICK:-0}
+      WG_KILL_SWITCH: ${WG_KILL_SWITCH:-false}
+      DOWNLOADER_REQUIRE_VPN: ${DOWNLOADER_REQUIRE_VPN:-}
+    ports:
+      - "${INDEXER_PIRATEBAY_GRPC_PORT:-9485}:9485"
+      - "${INDEXER_PIRATEBAY_HTTP_PORT:-9487}:9487"
+    profiles: ["indexer-piratebay"]
+
+  indexer-torznab:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: indexer-torznab }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: indexer-torznab
+      TORZNAB_GRPC_ADDR: ":9486"
+      TORZNAB_URL: ${TORZNAB_URL:-}
+      TORZNAB_API_KEY: ${TORZNAB_API_KEY:-}
+      PROWLARR_URL: ${PROWLARR_URL:-}
+      PROWLARR_API_KEY: ${PROWLARR_API_KEY:-}
+      WG_CONF: ${WG_CONF:-}
+      WG_USE_WG_QUICK: ${WG_USE_WG_QUICK:-0}
+      WG_KILL_SWITCH: ${WG_KILL_SWITCH:-false}
+      DOWNLOADER_REQUIRE_VPN: ${DOWNLOADER_REQUIRE_VPN:-}
+    ports:
+      - "${INDEXER_TORZNAB_GRPC_PORT:-9486}:9486"
+    profiles: ["indexer-torznab"]
+
   media-scanner:
     <<: *module
     build:

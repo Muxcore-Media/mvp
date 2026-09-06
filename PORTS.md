@@ -31,8 +31,8 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9476 / 8476 | plex | optional playback bridge (gRPC / HTTP) |
 | 9477 / 8477 | emby | optional playback bridge (gRPC / HTTP) |
 | 9480 | media-ffprobe | |
-| 9485 | indexer-piratebay | optional (`acquisition` profile) |
-| 9486 | indexer-torznab | optional |
+| 9485 / 9487 | indexer-piratebay | optional gRPC / HTTP (`MVP_ENABLE_INDEXER_PIRATEBAY=1` / compose `indexer-piratebay`) |
+| 9486 | indexer-torznab | optional (`MVP_ENABLE_INDEXER_TORZNAB=1` / compose `indexer-torznab`) |
 | 9490 | media-custom-formats | |
 | 9510 | media-rename | |
 | 9520 / 9521 | media-subtitles gRPC / HTTP | |

@@ -324,6 +324,53 @@ services:
         condition: service_healthy
     profiles: ["downloader-debrid"]
 
+  # Optional acquisition indexers — compose profiles (off by default; not in Path A stack).
+  # run-host equivalents: MVP_ENABLE_INDEXER_*=1 (see .env.example).
+  #   docker compose -f docker-compose.registry.yml --profile indexer-piratebay up -d
+  indexer-piratebay:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/indexer-piratebay:${MUXCORE_IMAGE_TAG:-v0.5.7}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: indexer-piratebay
+      PIRATEBAY_GRPC_ADDR: ":9485"
+      PIRATEBAY_HTTP_ADDR: ":9487"
+      INDEXER_FIXTURE: ${INDEXER_FIXTURE:-1}
+      PIRATEBAY_API_BASE: ${PIRATEBAY_API_BASE:-}
+      WG_CONF: ${WG_CONF:-}
+      WG_USE_WG_QUICK: ${WG_USE_WG_QUICK:-0}
+      WG_KILL_SWITCH: ${WG_KILL_SWITCH:-false}
+      DOWNLOADER_REQUIRE_VPN: ${DOWNLOADER_REQUIRE_VPN:-}
+    ports:
+      - "${INDEXER_PIRATEBAY_GRPC_PORT:-9485}:9485"
+      - "${INDEXER_PIRATEBAY_HTTP_PORT:-9487}:9487"
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["indexer-piratebay"]
+
+  indexer-torznab:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/indexer-torznab:${MUXCORE_IMAGE_TAG:-v0.5.7}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: indexer-torznab
+      TORZNAB_GRPC_ADDR: ":9486"
+      TORZNAB_URL: ${TORZNAB_URL:-}
+      TORZNAB_API_KEY: ${TORZNAB_API_KEY:-}
+      PROWLARR_URL: ${PROWLARR_URL:-}
+      PROWLARR_API_KEY: ${PROWLARR_API_KEY:-}
+      WG_CONF: ${WG_CONF:-}
+      WG_USE_WG_QUICK: ${WG_USE_WG_QUICK:-0}
+      WG_KILL_SWITCH: ${WG_KILL_SWITCH:-false}
+      DOWNLOADER_REQUIRE_VPN: ${DOWNLOADER_REQUIRE_VPN:-}
+    ports:
+      - "${INDEXER_TORZNAB_GRPC_PORT:-9486}:9486"
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["indexer-torznab"]
+
   media-scanner:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-scanner:${MUXCORE_IMAGE_TAG:-v0.5.7}
