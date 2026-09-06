@@ -288,6 +288,68 @@ services:
       - music-data:/data
       - library-data:/library
 
+  # Optional library-plus modules — compose profiles: books, comics, audiobooks
+  #   docker compose --profile books --profile comics --profile audiobooks up -d
+  media-books:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-books }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-books
+      BOOKS_DATA_DIR: /data/books
+      BOOKS_LIBRARY_DIR: /library/books
+      BOOKS_GRPC_ADDR: ":9650"
+      MUXCORE_HTTP_ADDR: ":9651"
+    ports:
+      - "${MEDIA_BOOKS_HTTP_PORT:-9651}:9651"
+    volumes:
+      - books-data:/data
+      - library-data:/library
+    profiles: ["books"]
+
+  media-comics:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-comics }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-comics
+      COMICS_DATA_DIR: /data/comics
+      COMICS_LIBRARY_DIR: /library/comics
+      COMICS_GRPC_ADDR: ":9660"
+      MUXCORE_HTTP_ADDR: ":9661"
+    ports:
+      - "${MEDIA_COMICS_HTTP_PORT:-9661}:9661"
+    volumes:
+      - comics-data:/data
+      - library-data:/library
+    profiles: ["comics"]
+
+  media-audiobooks:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-audiobooks }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-audiobooks
+      AUDIOBOOKS_DATA_DIR: /data/audiobooks
+      AUDIOBOOKS_LIBRARY_DIR: /library/audiobooks
+      AUDIOBOOKS_GRPC_ADDR: ":9670"
+      MUXCORE_HTTP_ADDR: ":9671"
+    ports:
+      - "${MEDIA_AUDIOBOOKS_HTTP_PORT:-9671}:9671"
+    volumes:
+      - audiobooks-data:/data
+      - library-data:/library
+    profiles: ["audiobooks"]
+
   media-automation:
     <<: *module
     build:
@@ -516,6 +578,9 @@ volumes:
   movies-data:
   tvshows-data:
   music-data:
+  books-data:
+  comics-data:
+  audiobooks-data:
   library-data:
   downloads-data:
   jellyfin-data:

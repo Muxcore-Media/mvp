@@ -57,6 +57,12 @@ optional_env_gated:
     env: MVP_ENABLE_MEDIA_TRANSCODER
   - name: media-list-sync
     env: MVP_ENABLE_MEDIA_LIST_SYNC
+  - name: media-books
+    env: MVP_ENABLE_MEDIA_BOOKS
+  - name: media-comics
+    env: MVP_ENABLE_MEDIA_COMICS
+  - name: media-audiobooks
+    env: MVP_ENABLE_MEDIA_AUDIOBOOKS
   - name: notification-apprise
     env: MVP_ENABLE_NOTIFICATION_APPRISE
 
