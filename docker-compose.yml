@@ -204,9 +204,13 @@ services:
       ADMIN_UI_INSECURE: "true"
       ADMIN_UI_AUTH_ADDR: http://auth-local:9401
       ADMIN_UI_HEALTH_MONITOR_URL: ${ADMIN_UI_HEALTH_MONITOR_URL:-http://health-monitor:9203}
+      # Shared with media-ui consumer POST /api/password-reset (umbrella #111).
+      ADMIN_UI_PASSWORD_RESET_FILE: /data/media-ui/password-resets.json
       # Leave unset in compose so bare :port discovery addrs resolve via service DNS.
     ports:
       - "${ADMIN_UI_HTTP_PORT:-8082}:8082"
+    volumes:
+      - media-ui-data:/data/media-ui
 
   # --- media (spool tag: media) ---
   metadata-tmdb:
@@ -483,8 +487,12 @@ services:
       AUTH_HTTP_URL: http://auth-local:9401
       USERDATA_LOCAL_URL: http://userdata-local:9672
       TRANSCODER_HTTP_URL: http://media-transcoder:9526
+      # Shared with admin-ui /password-resets queue (umbrella #111).
+      MEDIA_UI_PASSWORD_RESET_FILE: /data/media-ui/password-resets.json
     ports:
       - "${MEDIA_UI_HTTP_PORT:-5173}:5173"
+    volumes:
+      - media-ui-data:/data/media-ui
     depends_on:
       - media-movies
       - media-tvshows
@@ -513,3 +521,4 @@ volumes:
   jellyfin-data:
   request-data:
   transcoder-data:
+  media-ui-data:
