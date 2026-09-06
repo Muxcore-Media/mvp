@@ -30,6 +30,7 @@ func (s *server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 	musicvideos := movies && s.companionLibraryConfigured("musicvideos")
 	transcoder := s.transcoderModuleLive(ctx)
 	debrid := s.debridModuleLive(ctx)
+	graph := s.graphModuleLive(ctx)
 	pol := loadPlaybackPolicy()
 
 	writeJSON(w, map[string]any{
@@ -58,6 +59,7 @@ func (s *server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 			"watchlist":    watchlist,
 			"transcoder":   transcoder,
 			"debrid":       debrid,
+			"graph":        graph,
 		},
 		"playback": map[string]any{
 			"transcoder_available": transcoder,
@@ -75,6 +77,27 @@ func (s *server) listSyncModuleLive(ctx context.Context) bool {
 	defer cancel()
 	_, err := s.listSync.GetItems(ctx, &listsyncv1.GetItemsRequest{Page: 1, PageSize: 1})
 	return err == nil
+}
+
+func (s *server) graphModuleLive(ctx context.Context) bool {
+	if s.graphHTTP == nil || strings.TrimSpace(s.graphHTTP.String()) == "" {
+		return false
+	}
+	u := *s.graphHTTP
+	u.Path = strings.TrimRight(s.graphHTTP.Path, "/") + "/healthz"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return false
+	}
+	if tok := strings.TrimSpace(s.graphToken); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	resp, err := upstreamClient.Do(req)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	return resp.StatusCode == http.StatusOK
 }
 
 func (s *server) debridModuleLive(ctx context.Context) bool {

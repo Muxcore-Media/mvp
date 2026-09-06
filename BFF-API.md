@@ -159,6 +159,41 @@ Session required. Returns BFF feature flags and optional peer availability (tran
 
 TMDB-backed search/detail proxy when `metadata-tmdb` is reachable. Detail routes: `/api/discover/movies/{id}`, `/api/discover/tv/{id}`, `/api/discover/people/{id}`, cast/crew subpaths.
 
+### `GET /api/graph/related?id=tmdb:{movie|tv}:{n}`
+
+Related-titles rail for Movie/TV detail (`media-ui-app`). Proxies media-graph admin JSON `GET /api/graph/related?external_id=` on `GRAPH_HTTP_URL` (default `http://127.0.0.1:9731`, flag `-graph-http`). Optional `limit`, `rel`, and `depth` are forwarded.
+
+The SPA `id` query is a graph **external id** (`tmdb:movie:550` / `tmdb:tv:1396`), not a `gn_*` node id.
+
+Success (`200`) when the graph module answers:
+
+```json
+{
+  "items": [
+    {
+      "id": 807,
+      "title": "Se7en",
+      "year": 1995,
+      "overview": "",
+      "poster": "",
+      "vote_avg": 0,
+      "media_type": "movie",
+      "relation": "same_franchise",
+      "content_rating": "R"
+    }
+  ],
+  "available": true
+}
+```
+
+`items` is always an array. Graph node attrs (`year`, `tmdb_id`, `overview`, `poster`, `vote_average`, `content_rating`) are mapped when present; ingest today typically has title/year/tmdb id only.
+
+When media-graph is unset, unreachable, or returns a non-404 error: **HTTP 200** `{ "items": [], "available": false }` — the BFF never 5xx this route. HTTP 404 from graph (title not in the store) is `{ "items": [], "available": true }`.
+
+Optional `GRAPH_MODULE_TOKEN` / `GRAPH_HTTP_TOKEN` / `-graph-token` is sent as `Authorization: Bearer …` when graph admin JSON requires a token (loopback clients skip auth). Enable the module with `MVP_ENABLE_MEDIA_GRAPH=1`.
+
+`GET /api/capabilities` includes `features.graph` when `GRAPH_HTTP_URL/healthz` is live.
+
 ## Userdata (session)
 
 ### `GET|POST|DELETE /api/userdata`
