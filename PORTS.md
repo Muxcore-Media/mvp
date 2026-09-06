@@ -24,8 +24,8 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9441 | notification-default | |
 | 9445 | notification-apprise | optional (`MVP_ENABLE_NOTIFICATION_APPRISE=1` / compose `apprise`) |
 | 9460 | media-automation | |
-| 9461 | downloader-native-torrent | native torrent engine (gRPC) |
-| 9462 / 9463 | downloader-qbittorrent | optional qBittorrent WebUI bridge (gRPC / health) |
+| 9461 | downloader-native-torrent | native torrent engine (gRPC); optional (`MVP_ENABLE_DOWNLOADER_TORRENT=1` / compose `downloader-torrent`) |
+| 9462 / 9463 | downloader-qbittorrent | optional qBittorrent WebUI bridge (gRPC / health); compose `downloader-qbittorrent` |
 | 9470 | media-scanner | |
 | 9475 / 8475 | jellyfin gRPC / HTTP | |
 | 9476 / 8476 | plex | optional playback bridge (gRPC / HTTP) |
@@ -52,10 +52,10 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9610 / 9611 | storage-s3 | optional S3/MinIO StorageProvider (gRPC / health) |
 | 9613 | tracing-otlp | optional (`MVP_ENABLE_TRACING_OTLP=1`) |
 | 9614 | config-watcher | optional (`MVP_ENABLE_CONFIG_WATCHER=1`) |
-| 9620 / 9621 | downloader-sabnzbd | optional SABnzbd usenet bridge (gRPC / health) |
-| 9622 / 9623 | downloader-native-usenet | native usenet engine (gRPC / health) |
+| 9620 / 9621 | downloader-sabnzbd | optional SABnzbd usenet bridge (gRPC / health); compose `downloader-sabnzbd` |
+| 9622 / 9623 | downloader-native-usenet | native usenet engine (gRPC / health); compose `downloader-usenet` |
 | 9625 | logging-file | |
-| 9630 / 9631 | downloader-debrid | optional Real-Debrid/AllDebrid bridge (gRPC / health) |
+| 9630 / 9631 | downloader-debrid | optional Real-Debrid/AllDebrid bridge (gRPC / health); compose `downloader-debrid` |
 | 9635 | serialization-safe | |
 | 9640 / 9641 | media-music | optional Lidarr-class music manager (gRPC / health) |
 | 9645 | circuitbreaker-simple | |

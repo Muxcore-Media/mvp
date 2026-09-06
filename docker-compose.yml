@@ -411,6 +411,129 @@ services:
     volumes:
       - automation-data:/data
 
+  # Optional acquisition downloaders — compose profiles (off by default; not in Path A stack).
+  # run-host equivalents: MVP_ENABLE_DOWNLOADER_*=1 (see .env.example).
+  #   docker compose --profile downloader-torrent up -d
+  #   docker compose --profile downloader-torrent --profile downloader-qbittorrent up -d
+  # Fixture engines by default; live requires WG_CONF / operator credentials.
+  downloader-native-torrent:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: downloader-native-torrent }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: downloader-native-torrent
+      DOWNLOADER_GRPC_ADDR: ":9461"
+      DOWNLOADER_ENGINE: ${DOWNLOADER_ENGINE:-fixture}
+      DOWNLOAD_DIR: /downloads
+      WG_CONF: ${WG_CONF:-}
+      WG_USE_WG_QUICK: ${WG_USE_WG_QUICK:-0}
+      WG_KILL_SWITCH: ${WG_KILL_SWITCH:-false}
+      DOWNLOADER_REQUIRE_VPN: ${DOWNLOADER_REQUIRE_VPN:-}
+      NAT_PMP_PORT: ${NAT_PMP_PORT:-0}
+    ports:
+      - "${DOWNLOADER_TORRENT_GRPC_PORT:-9461}:9461"
+    volumes:
+      - downloads-data:/downloads
+    profiles: ["downloader-torrent"]
+
+  downloader-qbittorrent:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: downloader-qbittorrent }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: downloader-qbittorrent
+      QBIT_GRPC_ADDR: ":9462"
+      QBIT_HTTP_ADDR: ":9463"
+      DOWNLOADER_ENGINE: ${DOWNLOADER_ENGINE:-fixture}
+      QBIT_FIXTURE: ${QBIT_FIXTURE:-1}
+      QBIT_URL: ${QBIT_URL:-}
+      QBIT_USERNAME: ${QBIT_USERNAME:-}
+      QBIT_PASSWORD: ${QBIT_PASSWORD:-}
+    ports:
+      - "${DOWNLOADER_QBIT_GRPC_PORT:-9462}:9462"
+      - "${DOWNLOADER_QBIT_HTTP_PORT:-9463}:9463"
+    profiles: ["downloader-qbittorrent"]
+
+  downloader-native-usenet:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: downloader-native-usenet }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: downloader-native-usenet
+      USENET_GRPC_ADDR: ":9622"
+      MUXCORE_HTTP_ADDR: ":9623"
+      USENET_ENGINE: ${USENET_ENGINE:-fixture}
+      USENET_DOWNLOAD_DIR: /downloads/usenet
+      USENET_PAR2: ${USENET_PAR2:-auto}
+      USENET_UNPACK: ${USENET_UNPACK:-auto}
+      NNTP_HOST: ${NNTP_HOST:-}
+      NNTP_PORT: ${NNTP_PORT:-}
+      NNTP_USER: ${NNTP_USER:-}
+      NNTP_PASS: ${NNTP_PASS:-}
+      NNTP_SSL: ${NNTP_SSL:-}
+      WG_CONF: ${WG_CONF:-}
+      WG_USE_WG_QUICK: ${WG_USE_WG_QUICK:-0}
+      WG_KILL_SWITCH: ${WG_KILL_SWITCH:-false}
+      DOWNLOADER_REQUIRE_VPN: ${DOWNLOADER_REQUIRE_VPN:-}
+    ports:
+      - "${DOWNLOADER_USENET_GRPC_PORT:-9622}:9622"
+      - "${DOWNLOADER_USENET_HTTP_PORT:-9623}:9623"
+    volumes:
+      - downloads-data:/downloads
+    profiles: ["downloader-usenet"]
+
+  downloader-sabnzbd:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: downloader-sabnzbd }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: downloader-sabnzbd
+      MUXCORE_GRPC_ADDR_OVERRIDE: ":9620"
+      MUXCORE_HTTP_ADDR: ":9621"
+      SABNZBD_URL: ${SABNZBD_URL:-}
+      SABNZBD_API_KEY: ${SABNZBD_API_KEY:-}
+      DOWNLOADER_ENGINE: ${DOWNLOADER_ENGINE:-fixture}
+      WG_CONF: ${WG_CONF:-}
+      WG_USE_WG_QUICK: ${WG_USE_WG_QUICK:-0}
+      WG_KILL_SWITCH: ${WG_KILL_SWITCH:-false}
+      DOWNLOADER_REQUIRE_VPN: ${DOWNLOADER_REQUIRE_VPN:-}
+    ports:
+      - "${DOWNLOADER_SABNZBD_GRPC_PORT:-9620}:9620"
+      - "${DOWNLOADER_SABNZBD_HTTP_PORT:-9621}:9621"
+    profiles: ["downloader-sabnzbd"]
+
+  downloader-debrid:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: downloader-debrid }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: downloader-debrid
+      MUXCORE_HTTP_ADDR: ":9631"
+      DEBRID_PROVIDER: ${DEBRID_PROVIDER:-}
+      DEBRID_TOKEN: ${DEBRID_TOKEN:-}
+      REAL_DEBRID_TOKEN: ${REAL_DEBRID_TOKEN:-}
+      DEBRID_API_BASE: ${DEBRID_API_BASE:-}
+      DEBRID_HTTP_TOKEN: ${DEBRID_HTTP_TOKEN:-}
+    ports:
+      - "${DOWNLOADER_DEBRID_GRPC_PORT:-9630}:9630"
+      - "${DOWNLOADER_DEBRID_HTTP_PORT:-9631}:9631"
+    profiles: ["downloader-debrid"]
+
   media-scanner:
     <<: *module
     build:
