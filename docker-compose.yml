@@ -467,9 +467,7 @@ services:
       MUXCORE_MODULE_ID: backup-local
       BACKUP_DIR: /data/backups
       BACKUP_SOURCE_DIRS: ${BACKUP_SOURCE_DIRS:-/source/auth,/source/sqlite,/source/userdata}
-      BACKUP_SCHEDULE_CRON: ${BACKUP_SCHEDULE_CRON:-}
-      BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-10}
-      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-0}
+      BACKUP_SCHEDULE: ${BACKUP_SCHEDULE:-}
     volumes:
       - backup-data:/data/backups
       - auth-data:/source/auth:ro
