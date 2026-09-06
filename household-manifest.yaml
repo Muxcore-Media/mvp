@@ -59,6 +59,8 @@ optional_env_gated:
     env: MVP_ENABLE_MEDIA_LIST_SYNC
   - name: notification-apprise
     env: MVP_ENABLE_NOTIFICATION_APPRISE
+  - name: backup-local
+    env: MVP_ENABLE_BACKUP_LOCAL
 
 contract_deps:
   - github.com/Muxcore-Media/contracts-scanner@v0.1.0

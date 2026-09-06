@@ -35,6 +35,7 @@ EOF
   [[ "${MVP_ENABLE_CACHE_REDIS:-0}" == "1" || -n "${REDIS_ADDR:-}" ]] && echo "  cache-redis         :9600  (REDIS_ADDR=${REDIS_ADDR:-})"
   [[ "${MVP_ENABLE_MEDIA_TRANSCODER:-0}" == "1" ]] && echo "  media-transcoder    :9525"
   [[ "${MVP_ENABLE_NOTIFICATION_APPRISE:-0}" == "1" ]] && echo "  notification-apprise :9445"
+  [[ "${MVP_ENABLE_BACKUP_LOCAL:-0}" == "1" ]] && echo "  backup-local        :9302  (household state backups)"
   [[ "${TMDB_FIXTURE:-}" == "1" ]] && echo "  metadata-tmdb       fixture mode (TMDB_FIXTURE=1)"
 } >"$ROOT/run/VIEW-ME.txt"
 
