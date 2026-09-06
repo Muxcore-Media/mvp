@@ -476,6 +476,29 @@ services:
       MUXCORE_MODULE_ID: notification-default
       WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-http://127.0.0.1:9/muxcore-notify-sink}
 
+  # Optional Apprise notification peer — compose profile: apprise
+  #   docker compose --profile apprise up -d
+  # run-host equivalent: MVP_ENABLE_NOTIFICATION_APPRISE=1
+  notification-apprise:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: notification-apprise }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: notification-apprise
+      NOTIFY_GRPC_ADDR: ":9445"
+      APPRISE_URL: ${APPRISE_URL:-}
+      APPRISE_URLS: ${APPRISE_URLS:-}
+      APPRISE_TOKEN: ${APPRISE_TOKEN:-}
+      DISCORD_WEBHOOK: ${DISCORD_WEBHOOK:-}
+      SLACK_WEBHOOK: ${SLACK_WEBHOOK:-}
+      WEBHOOK_URL: ${APPRISE_WEBHOOK_URL:-${NOTIFY_WEBHOOK_URL:-http://127.0.0.1:9/muxcore-apprise-sink}}
+    ports:
+      - "${NOTIFICATION_APPRISE_GRPC_PORT:-9445}:9445"
+    profiles: ["apprise"]
+
   userdata-local:
     <<: *module
     build:
