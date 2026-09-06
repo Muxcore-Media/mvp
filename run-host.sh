@@ -1199,6 +1199,8 @@ EOF
           FFPROBE_GRPC_CLIENT_ADDR="127.0.0.1:9480" \
           TRANSCODER_HTTP_URL="http://127.0.0.1:9526" \
           LISTSYNC_GRPC_CLIENT_ADDR="${LISTSYNC_GRPC_CLIENT_ADDR:-127.0.0.1:9530}" \
+          GRAPH_HTTP_URL="${GRAPH_HTTP_URL:-http://127.0.0.1:9731}" \
+          GRAPH_MODULE_TOKEN="${GRAPH_MODULE_TOKEN:-}" \
           "$BIN/mediauiprox" \
             -listen "${MEDIA_UI_LISTEN:-:5173}" \
             -dist "$UI_DIST" \
@@ -1210,7 +1212,8 @@ EOF
             -auth-http-internal "${AUTH_HTTP_INTERNAL_URL:-http://127.0.0.1:9401}" \
             -public-url "${MEDIA_UI_PUBLIC_URL:-https://media.gringotts}" \
             -ffprobe-grpc "127.0.0.1:9480" \
-            -transcoder-http "http://127.0.0.1:9526"
+            -transcoder-http "http://127.0.0.1:9526" \
+            -graph-http "${GRAPH_HTTP_URL:-http://127.0.0.1:9731}"
       fi
     fi
 

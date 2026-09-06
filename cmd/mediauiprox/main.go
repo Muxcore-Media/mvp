@@ -46,6 +46,8 @@ func main() {
 	audiobooksHTTP := flag.String("audiobooks-http", envOr("AUDIOBOOKS_HTTP_URL", "http://127.0.0.1:9671"), "media-audiobooks HTTP (optional library-plus)")
 	transcoderHTTP := flag.String("transcoder-http", envOr("TRANSCODER_HTTP_URL", "http://127.0.0.1:9526"), "media-transcoder playback HTTP (on-the-fly transcode)")
 	debridHTTP := flag.String("debrid-http", envOr("DEBRID_HTTP_URL", "http://127.0.0.1:9631"), "downloader-debrid health HTTP (optional)")
+	graphHTTP := flag.String("graph-http", envOr("GRAPH_HTTP_URL", "http://127.0.0.1:9731"), "media-graph health/admin HTTP (optional related titles)")
+	graphToken := flag.String("graph-token", envOr("GRAPH_MODULE_TOKEN", envOr("GRAPH_HTTP_TOKEN", "")), "optional admin token for media-graph /api/graph*")
 	subtitlesGRPC := flag.String("subtitles-grpc", envOr("SUBTITLES_GRPC_CLIENT_ADDR", "127.0.0.1:9520"), "media-subtitles gRPC (optional)")
 	subtitlesHTTP := flag.String("subtitles-http", envOr("SUBTITLES_HTTP_URL", "http://127.0.0.1:9521"), "media-subtitles HTTP (optional subtitle files)")
 	metadataGRPC := flag.String("metadata-grpc", envOr("METADATA_TMDB_GRPC_ADDR", "127.0.0.1:9411"), "metadata-tmdb gRPC")
@@ -165,6 +167,8 @@ func main() {
 		audiobooksHTTP: mustURL(*audiobooksHTTP),
 		transcoderHTTP: optionalURL(*transcoderHTTP),
 		debridHTTP:     optionalURL(*debridHTTP),
+		graphHTTP:      optionalURL(*graphHTTP),
+		graphToken:     strings.TrimSpace(*graphToken),
 		subtitles:      subtitlesClient,
 		subtitlesHTTP:  optionalURL(*subtitlesHTTP),
 		metadata:       metadataClient,
@@ -239,6 +243,7 @@ func main() {
 		}
 	})
 	s.registerRequestMediaRoutes(mux)
+	mux.HandleFunc("GET /api/graph/related", s.handleGraphRelated)
 	mux.HandleFunc("/api/discover/", s.handleDiscover)
 	mux.HandleFunc("/api/watchlist", s.handleWatchlist)
 	// SPA uses /images/movies/<rel> and /images/tv/<rel>; modules serve under /images/<rel>.
@@ -338,6 +343,8 @@ type server struct {
 	audiobooksHTTP *url.URL
 	transcoderHTTP *url.URL
 	debridHTTP     *url.URL
+	graphHTTP      *url.URL
+	graphToken     string
 	subtitles      subtv1.SubtitleServiceClient
 	subtitlesHTTP  *url.URL
 	metadata       metadatav1.MetadataServiceClient
