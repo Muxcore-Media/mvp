@@ -59,6 +59,8 @@ optional_env_gated:
     env: MVP_ENABLE_MEDIA_LIST_SYNC
   - name: media-library-maintainer
     env: MVP_ENABLE_MEDIA_LIBRARY_MAINTAINER
+  - name: media-graph
+    env: MVP_ENABLE_MEDIA_GRAPH
   - name: media-books
     env: MVP_ENABLE_MEDIA_BOOKS
   - name: media-comics
