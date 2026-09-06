@@ -303,6 +303,7 @@ services:
       core:
         condition: service_healthy
 
+  # Household userdata mesh — tip module reads USERDATA_LOCAL_DB_PATH (+ HTTP/gRPC addrs) only.
   userdata-local:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/userdata-local:${MUXCORE_IMAGE_TAG:-v0.5.7}
@@ -322,6 +323,7 @@ services:
 
   # Optional household backup — profile: backup-local
   #   docker compose -f docker-compose.registry.yml --profile backup-local up -d
+  # /source/userdata is userdata-data volume root (userdata.db); not a separate JSON export tree.
   backup-local:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/backup-local:${MUXCORE_IMAGE_TAG:-v0.5.7}

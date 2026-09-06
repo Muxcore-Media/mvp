@@ -27,7 +27,7 @@ required:
   - request-media
   - notification-default
   - media-ui                  # mediauiprox BFF + static SPA
-  - userdata-local            # household progress/favorites mesh store
+  - userdata-local            # household progress/favorites mesh store (SQLite at USERDATA_LOCAL_DB_PATH)
 
 recommended:
   - metadata-tmdb

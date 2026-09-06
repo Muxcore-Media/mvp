@@ -373,6 +373,8 @@ services:
   # Optional library maintenance (Maintainerr-class cleanup) — compose profile: library-maintainer
   #   docker compose --profile library-maintainer up -d
   # run-host equivalent: MVP_ENABLE_MEDIA_LIBRARY_MAINTAINER=1
+  # userdata-local persists SQLite only (USERDATA_LOCAL_DB_PATH on userdata-data); no JSON watch export dir.
+  # MAINTAINER_USERDATA_DIR shares the volume root read-only; maintainer soft-empty if no legacy JSON files.
   media-library-maintainer:
     <<: *module
     build:
@@ -476,6 +478,7 @@ services:
       MUXCORE_MODULE_ID: notification-default
       WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-http://127.0.0.1:9/muxcore-notify-sink}
 
+  # Household userdata mesh — tip module reads USERDATA_LOCAL_DB_PATH (+ HTTP/gRPC addrs) only.
   userdata-local:
     <<: *module
     build:
@@ -488,7 +491,6 @@ services:
       USERDATA_LOCAL_HTTP_ADDR: ":9672"
       USERDATA_LOCAL_GRPC_ADDR: ":9673"
       USERDATA_LOCAL_DB_PATH: /data/userdata.db
-      USERDATA_LOCAL_DATA_DIR: /data/userdata
     ports:
       - "${USERDATA_LOCAL_PORT:-9672}:9672"
     volumes:
@@ -561,6 +563,7 @@ services:
 
   # Optional household backup — profile: backup-local
   #   docker compose --profile backup-local up -d
+  # /source/userdata is userdata-data volume root (userdata.db); not a separate JSON export tree.
   backup-local:
     <<: *module
     build:
