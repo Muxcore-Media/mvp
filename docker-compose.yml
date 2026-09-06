@@ -370,6 +370,28 @@ services:
       - listsync-data:/data
     profiles: ["list-sync"]
 
+  # Optional library maintenance (Maintainerr-class cleanup) — compose profile: library-maintainer
+  #   docker compose --profile library-maintainer up -d
+  # run-host equivalent: MVP_ENABLE_MEDIA_LIBRARY_MAINTAINER=1
+  media-library-maintainer:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-library-maintainer }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-library-maintainer
+      MAINTAINER_GRPC_ADDR: ":9545"
+      MAINTAINER_DB_PATH: /data/maintainer/maintainer.db
+      MAINTAINER_USERDATA_DIR: /data/userdata
+    ports:
+      - "${MAINTAINER_GRPC_PORT:-9545}:9545"
+    volumes:
+      - maintainer-data:/data/maintainer
+      - userdata-data:/data/userdata:ro
+    profiles: ["library-maintainer"]
+
   media-automation:
     <<: *module
     build:
@@ -466,6 +488,7 @@ services:
       USERDATA_LOCAL_HTTP_ADDR: ":9672"
       USERDATA_LOCAL_GRPC_ADDR: ":9673"
       USERDATA_LOCAL_DB_PATH: /data/userdata.db
+      USERDATA_LOCAL_DATA_DIR: /data/userdata
     ports:
       - "${USERDATA_LOCAL_PORT:-9672}:9672"
     volumes:
@@ -664,4 +687,5 @@ volumes:
   backup-data:
   listsync-data:
   graph-data:
+  maintainer-data:
   media-ui-data:

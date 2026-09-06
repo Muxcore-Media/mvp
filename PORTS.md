@@ -39,7 +39,7 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9525 / 9526 | media-transcoder gRPC / playback HTTP | mediauiprox uses `:9526` for transcode |
 | 9530 | media-list-sync | optional (`MVP_ENABLE_MEDIA_LIST_SYNC=1` / compose `list-sync`) |
 | 9540 | media-root-folders | |
-| 9545 | media-library-maintainer | |
+| 9545 | media-library-maintainer | optional (`MVP_ENABLE_MEDIA_LIBRARY_MAINTAINER=1` / compose `library-maintainer`) |
 | 9550 / 9551 | secrets-file / secrets-vault | gRPC |
 | 9560 / 8560 | playback-monitor gRPC / HTTP | |
 | 9561 | playback-guard | gRPC |
