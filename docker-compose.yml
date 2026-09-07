@@ -775,6 +775,10 @@ services:
       <<: *module_env
       MUXCORE_MODULE_ID: media-subtitles
 
+  # Optional Jellyfin playback bridge — compose profile: jellyfin
+  #   docker compose --profile jellyfin up -d
+  # run-host equivalent: MVP_ENABLE_JELLYFIN=1
+  # Soft-empty without JELLYFIN_BASE_URL + JELLYFIN_API_KEY; standalone NixOS Jellyfin is separate.
   jellyfin:
     <<: *module
     build:
@@ -799,6 +803,7 @@ services:
       - "${JELLYFIN_GRPC_PORT:-9475}:9475"
     volumes:
       - jellyfin-data:/data
+    profiles: ["jellyfin"]
 
   # Optional household backup — profile: backup-local
   #   docker compose --profile backup-local up -d
