@@ -61,6 +61,10 @@ optional_env_gated:
     env: MVP_ENABLE_MEDIA_LIBRARY_MAINTAINER
   - name: media-graph
     env: MVP_ENABLE_MEDIA_GRAPH
+  - name: media-tagging
+    env: MVP_ENABLE_MEDIA_TAGGING
+  - name: media-dlna
+    env: MVP_ENABLE_MEDIA_DLNA
   - name: media-books
     env: MVP_ENABLE_MEDIA_BOOKS
   - name: media-comics
