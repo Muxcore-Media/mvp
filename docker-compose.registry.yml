@@ -547,6 +547,28 @@ services:
         condition: service_healthy
     profiles: ["dlna"]
 
+  # Optional content tagging / classification — compose profile: tagging
+  #   docker compose -f docker-compose.registry.yml --profile tagging up -d
+  # run-host equivalent: MVP_ENABLE_MEDIA_TAGGING=1
+  media-tagging:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-tagging:${MUXCORE_IMAGE_TAG:-v0.5.7}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-tagging
+      TAGGING_DATA_DIR: /data/tagging
+      TAGGING_GRPC_ADDR: ":9740"
+      MUXCORE_HTTP_ADDR: ":9741"
+    ports:
+      - "${MEDIA_TAGGING_GRPC_PORT:-9740}:9740"
+      - "${MEDIA_TAGGING_HTTP_PORT:-9741}:9741"
+    volumes:
+      - tagging-data:/data/tagging
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["tagging"]
+
   media-ui:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-ui:${MUXCORE_IMAGE_TAG:-v0.5.7}
@@ -600,4 +622,5 @@ volumes:
   userdata-data:
   backup-data:
   dlna-data:
+  tagging-data:
   media-ui-data:
