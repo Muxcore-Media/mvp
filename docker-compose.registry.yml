@@ -569,6 +569,29 @@ services:
         condition: service_healthy
     profiles: ["tagging"]
 
+  # Optional intro/outro skip detection — compose profile: intro-outro
+  #   docker compose -f docker-compose.registry.yml --profile intro-outro up -d
+  # run-host equivalent: MVP_ENABLE_MEDIA_INTRO_OUTRO=1
+  media-intro-outro:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-intro-outro:${MUXCORE_IMAGE_TAG:-v0.5.7}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-intro-outro
+      INTRO_OUTRO_DATA_DIR: /data/intro-outro
+      MUXCORE_HTTP_ADDR: ":9711"
+      INTRO_MAX_SECONDS: ${INTRO_MAX_SECONDS:-180}
+      OUTRO_MAX_SECONDS: ${OUTRO_MAX_SECONDS:-240}
+    ports:
+      - "${MEDIA_INTRO_OUTRO_GRPC_PORT:-9710}:9710"
+      - "${MEDIA_INTRO_OUTRO_HTTP_PORT:-9711}:9711"
+    volumes:
+      - intro-outro-data:/data/intro-outro
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["intro-outro"]
+
   media-ui:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-ui:${MUXCORE_IMAGE_TAG:-v0.5.7}
@@ -623,4 +646,5 @@ volumes:
   backup-data:
   dlna-data:
   tagging-data:
+  intro-outro-data:
   media-ui-data:
