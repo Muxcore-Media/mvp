@@ -36,9 +36,10 @@ recommended:
   - media-ffprobe
   - media-subtitles
   - media-root-folders
-  - jellyfin                  # optional bridge (MVP_ENABLE_JELLYFIN=1); standalone Jellyfin is separate
 
 optional_env_gated:
+  - name: jellyfin
+    env: MVP_ENABLE_JELLYFIN
   - name: indexer-piratebay
     env: MVP_ENABLE_INDEXER_PIRATEBAY
   - name: indexer-torznab

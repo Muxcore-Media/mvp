@@ -143,7 +143,8 @@ Consumer SPA source/build: **[`../media-ui-app/`](../media-ui-app/)** → org [`
 
 | Profile | Extra services |
 |---------|----------------|
-| *(default)* | platform + media path + admin-ui + jellyfin + scanner + automation + request-media + **media-ui** (host) |
+| *(default)* | platform + media path + admin-ui + scanner + automation + request-media + **media-ui** (host) |
+| `jellyfin` | optional Jellyfin playback bridge (`:9475` gRPC / `:8475` HTTP); `MVP_ENABLE_JELLYFIN=1` on run-host |
 | `observability` | compose-only: `metrics-prometheus` (`:9901` scrape) + `tracing-otlp` (slog fallback unless `OTEL_EXPORTER_OTLP_ENDPOINT` set) |
 | `media-ui` | compose-only: consumer SPA + BFF on `:5173` |
 
