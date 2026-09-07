@@ -122,6 +122,24 @@ services:
         condition: service_healthy
     profiles: ["auth-oidc"]
 
+  # Optional process-local in-memory cache layer — compose profile: cache-local
+  #   docker compose -f docker-compose.registry.yml --profile cache-local up -d
+  # run-host equivalent: MVP_ENABLE_CACHE_LOCAL=1
+  # In-memory only — no durable volume; entries lost on restart.
+  cache-local:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/cache-local:${MUXCORE_IMAGE_TAG:-v0.5.7}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: cache-local
+      CACHE_LOCAL_GRPC_ADDR: ":9602"
+    ports:
+      - "${CACHE_LOCAL_GRPC_PORT:-9602}:9602"
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["cache-local"]
+
   database-sqlite:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/database-sqlite:${MUXCORE_IMAGE_TAG:-v0.5.7}

@@ -90,6 +90,8 @@ optional_env_gated:
     env: MVP_ENABLE_BACKUP_LOCAL
   - name: auth-oidc
     env: MVP_ENABLE_AUTH_OIDC
+  - name: cache-local
+    env: MVP_ENABLE_CACHE_LOCAL
 
 contract_deps:
   - github.com/Muxcore-Media/contracts-scanner@v0.1.0
