@@ -634,6 +634,31 @@ services:
         condition: service_healthy
     profiles: ["playback-monitor"]
 
+  # Optional transcoder worker pool — compose profile: transcoder-pool
+  #   docker compose -f docker-compose.registry.yml --profile transcoder-pool up -d
+  # run-host equivalent: MVP_ENABLE_MEDIA_TRANSCODER_POOL=1
+  # Soft-empty: coordinator runs without workers; dispatch no-ops until workers register.
+  media-transcoder-pool:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-transcoder-pool:${MUXCORE_IMAGE_TAG:-v0.5.7}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-transcoder-pool
+      POOL_DB_PATH: /data/transcoder-pool/pool.db
+      MUXCORE_HTTP_ADDR: ":9721"
+      POOL_STALE_AFTER_SEC: ${POOL_STALE_AFTER_SEC:-60}
+      POOL_DISPATCH: ${POOL_DISPATCH:-}
+      POOL_DISPATCH_TIMEOUT_SEC: ${POOL_DISPATCH_TIMEOUT_SEC:-}
+    ports:
+      - "${TRANSCODER_POOL_GRPC_PORT:-9720}:9720"
+      - "${TRANSCODER_POOL_HTTP_PORT:-9721}:9721"
+    volumes:
+      - transcoder-pool-data:/data/transcoder-pool
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["transcoder-pool"]
+
   media-ui:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-ui:${MUXCORE_IMAGE_TAG:-v0.5.7}
@@ -691,4 +716,5 @@ volumes:
   intro-outro-data:
   playback-guard-data:
   playback-monitor-data:
+  transcoder-pool-data:
   media-ui-data:

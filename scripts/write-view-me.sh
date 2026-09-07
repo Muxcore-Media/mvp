@@ -34,6 +34,7 @@ EOF
   [[ "${MVP_ENABLE_WORKFLOW_TAPESTRY:-0}" == "1" ]] && echo "  workflow-tapestry   :9603"
   [[ "${MVP_ENABLE_CACHE_REDIS:-0}" == "1" || -n "${REDIS_ADDR:-}" ]] && echo "  cache-redis         :9600  (REDIS_ADDR=${REDIS_ADDR:-})"
   [[ "${MVP_ENABLE_MEDIA_TRANSCODER:-0}" == "1" ]] && echo "  media-transcoder    :9525"
+  [[ "${MVP_ENABLE_MEDIA_TRANSCODER_POOL:-0}" == "1" ]] && echo "  media-transcoder-pool :9720  (gRPC; health :9721)"
   [[ "${MVP_ENABLE_NOTIFICATION_APPRISE:-0}" == "1" ]] && echo "  notification-apprise :9445"
   [[ "${MVP_ENABLE_MEDIA_DLNA:-0}" == "1" ]] && echo "  media-dlna           :9750  (DLNA HTTP; gRPC :9751, health :8751)"
   [[ "${MVP_ENABLE_MEDIA_TAGGING:-0}" == "1" ]] && echo "  media-tagging        :9740  (gRPC; health :9741)"

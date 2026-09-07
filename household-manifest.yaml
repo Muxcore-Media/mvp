@@ -55,6 +55,8 @@ optional_env_gated:
     env: MVP_ENABLE_DOWNLOADER_DEBRID
   - name: media-transcoder
     env: MVP_ENABLE_MEDIA_TRANSCODER
+  - name: media-transcoder-pool
+    env: MVP_ENABLE_MEDIA_TRANSCODER_POOL
   - name: media-list-sync
     env: MVP_ENABLE_MEDIA_LIST_SYNC
   - name: media-library-maintainer
