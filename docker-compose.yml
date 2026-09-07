@@ -84,6 +84,42 @@ services:
     volumes:
       - auth-data:/data
 
+  # Optional OIDC SSO auth — compose profile: auth-oidc
+  #   docker compose --profile auth-oidc up -d
+  # run-host equivalent: MVP_ENABLE_AUTH_OIDC=1
+  # Swap-in for auth-local only — do not run both in the same mesh (duplicate AuthProvider).
+  # Soft-empty when AUTH_OIDC_ISSUER / client / redirect unset (Health unhealthy, login 503).
+  auth-oidc:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: auth-oidc }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: auth-oidc
+      AUTH_OIDC_GRPC_ADDR: ":9410"
+      AUTH_OIDC_HTTP_ADDR: ":9412"
+      AUTH_OIDC_DB_PATH: /data/auth-oidc/auth.db
+      AUTH_OIDC_ISSUER: ${AUTH_OIDC_ISSUER:-}
+      AUTH_OIDC_CLIENT_ID: ${AUTH_OIDC_CLIENT_ID:-}
+      AUTH_OIDC_CLIENT_SECRET: ${AUTH_OIDC_CLIENT_SECRET:-}
+      AUTH_OIDC_REDIRECT_URL: ${AUTH_OIDC_REDIRECT_URL:-}
+      AUTH_OIDC_SCOPES: ${AUTH_OIDC_SCOPES:-openid profile email}
+      AUTH_OIDC_ROLE_MAP: ${AUTH_OIDC_ROLE_MAP:-}
+      AUTH_OIDC_ROLES_CLAIM: ${AUTH_OIDC_ROLES_CLAIM:-groups}
+      AUTH_OIDC_DEFAULT_ROLES: ${AUTH_OIDC_DEFAULT_ROLES:-user}
+      AUTH_OIDC_SESSION_TTL: ${AUTH_OIDC_SESSION_TTL:-24h}
+      AUTH_ALLOWED_REDIRECT_HOSTS: ${AUTH_ALLOWED_REDIRECT_HOSTS:-}
+      ADMIN_UI_PUBLIC_URL: ${ADMIN_UI_PUBLIC_URL:-}
+      MEDIA_UI_PUBLIC_URL: ${MEDIA_UI_PUBLIC_URL:-}
+    ports:
+      - "${AUTH_OIDC_GRPC_PORT:-9410}:9410"
+      - "${AUTH_OIDC_HTTP_PORT:-9412}:9412"
+    volumes:
+      - auth-oidc-data:/data
+    profiles: ["auth-oidc"]
+
   database-sqlite:
     <<: *module
     build:
@@ -1006,6 +1042,7 @@ networks:
 volumes:
   core-data:
   auth-data:
+  auth-oidc-data:
   sqlite-data:
   secrets-data:
   automation-data:
