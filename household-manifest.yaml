@@ -63,6 +63,8 @@ optional_env_gated:
     env: MVP_ENABLE_MEDIA_GRAPH
   - name: media-tagging
     env: MVP_ENABLE_MEDIA_TAGGING
+  - name: media-intro-outro
+    env: MVP_ENABLE_MEDIA_INTRO_OUTRO
   - name: media-dlna
     env: MVP_ENABLE_MEDIA_DLNA
   - name: media-books

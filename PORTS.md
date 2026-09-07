@@ -70,7 +70,7 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9690 / 9691 | storage-overlay | optional storage overlay encrypt/compress/dedup (gRPC / health) |
 | 9700 | database-sqlite | SQLite DatabaseProvider (gRPC) |
 | 9701 | database-postgres | PostgreSQL DatabaseProvider (gRPC) |
-| 9710 / 9711 | media-intro-outro | optional intro/outro detection (gRPC / health) |
+| 9710 / 9711 | media-intro-outro | optional intro/outro detection (gRPC / health); `MVP_ENABLE_MEDIA_INTRO_OUTRO=1` |
 | 9720 / 9721 | media-transcoder-pool | optional transcode worker pool (gRPC / health) |
 | 9730 / 9731 | media-graph | optional unified media graph (gRPC / health); mediauiprox `GRAPH_HTTP_URL` defaults to `:9731` for `GET /api/graph/related` |
 | 9740 / 9741 | media-tagging | optional content tagging / classification (gRPC / health) |
