@@ -21,8 +21,10 @@ check_dev_plex() {
     || fail "$file plex must set PLEX_TOKEN"
   grep -A35 '^  plex:' "$file" | grep -q 'PLEX_HTTP_SECRET:' \
     || fail "$file plex must set PLEX_HTTP_SECRET"
-  grep -A35 '^  plex:' "$file" | grep -q 'PLEX_DATA_DIR:' \
+  grep -A35 '^  plex:' "$file" | grep -q 'PLEX_DATA_DIR: /data/plex' \
     || fail "$file plex must set PLEX_DATA_DIR"
+  grep -A35 '^  plex:' "$file" | grep -q 'plex-data:/data' \
+    || fail "$file plex must mount plex-data volume"
 }
 
 check_dev_emby() {
@@ -42,8 +44,10 @@ check_dev_emby() {
     || fail "$file emby must set EMBY_TOKEN"
   grep -A35 '^  emby:' "$file" | grep -q 'EMBY_SSE_SECRET:' \
     || fail "$file emby must set EMBY_SSE_SECRET"
-  grep -A35 '^  emby:' "$file" | grep -q 'EMBY_DATA_DIR:' \
+  grep -A35 '^  emby:' "$file" | grep -q 'EMBY_DATA_DIR: /data/emby' \
     || fail "$file emby must set EMBY_DATA_DIR"
+  grep -A35 '^  emby:' "$file" | grep -q 'emby-data:/data' \
+    || fail "$file emby must mount emby-data volume"
 }
 
 check_registry_plex() {
@@ -59,6 +63,12 @@ check_registry_plex() {
     || fail "$file plex-bridge must set PLEX_TOKEN"
   grep -A30 '^  plex-bridge:' "$file" | grep -q 'PLEX_HTTP_SECRET:' \
     || fail "$file plex-bridge must set PLEX_HTTP_SECRET"
+  grep -A35 '^  plex-bridge:' "$file" | grep -q 'PLEX_DATA_DIR: /data/plex' \
+    || fail "$file plex-bridge must set PLEX_DATA_DIR"
+  grep -A35 '^  plex-bridge:' "$file" | grep -q 'plex-data:/data' \
+    || fail "$file plex-bridge must mount plex-data volume"
+  grep -qE '^  plex-data:' "$file" \
+    || fail "$file must declare plex-data named volume"
 }
 
 check_registry_emby() {
@@ -74,6 +84,12 @@ check_registry_emby() {
     || fail "$file emby-bridge must set EMBY_TOKEN"
   grep -A30 '^  emby-bridge:' "$file" | grep -q 'EMBY_SSE_SECRET:' \
     || fail "$file emby-bridge must set EMBY_SSE_SECRET"
+  grep -A35 '^  emby-bridge:' "$file" | grep -q 'EMBY_DATA_DIR: /data/emby' \
+    || fail "$file emby-bridge must set EMBY_DATA_DIR"
+  grep -A35 '^  emby-bridge:' "$file" | grep -q 'emby-data:/data' \
+    || fail "$file emby-bridge must mount emby-data volume"
+  grep -qE '^  emby-data:' "$file" \
+    || fail "$file must declare emby-data named volume"
 }
 
 check_profile_gating() {

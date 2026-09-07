@@ -22,6 +22,10 @@ check_dev() {
     || fail "$file jellyfin must set JELLYFIN_API_KEY"
   grep -A35 '^  jellyfin:' "$file" | grep -q 'JELLYFIN_WEBHOOK_SECRET:' \
     || fail "$file jellyfin must set JELLYFIN_WEBHOOK_SECRET"
+  grep -A35 '^  jellyfin:' "$file" | grep -q 'JELLYFIN_DATA_DIR: /data/jellyfin' \
+    || fail "$file jellyfin must set JELLYFIN_DATA_DIR"
+  grep -A35 '^  jellyfin:' "$file" | grep -q 'jellyfin-data:/data' \
+    || fail "$file jellyfin must mount jellyfin-data volume"
 }
 
 check_registry() {
@@ -38,6 +42,12 @@ check_registry() {
     || fail "$file jellyfin-bridge must set JELLYFIN_API_KEY"
   grep -A30 '^  jellyfin-bridge:' "$file" | grep -q 'JELLYFIN_WEBHOOK_SECRET:' \
     || fail "$file jellyfin-bridge must set JELLYFIN_WEBHOOK_SECRET"
+  grep -A35 '^  jellyfin-bridge:' "$file" | grep -q 'JELLYFIN_DATA_DIR: /data/jellyfin' \
+    || fail "$file jellyfin-bridge must set JELLYFIN_DATA_DIR"
+  grep -A35 '^  jellyfin-bridge:' "$file" | grep -q 'jellyfin-data:/data' \
+    || fail "$file jellyfin-bridge must mount jellyfin-data volume"
+  grep -qE '^  jellyfin-data:' "$file" \
+    || fail "$file must declare jellyfin-data named volume"
 }
 
 check_dev "$ROOT/docker-compose.yml"
