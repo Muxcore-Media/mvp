@@ -75,6 +75,10 @@ optional_env_gated:
     env: MVP_ENABLE_MEDIA_AUDIOBOOKS
   - name: notification-apprise
     env: MVP_ENABLE_NOTIFICATION_APPRISE
+  - name: playback-guard
+    env: MVP_ENABLE_PLAYBACK_GUARD
+  - name: playback-monitor
+    env: MVP_ENABLE_PLAYBACK_MONITOR
   - name: backup-local
     env: MVP_ENABLE_BACKUP_LOCAL
 

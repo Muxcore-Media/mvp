@@ -41,8 +41,8 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9540 | media-root-folders | |
 | 9545 | media-library-maintainer | optional (`MVP_ENABLE_MEDIA_LIBRARY_MAINTAINER=1` / compose `library-maintainer`) |
 | 9550 / 9551 | secrets-file / secrets-vault | gRPC |
-| 9560 / 8560 | playback-monitor gRPC / HTTP | |
-| 9561 | playback-guard | gRPC |
+| 9560 / 8560 | playback-monitor gRPC / HTTP | optional (`MVP_ENABLE_PLAYBACK_MONITOR=1` / compose `playback-monitor`) |
+| 9561 | playback-guard | optional gRPC (`MVP_ENABLE_PLAYBACK_GUARD=1` / compose `playback-guard`) |
 | 9600 | cache-redis | optional (`MVP_ENABLE_CACHE_REDIS=1` or `REDIS_ADDR`) |
 | 9601 | encryption-aesgcm | |
 | 9602 | cache-local | |
