@@ -854,6 +854,28 @@ services:
       - library-data:/library:ro
     profiles: ["dlna"]
 
+  # Optional content tagging / classification — compose profile: tagging
+  #   docker compose --profile tagging up -d
+  # run-host equivalent: MVP_ENABLE_MEDIA_TAGGING=1
+  media-tagging:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-tagging }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-tagging
+      TAGGING_DATA_DIR: /data/tagging
+      TAGGING_GRPC_ADDR: ":9740"
+      MUXCORE_HTTP_ADDR: ":9741"
+    ports:
+      - "${MEDIA_TAGGING_GRPC_PORT:-9740}:9740"
+      - "${MEDIA_TAGGING_HTTP_PORT:-9741}:9741"
+    volumes:
+      - tagging-data:/data/tagging
+    profiles: ["tagging"]
+
   # Consumer SPA — media-ui-app + mediauiprox BFF (household manifest required peer)
   media-ui:
     build:
@@ -914,4 +936,5 @@ volumes:
   graph-data:
   maintainer-data:
   dlna-data:
+  tagging-data:
   media-ui-data:
