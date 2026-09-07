@@ -145,6 +145,8 @@ Consumer SPA source/build: **[`../media-ui-app/`](../media-ui-app/)** → org [`
 |---------|----------------|
 | *(default)* | platform + media path + admin-ui + scanner + automation + request-media + **media-ui** (host) |
 | `jellyfin` | optional Jellyfin playback bridge (`:9475` gRPC / `:8475` HTTP); `MVP_ENABLE_JELLYFIN=1` on run-host |
+| `plex` | optional Plex playback bridge (`:9476` gRPC / `:8476` HTTP); `MVP_ENABLE_PLEX=1` on run-host |
+| `emby` | optional Emby playback bridge (`:9477` gRPC / `:8477` HTTP); `MVP_ENABLE_EMBY=1` on run-host |
 | `observability` | compose-only: `metrics-prometheus` (`:9901` scrape) + `tracing-otlp` (slog fallback unless `OTEL_EXPORTER_OTLP_ENDPOINT` set) |
 | `media-ui` | compose-only: consumer SPA + BFF on `:5173` |
 
@@ -164,6 +166,8 @@ Polluted `media-ui/` dump is quarantined — shippable SPA is **`media-ui-app/`*
 | downloader gRPC | 9461 |
 | media-scanner gRPC | 9470 |
 | jellyfin gRPC / HTTP | 9475 / 8475 |
+| plex gRPC / HTTP | 9476 / 8476 |
+| emby gRPC / HTTP | 9477 / 8477 |
 | health-monitor gRPC / HTTP | 9202 / 9203 |
 | media-ui (consumer SPA) | 5173 |
 | request-media HTTP / gRPC | 9380 / 9481 |

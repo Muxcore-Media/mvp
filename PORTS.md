@@ -28,8 +28,8 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9462 / 9463 | downloader-qbittorrent | optional qBittorrent WebUI bridge (gRPC / health); compose `downloader-qbittorrent` |
 | 9470 | media-scanner | |
 | 9475 / 8475 | jellyfin gRPC / HTTP | optional (`MVP_ENABLE_JELLYFIN=1` / compose `jellyfin`) |
-| 9476 / 8476 | plex | optional playback bridge (gRPC / HTTP) |
-| 9477 / 8477 | emby | optional playback bridge (gRPC / HTTP) |
+| 9476 / 8476 | plex gRPC / HTTP | optional (`MVP_ENABLE_PLEX=1` / compose `plex`) |
+| 9477 / 8477 | emby gRPC / HTTP | optional (`MVP_ENABLE_EMBY=1` / compose `emby`) |
 | 9480 | media-ffprobe | |
 | 9485 / 9487 | indexer-piratebay | optional gRPC / HTTP (`MVP_ENABLE_INDEXER_PIRATEBAY=1` / compose `indexer-piratebay`) |
 | 9486 | indexer-torznab | optional (`MVP_ENABLE_INDEXER_TORZNAB=1` / compose `indexer-torznab`) |

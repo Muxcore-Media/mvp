@@ -40,6 +40,10 @@ recommended:
 optional_env_gated:
   - name: jellyfin
     env: MVP_ENABLE_JELLYFIN
+  - name: plex
+    env: MVP_ENABLE_PLEX
+  - name: emby
+    env: MVP_ENABLE_EMBY
   - name: indexer-piratebay
     env: MVP_ENABLE_INDEXER_PIRATEBAY
   - name: indexer-torznab

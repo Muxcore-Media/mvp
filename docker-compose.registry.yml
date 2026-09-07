@@ -705,6 +705,42 @@ services:
         condition: service_healthy
     profiles: ["jellyfin"]
 
+  # Optional Plex playback bridge — compose profile: plex
+  #   docker compose -f docker-compose.registry.yml --profile plex up -d
+  # run-host equivalent: MVP_ENABLE_PLEX=1
+  # Soft-empty without PLEX_URL + PLEX_TOKEN; sync-lists returns 401 without PLEX_HTTP_SECRET.
+  plex-bridge:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/plex:${MUXCORE_IMAGE_TAG:-v0.5.7}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: plex
+      PLEX_URL: ${PLEX_URL:-}
+      PLEX_TOKEN: ${PLEX_TOKEN:-}
+      PLEX_HTTP_SECRET: ${PLEX_HTTP_SECRET:-}
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["plex"]
+
+  # Optional Emby playback bridge — compose profile: emby
+  #   docker compose -f docker-compose.registry.yml --profile emby up -d
+  # run-host equivalent: MVP_ENABLE_EMBY=1
+  # Soft-empty without EMBY_URL + EMBY_TOKEN; SSE/catalog paths fail closed without EMBY_SSE_SECRET.
+  emby-bridge:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/emby:${MUXCORE_IMAGE_TAG:-v0.5.7}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: emby
+      EMBY_URL: ${EMBY_URL:-}
+      EMBY_TOKEN: ${EMBY_TOKEN:-}
+      EMBY_SSE_SECRET: ${EMBY_SSE_SECRET:-}
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["emby"]
+
 networks:
   muxcore:
 
