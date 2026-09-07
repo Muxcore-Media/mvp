@@ -16,7 +16,7 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9401 | auth-local HTTP | |
 | 9402 / 9404 | feature-flags-file gRPC / HTTP | |
 | 9403 | auth-local gRPC | |
-| 9410 / 9412 | auth-oidc gRPC / HTTP | |
+| 9410 / 9412 | auth-oidc gRPC / HTTP | optional SSO swap-in for auth-local (`MVP_ENABLE_AUTH_OIDC=1` / compose `auth-oidc`; do not dual-run) |
 | 9411 | metadata-tmdb | gRPC |
 | 9413 | metadata-musicbrainz | gRPC |
 | 9420 / 9430 | media-movies gRPC / HTTP | |
