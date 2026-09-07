@@ -683,6 +683,10 @@ services:
       userdata-local:
         condition: service_started
 
+  # Optional Jellyfin playback bridge — compose profile: jellyfin
+  #   docker compose -f docker-compose.registry.yml --profile jellyfin up -d
+  # run-host equivalent: MVP_ENABLE_JELLYFIN=1
+  # Soft-empty without JELLYFIN_BASE_URL + JELLYFIN_API_KEY; standalone NixOS Jellyfin is separate.
   jellyfin-bridge:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/jellyfin:${MUXCORE_IMAGE_TAG:-v0.5.7}
@@ -691,6 +695,7 @@ services:
       MUXCORE_MODULE_ID: jellyfin
       JELLYFIN_BASE_URL: ${JELLYFIN_BASE_URL:-}
       JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
+      JELLYFIN_WEBHOOK_SECRET: ${JELLYFIN_WEBHOOK_SECRET:-}
       USERDATA_SYNC: ${USERDATA_SYNC:-1}
       USERDATA_SYNC_INTERVAL_SECONDS: ${USERDATA_SYNC_INTERVAL_SECONDS:-300}
       USERDATA_LOCAL_URL: ${USERDATA_LOCAL_URL:-http://userdata-local:9672}
@@ -698,6 +703,7 @@ services:
     depends_on:
       core:
         condition: service_healthy
+    profiles: ["jellyfin"]
 
 networks:
   muxcore:

@@ -27,7 +27,7 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9461 | downloader-native-torrent | native torrent engine (gRPC); optional (`MVP_ENABLE_DOWNLOADER_TORRENT=1` / compose `downloader-torrent`) |
 | 9462 / 9463 | downloader-qbittorrent | optional qBittorrent WebUI bridge (gRPC / health); compose `downloader-qbittorrent` |
 | 9470 | media-scanner | |
-| 9475 / 8475 | jellyfin gRPC / HTTP | |
+| 9475 / 8475 | jellyfin gRPC / HTTP | optional (`MVP_ENABLE_JELLYFIN=1` / compose `jellyfin`) |
 | 9476 / 8476 | plex | optional playback bridge (gRPC / HTTP) |
 | 9477 / 8477 | emby | optional playback bridge (gRPC / HTTP) |
 | 9480 | media-ffprobe | |
