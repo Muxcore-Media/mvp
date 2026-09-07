@@ -693,6 +693,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: jellyfin
+      JELLYFIN_DATA_DIR: /data/jellyfin
       JELLYFIN_BASE_URL: ${JELLYFIN_BASE_URL:-}
       JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
       JELLYFIN_WEBHOOK_SECRET: ${JELLYFIN_WEBHOOK_SECRET:-}
@@ -700,6 +701,8 @@ services:
       USERDATA_SYNC_INTERVAL_SECONDS: ${USERDATA_SYNC_INTERVAL_SECONDS:-300}
       USERDATA_LOCAL_URL: ${USERDATA_LOCAL_URL:-http://userdata-local:9672}
       USERDATA_PUSH_TO_JELLYFIN: ${USERDATA_PUSH_TO_JELLYFIN:-0}
+    volumes:
+      - jellyfin-data:/data
     depends_on:
       core:
         condition: service_healthy
@@ -715,9 +718,12 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: plex
+      PLEX_DATA_DIR: /data/plex
       PLEX_URL: ${PLEX_URL:-}
       PLEX_TOKEN: ${PLEX_TOKEN:-}
       PLEX_HTTP_SECRET: ${PLEX_HTTP_SECRET:-}
+    volumes:
+      - plex-data:/data
     depends_on:
       core:
         condition: service_healthy
@@ -733,9 +739,12 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: emby
+      EMBY_DATA_DIR: /data/emby
       EMBY_URL: ${EMBY_URL:-}
       EMBY_TOKEN: ${EMBY_TOKEN:-}
       EMBY_SSE_SECRET: ${EMBY_SSE_SECRET:-}
+    volumes:
+      - emby-data:/data
     depends_on:
       core:
         condition: service_healthy
@@ -760,3 +769,6 @@ volumes:
   playback-monitor-data:
   transcoder-pool-data:
   media-ui-data:
+  jellyfin-data:
+  plex-data:
+  emby-data:
