@@ -120,6 +120,24 @@ services:
       - auth-oidc-data:/data
     profiles: ["auth-oidc"]
 
+  # Optional process-local in-memory cache layer — compose profile: cache-local
+  #   docker compose --profile cache-local up -d
+  # run-host equivalent: MVP_ENABLE_CACHE_LOCAL=1
+  # In-memory only — no durable volume; entries lost on restart.
+  cache-local:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: cache-local }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: cache-local
+      CACHE_LOCAL_GRPC_ADDR: ":9602"
+    ports:
+      - "${CACHE_LOCAL_GRPC_PORT:-9602}:9602"
+    profiles: ["cache-local"]
+
   database-sqlite:
     <<: *module
     build:
