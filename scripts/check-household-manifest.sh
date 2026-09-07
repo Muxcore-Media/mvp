@@ -19,6 +19,8 @@ registry_service_for() {
   local name="$1"
   case "$name" in
     jellyfin) echo "jellyfin-bridge" ;;
+    plex) echo "plex-bridge" ;;
+    emby) echo "emby-bridge" ;;
     media-ui) echo "media-ui" ;;
     *) echo "$name" ;;
   esac
