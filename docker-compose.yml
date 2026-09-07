@@ -778,6 +778,33 @@ services:
       - graph-data:/data/graph
     profiles: ["graph"]
 
+  # Optional DLNA/UPnP media server — compose profile: dlna
+  #   docker compose --profile dlna up -d
+  # run-host equivalent: MVP_ENABLE_MEDIA_DLNA=1
+  media-dlna:
+    <<: *module
+    build:
+      context: ..
+      dockerfile: mvp/dockerfiles/module.Dockerfile
+      args: { MODULE: media-dlna }
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-dlna
+      DLNA_GRPC_ADDR: ":9751"
+      DLNA_HEALTH_HTTP_ADDR: ":8751"
+      DLNA_HTTP_ADDR: ":9750"
+      DLNA_MEDIA_PATH: ${DLNA_MEDIA_PATH:-/library}
+      DLNA_FRIENDLY_NAME: ${DLNA_FRIENDLY_NAME:-MuxCore DLNA}
+      DLNA_PROBE_CACHE_PATH: /data/dlna/ffprobe-cache.json
+    ports:
+      - "${MEDIA_DLNA_HTTP_PORT:-9750}:9750"
+      - "${MEDIA_DLNA_GRPC_PORT:-9751}:9751"
+      - "${MEDIA_DLNA_HEALTH_PORT:-8751}:8751"
+    volumes:
+      - dlna-data:/data/dlna
+      - library-data:/library:ro
+    profiles: ["dlna"]
+
   # Consumer SPA — media-ui-app + mediauiprox BFF (household manifest required peer)
   media-ui:
     build:
@@ -837,4 +864,5 @@ volumes:
   listsync-data:
   graph-data:
   maintainer-data:
+  dlna-data:
   media-ui-data:
