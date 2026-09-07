@@ -48,6 +48,7 @@ for pair in \
   logging-file:logging-file \
   media-dlna:media-dlna \
   media-library-maintainer:media-library-maintainer \
+  media-transcoder-pool:media-transcoder-pool \
   metrics-prometheus:metrics-prometheus \
   playback-guard:playback-guard \
   playback-monitor:playback-monitor \
