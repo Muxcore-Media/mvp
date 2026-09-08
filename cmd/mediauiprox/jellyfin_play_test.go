@@ -16,9 +16,26 @@ import (
 
 type fixtureJellyfinBridge struct {
 	jellyfinv1.UnimplementedJellyfinBridgeServer
-	playURL  string
-	playFail bool
-	baseURL  string
+	playURL           string
+	playFail          bool
+	baseURL           string
+	configured        bool
+	itemLinks         int32
+	conflictMode      string
+	syncScanned       int32
+	syncMatched       int32
+	syncUpserted      int32
+	syncRemoved       int32
+	syncErrors        []string
+	lastSyncDirection string
+	lastSyncDryRun    bool
+	refreshOK         bool
+	refreshFail       bool
+	lastRefreshItemID string
+	lastMatchMuxID    string
+	lastDeleteMuxID   string
+	matchReason       string
+	matchLinked       bool
 }
 
 func (f fixtureJellyfinBridge) ListItemLinks(_ context.Context, _ *jellyfinv1.ListItemLinksRequest) (*jellyfinv1.ListItemLinksResponse, error) {
@@ -41,16 +58,70 @@ func (f fixtureJellyfinBridge) PlayURL(_ context.Context, req *jellyfinv1.PlayUR
 }
 
 func (f fixtureJellyfinBridge) Status(_ context.Context, _ *jellyfinv1.StatusRequest) (*jellyfinv1.StatusResponse, error) {
-	return &jellyfinv1.StatusResponse{BaseUrl: f.baseURL}, nil
+	return &jellyfinv1.StatusResponse{
+		Configured:   f.configured,
+		BaseUrl:      f.baseURL,
+		ConflictMode: f.conflictMode,
+		ItemLinks:    f.itemLinks,
+	}, nil
+}
+
+func (f *fixtureJellyfinBridge) SyncLibrary(_ context.Context, req *jellyfinv1.SyncLibraryRequest) (*jellyfinv1.SyncLibraryResponse, error) {
+	f.lastSyncDirection = req.GetDirection()
+	f.lastSyncDryRun = req.GetDryRun()
+	return &jellyfinv1.SyncLibraryResponse{
+		Scanned:  f.syncScanned,
+		Matched:  f.syncMatched,
+		Upserted: f.syncUpserted,
+		Removed:  f.syncRemoved,
+		Errors:   f.syncErrors,
+	}, nil
+}
+
+func (f *fixtureJellyfinBridge) RefreshLibrary(_ context.Context, req *jellyfinv1.RefreshLibraryRequest) (*jellyfinv1.RefreshLibraryResponse, error) {
+	f.lastRefreshItemID = req.GetItemId()
+	if f.refreshFail {
+		return nil, errors.New("refresh failed")
+	}
+	return &jellyfinv1.RefreshLibraryResponse{Ok: f.refreshOK || !f.refreshFail}, nil
+}
+
+func (f *fixtureJellyfinBridge) MatchItem(_ context.Context, req *jellyfinv1.MatchItemRequest) (*jellyfinv1.MatchItemResponse, error) {
+	f.lastMatchMuxID = req.GetMuxcoreId()
+	if !f.matchLinked {
+		return &jellyfinv1.MatchItemResponse{Matched: false}, nil
+	}
+	return &jellyfinv1.MatchItemResponse{
+		Matched:     true,
+		MatchReason: firstNonEmpty(f.matchReason, "provider_id"),
+		Link: &jellyfinv1.ItemLink{
+			MuxcoreId:  req.GetMuxcoreId(),
+			JellyfinId: "jf-99",
+			Title:      req.GetTitle(),
+			MediaKind:  req.GetMediaKind(),
+			Path:       req.GetPath(),
+		},
+	}, nil
+}
+
+func (f *fixtureJellyfinBridge) DeleteItemLink(_ context.Context, req *jellyfinv1.DeleteItemLinkRequest) (*jellyfinv1.DeleteItemLinkResponse, error) {
+	f.lastDeleteMuxID = req.GetMuxcoreId()
+	return &jellyfinv1.DeleteItemLinkResponse{Ok: true}, nil
 }
 
 func dialJellyfinFixture(t *testing.T, playURL, baseURL string, playFail bool) jellyfinv1.JellyfinBridgeClient {
+	t.Helper()
+	return dialJellyfinBridge(t, &fixtureJellyfinBridge{playURL: playURL, baseURL: baseURL, playFail: playFail})
+}
+
+func dialJellyfinBridge(t *testing.T, f *fixtureJellyfinBridge) jellyfinv1.JellyfinBridgeClient {
+	t.Helper()
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	srv := grpc.NewServer()
-	jellyfinv1.RegisterJellyfinBridgeServer(srv, fixtureJellyfinBridge{playURL: playURL, baseURL: baseURL, playFail: playFail})
+	jellyfinv1.RegisterJellyfinBridgeServer(srv, f)
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(func() { srv.Stop(); _ = lis.Close() })
 

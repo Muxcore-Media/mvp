@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	ffprobev1 "github.com/Muxcore-Media/media-ffprobe/proto/ffprobev1"
 )
 
 func TestHandlePlaybackChaptersMissingSrc(t *testing.T) {
@@ -51,5 +53,33 @@ func TestIntervalChaptersFallback(t *testing.T) {
 	}
 	if ch[0].Source != "interval" {
 		t.Fatalf("source=%q", ch[0].Source)
+	}
+}
+
+func TestPlaybackChaptersFromAnalyzeEmbedded(t *testing.T) {
+	out := playbackChaptersFromAnalyze(&ffprobev1.AnalyzeResponse{
+		Chapters: []*ffprobev1.Chapter{
+			{Index: 0, Title: "Opening", StartSeconds: 0, EndSeconds: 90},
+			{Index: 1, Title: "  Act I  ", StartSeconds: 90, EndSeconds: 240},
+			{Index: 2, Title: "empty", StartSeconds: 240, EndSeconds: 240},
+		},
+	})
+	if len(out) != 2 {
+		t.Fatalf("want 2 got %d", len(out))
+	}
+	if out[0].Source != "embedded" || out[0].Title != "Opening" || out[0].EndSeconds != 90 {
+		t.Fatalf("ch0=%+v", out[0])
+	}
+	if out[1].Title != "Act I" || out[1].StartSeconds != 90 {
+		t.Fatalf("ch1=%+v", out[1])
+	}
+}
+
+func TestPlaybackChaptersFromAnalyzeNil(t *testing.T) {
+	if playbackChaptersFromAnalyze(nil) != nil {
+		t.Fatal("expected nil")
+	}
+	if playbackChaptersFromAnalyze(&ffprobev1.AnalyzeResponse{}) != nil {
+		t.Fatal("expected empty analyze to yield nil")
 	}
 }

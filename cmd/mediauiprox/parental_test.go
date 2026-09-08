@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Muxcore-Media/userdata-local/store"
 )
@@ -44,7 +45,7 @@ func TestParentalBlocksPlaybackResolve(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := &server{userdata: ud, sessions: newSessionStore(3600)}
+	s := &server{userdata: ud, sessions: newSessionStore(time.Hour)}
 	tok, err := s.sessions.Create("kid", "Kid")
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +83,7 @@ func TestParentalAllowsCleanPlaybackResolve(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	s := &server{userdata: ud, sessions: newSessionStore(3600)}
+	s := &server{userdata: ud, sessions: newSessionStore(time.Hour)}
 	tok, err := s.sessions.Create("kid", "Kid")
 	if err != nil {
 		t.Fatal(err)

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -86,17 +87,38 @@ func (s *server) resolvePlaybackMediaFile(ctx context.Context, kind, mediaID str
 		}
 		return resolveAbsMediaPath(root, f.GetFilePath()), f.GetId()
 	case "episode":
-		if s.subtitles == nil {
-			return "", ""
-		}
-		media, err := s.subtitles.GetMedia(ctx, &subtv1.GetMediaRequest{Id: mediaID})
-		if err != nil || media.GetItem() == nil {
-			return "", ""
-		}
-		return media.GetItem().GetVideoPath(), media.GetItem().GetMediaFileId()
+		return s.resolveEpisodePlaybackFile(ctx, mediaID)
 	default:
 		return "", ""
 	}
+}
+
+func (s *server) resolveEpisodePlaybackFile(ctx context.Context, mediaID string) (absPath, fileID string) {
+	if mediaID == "" || s.tvHTTP == nil {
+		return "", ""
+	}
+	u := *s.tvHTTP
+	u.Path = strings.TrimRight(s.tvHTTP.Path, "/") + "/api/episodes/" + url.PathEscape(mediaID) + "/file"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return "", ""
+	}
+	resp, err := upstreamClient.Do(req)
+	if err != nil {
+		return "", ""
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return "", ""
+	}
+	var body struct {
+		FileID   string `json:"file_id"`
+		FilePath string `json:"file_path"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&body) != nil {
+		return "", ""
+	}
+	return body.FilePath, body.FileID
 }
 
 func discoverSidecarSubtitles(videoPath string) []playbackSubtitleTrack {
@@ -208,8 +230,8 @@ func (s *server) moduleSubtitleTracks(ctx context.Context, fileID string) []play
 		if sub.GetHearingImpaired() {
 			label += " (HI)"
 		}
-		if sub.GetReleaseInfo() != "" {
-			label += " · " + sub.GetReleaseInfo()
+		if src := sub.GetSource(); src != "" && src != "sidecar" && src != "upload" {
+			label += " · " + src
 		}
 		tracks = append(tracks, playbackSubtitleTrack{
 			ID:       sub.GetId(),

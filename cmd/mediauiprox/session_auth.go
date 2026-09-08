@@ -6,6 +6,19 @@ import (
 	"time"
 )
 
+func (s *sessionStore) LookupAuthToken(tok string) string {
+	if tok == "" {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.byID[tok]
+	if !ok || timeNow().After(e.expiry) {
+		return ""
+	}
+	return e.authToken
+}
+
 func (s *sessionStore) LookupRoles(tok string) (userID, username, tenantID string, roles []string, ok bool) {
 	if tok == "" {
 		return "", "", "", nil, false

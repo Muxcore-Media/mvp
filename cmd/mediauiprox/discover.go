@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -21,6 +22,13 @@ type discoverCastMember struct {
 	ProfilePath string `json:"profilePath,omitempty"`
 }
 
+type discoverSeason struct {
+	SeasonNumber int32  `json:"seasonNumber"`
+	Name         string `json:"name"`
+	EpisodeCount int32  `json:"episodeCount"`
+	AirDate      string `json:"airDate,omitempty"`
+}
+
 type discoverDetail struct {
 	ID        int32                `json:"id"`
 	Title     string               `json:"title"`
@@ -36,6 +44,7 @@ type discoverDetail struct {
 	MediaType string               `json:"mediaType"`
 	Trailer   *discoverTrailer     `json:"trailer,omitempty"`
 	Cast      []discoverCastMember `json:"cast,omitempty"`
+	Seasons   []discoverSeason     `json:"seasons,omitempty"`
 }
 
 func (s *server) handleDiscover(w http.ResponseWriter, r *http.Request) {
@@ -143,7 +152,28 @@ func mapTVDiscover(resp *metadatav1.GetTVDetailsResponse) discoverDetail {
 		MediaType: "tv",
 		Trailer:   pickDiscoverTrailer(resp.GetVideos()),
 		Cast:      discoverCast(resp.GetCredits()),
+		Seasons:   mapTVSeasons(resp.GetSeasons()),
 	}
+}
+
+func mapTVSeasons(in []*metadatav1.Season) []discoverSeason {
+	out := make([]discoverSeason, 0, len(in))
+	for _, s := range in {
+		if s == nil || s.GetSeasonNumber() <= 0 {
+			continue
+		}
+		name := strings.TrimSpace(s.GetName())
+		if name == "" {
+			name = fmt.Sprintf("Season %d", s.GetSeasonNumber())
+		}
+		out = append(out, discoverSeason{
+			SeasonNumber: s.GetSeasonNumber(),
+			Name:         name,
+			EpisodeCount: s.GetEpisodeCount(),
+			AirDate:      strings.TrimSpace(s.GetAirDate()),
+		})
+	}
+	return out
 }
 
 func discoverGenreNames(genres []*metadatav1.Genre) []string {

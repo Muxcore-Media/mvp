@@ -162,6 +162,42 @@ services:
       core:
         condition: service_healthy
 
+  # Optional Vault/OpenBao/cloud secrets sidecar — compose profile: secrets-vault
+  #   docker compose -f docker-compose.registry.yml --profile secrets-vault up -d
+  # run-host equivalent: MVP_ENABLE_SECRETS_VAULT=1
+  # Mutually exclusive with secrets-file (both advertise capability "secrets").
+  # Fail-closed: module Init() refuses to start without SECRETS_BACKEND + provider env.
+  secrets-vault:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/secrets-vault:${MUXCORE_IMAGE_TAG:-v0.5.7}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: secrets-vault
+      SECRETS_GRPC_ADDR: ":9551"
+      SECRETS_BACKEND: ${SECRETS_BACKEND:-}
+      SECRETS_PREFIX: ${SECRETS_PREFIX:-muxcore/}
+      VAULT_ADDR: ${VAULT_ADDR:-}
+      VAULT_TOKEN: ${VAULT_TOKEN:-}
+      VAULT_ROLE_ID: ${VAULT_ROLE_ID:-}
+      VAULT_SECRET_ID: ${VAULT_SECRET_ID:-}
+      VAULT_KV_MOUNT: ${VAULT_KV_MOUNT:-secret}
+      VAULT_SKIP_VERIFY: ${VAULT_SKIP_VERIFY:-}
+      INFISICAL_API_URL: ${INFISICAL_API_URL:-}
+      INFISICAL_PROJECT_ID: ${INFISICAL_PROJECT_ID:-}
+      INFISICAL_ENV: ${INFISICAL_ENV:-dev}
+      INFISICAL_TOKEN: ${INFISICAL_TOKEN:-}
+      INFISICAL_CLIENT_ID: ${INFISICAL_CLIENT_ID:-}
+      INFISICAL_CLIENT_SECRET: ${INFISICAL_CLIENT_SECRET:-}
+      AWS_SECRETS_REGION: ${AWS_SECRETS_REGION:-}
+      GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
+      AZURE_KEY_VAULT_URL: ${AZURE_KEY_VAULT_URL:-}
+    ports:
+      - "${SECRETS_VAULT_GRPC_PORT:-9551}:9551"
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["secrets-vault"]
+
   encryption-aesgcm:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/encryption-aesgcm:${MUXCORE_IMAGE_TAG:-v0.5.7}
@@ -269,6 +305,7 @@ services:
       DOWNLOADER_GRPC_ADDR: ":9461"
       DOWNLOADER_ENGINE: ${DOWNLOADER_ENGINE:-fixture}
       DOWNLOAD_DIR: /data/downloads
+      MUXCORE_HTTP_ADDR: ":9464"
       WG_CONF: ${WG_CONF:-}
       WG_USE_WG_QUICK: ${WG_USE_WG_QUICK:-0}
       WG_KILL_SWITCH: ${WG_KILL_SWITCH:-false}
@@ -276,6 +313,7 @@ services:
       NAT_PMP_PORT: ${NAT_PMP_PORT:-0}
     ports:
       - "${DOWNLOADER_TORRENT_GRPC_PORT:-9461}:9461"
+      - "${DOWNLOADER_TORRENT_HTTP_PORT:-9464}:9464"
     volumes:
       - downloads:/data/downloads
     depends_on:
@@ -470,6 +508,11 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-custom-formats
+      FORMATS_SEED_DEFAULTS: "true"
+      FORMATS_TRASH_SYNC: "${FORMATS_TRASH_SYNC:-true}"
+      FORMATS_TRASH_IMPORT_PROFILES: "${FORMATS_TRASH_IMPORT_PROFILES:-true}"
+      FORMATS_TRASH_SCORE_SET: "${FORMATS_TRASH_SCORE_SET:-default}"
+      FORMATS_TRASH_SERVICES: "${FORMATS_TRASH_SERVICES:-radarr,sonarr}"
     depends_on:
       core:
         condition: service_healthy
@@ -520,6 +563,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: notification-default
+      NOTIFY_GRPC_ADDR: ":9441"
       WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-http://127.0.0.1:9/muxcore-notify-sink}
     depends_on:
       core:
@@ -553,12 +597,15 @@ services:
       <<: *module_env
       MUXCORE_MODULE_ID: backup-local
       BACKUP_DIR: /data/backups
+      BACKUP_GRPC_ADDR: ":9302"
+      BACKUP_GRPC_BIND_ALL: "true"
       BACKUP_SOURCE_DIRS: ${BACKUP_SOURCE_DIRS:-/source/auth,/source/sqlite,/source/userdata}
       BACKUP_SCHEDULE_CRON: ${BACKUP_SCHEDULE_CRON:-}
       BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-10}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-0}
     volumes:
       - backup-data:/data/backups
+      - backup-restore-data:/data/restore
       - auth-data:/source/auth:ro
       - sqlite-data:/source/sqlite:ro
       - userdata-data:/source/userdata:ro
@@ -625,7 +672,7 @@ services:
 
   # Optional intro/outro skip detection — compose profile: intro-outro
   #   docker compose -f docker-compose.registry.yml --profile intro-outro up -d
-  # run-host equivalent: MVP_ENABLE_MEDIA_INTRO_OUTRO=1
+  # run-host starts this with media UI unless MVP_ENABLE_MEDIA_INTRO_OUTRO=0
   media-intro-outro:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-intro-outro:${MUXCORE_IMAGE_TAG:-v0.5.7}
@@ -668,7 +715,7 @@ services:
 
   # Optional playback session monitor — compose profile: playback-monitor
   #   docker compose -f docker-compose.registry.yml --profile playback-monitor up -d
-  # run-host equivalent: MVP_ENABLE_PLAYBACK_MONITOR=1
+  # run-host: default-on with media-ui (MVP_ENABLE_PLAYBACK_MONITOR=0 to disable)
   playback-monitor:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/playback-monitor:${MUXCORE_IMAGE_TAG:-v0.5.7}
@@ -678,6 +725,7 @@ services:
       PLAYBACK_MONITOR_GRPC_ADDR: ":9560"
       PLAYBACK_MONITOR_HTTP_ADDR: ":8560"
       PLAYBACK_MONITOR_DB_PATH: /data/playback-monitor/monitor.db
+      PLAYBACK_MONITOR_HTTP_TOKEN: ${PLAYBACK_MONITOR_HTTP_TOKEN:-household-monitor}
     ports:
       - "${PLAYBACK_MONITOR_GRPC_PORT:-9560}:9560"
       - "${PLAYBACK_MONITOR_HTTP_PORT:-8560}:8560"
@@ -723,6 +771,25 @@ services:
       MEDIA_UI_REQUIRE_AUTH: "1"
       AUTH_HTTP_INTERNAL_URL: http://auth-local:9401
       USERDATA_LOCAL_URL: http://userdata-local:9672
+      AUTOMATION_GRPC_CLIENT_ADDR: media-automation:9460
+      SCANNER_GRPC_CLIENT_ADDR: media-scanner:9470
+      FORMATS_GRPC_CLIENT_ADDR: media-custom-formats:9490
+      MUSIC_GRPC_CLIENT_ADDR: media-music:9640
+      NOTIFY_GRPC_CLIENT_ADDR: notification-default:9441
+      BACKUP_GRPC_CLIENT_ADDR: backup-local:9302
+      MAINTAINER_GRPC_CLIENT_ADDR: media-library-maintainer:9545
+      PLAYBACK_GUARD_GRPC_CLIENT_ADDR: playback-guard:9561
+      TAGGING_HTTP_URL: http://media-tagging:9741
+      BACKUP_RESTORE_DIR: /data/restore
+      PLAYBACK_MONITOR_HTTP_URL: http://playback-monitor:8560
+      PLAYBACK_MONITOR_HTTP_TOKEN: ${PLAYBACK_MONITOR_HTTP_TOKEN:-household-monitor}
+      INDEXER_PIRATEBAY_HTTP_URL: http://indexer-piratebay:9487
+      INDEXER_TORZNAB_GRPC_CLIENT_ADDR: indexer-torznab:9486
+      DOWNLOADER_TORRENT_HTTP_URL: http://downloader-native-torrent:9464
+      DOWNLOADER_QBIT_HTTP_URL: http://downloader-qbittorrent:9463
+      DOWNLOADER_SAB_HTTP_URL: http://downloader-sabnzbd:9621
+      DOWNLOADER_USENET_HTTP_URL: http://downloader-native-usenet:9623
+      DEBRID_HTTP_URL: http://downloader-debrid:9631
       # Shared with admin-ui /password-resets queue (umbrella #111).
       MEDIA_UI_PASSWORD_RESET_FILE: /data/media-ui/password-resets.json
     ports:
@@ -817,6 +884,7 @@ volumes:
   shows:
   userdata-data:
   backup-data:
+  backup-restore-data:
   dlna-data:
   tagging-data:
   intro-outro-data:

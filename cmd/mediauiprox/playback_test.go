@@ -44,7 +44,7 @@ func TestPlaybackResolveTranscodeMode(t *testing.T) {
 	s.handlePlaybackResolve(rec, req)
 	var out playbackResolveResponse
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
-	if out.Mode != "transcode" || !strings.Contains(out.StreamURL, "/stream/transcode") {
+	if out.Mode != "transcode" || !strings.Contains(out.StreamURL, "/stream/hls") {
 		t.Fatalf("%+v", out)
 	}
 	if !out.TranscoderAvailable {
@@ -263,5 +263,110 @@ func TestHandleTranscodeStreamForwardsSeekStart(t *testing.T) {
 	}
 	if gotStart != "611.5" {
 		t.Fatalf("start=%q", gotStart)
+	}
+}
+
+func TestHandleTranscodeStreamForwardsSubtitleIndex(t *testing.T) {
+	dir := t.TempDir()
+	policy := filepath.Join(dir, "playback.json")
+	_ = os.WriteFile(policy, []byte(`{"enable_resume":true,"enable_transcode":true,"prefer_direct_play":false}`), 0o600)
+	t.Setenv("ADMIN_UI_PLAYBACK_FILE", policy)
+
+	var gotSub string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSub = r.URL.Query().Get("subtitle_index")
+		w.Header().Set("Content-Type", "video/mp4")
+		_, _ = w.Write([]byte("ftypfake"))
+	}))
+	defer upstream.Close()
+
+	s := &server{
+		transcoderHTTP: mustURL(upstream.URL),
+		moviesHTTP:     mustURL("http://127.0.0.1:9430"),
+	}
+	req := httptest.NewRequest(http.MethodGet, "/stream/transcode?src=%2Fstream%2Fmovies%2Fm1&subtitle_index=4", nil)
+	rec := httptest.NewRecorder()
+	s.handleTranscodeStream(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if gotSub != "4" {
+		t.Fatalf("subtitle_index=%q", gotSub)
+	}
+}
+
+func TestHandleHLSIndexProxiesToTranscoder(t *testing.T) {
+	dir := t.TempDir()
+	policy := filepath.Join(dir, "playback.json")
+	_ = os.WriteFile(policy, []byte(`{"enable_resume":true,"enable_transcode":true,"prefer_direct_play":false}`), 0o600)
+	t.Setenv("ADMIN_UI_PLAYBACK_FILE", policy)
+
+	var gotPath, gotSrc, gotHeight, gotStart string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotSrc = r.URL.Query().Get("src")
+		gotHeight = r.URL.Query().Get("max_height")
+		gotStart = r.URL.Query().Get("start")
+		w.Header().Set("Location", "/stream/hls/0123456789abcdef0123456789abcdef/index.m3u8")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer upstream.Close()
+
+	s := &server{
+		transcoderHTTP: mustURL(upstream.URL),
+		moviesHTTP:     mustURL("http://127.0.0.1:9430"),
+	}
+	req := httptest.NewRequest(http.MethodGet, "/stream/hls?src=%2Fstream%2Fmovies%2Fm1&max_height=720&start=611.50", nil)
+	rec := httptest.NewRecorder()
+	s.handleHLSIndex(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if gotPath != "/stream/hls" {
+		t.Fatalf("path=%q", gotPath)
+	}
+	if gotSrc != "http://127.0.0.1:9430/stream/movies/m1" {
+		t.Fatalf("proxied src=%q", gotSrc)
+	}
+	if gotHeight != "720" {
+		t.Fatalf("max_height=%q", gotHeight)
+	}
+	if gotStart != "611.50" {
+		t.Fatalf("start=%q", gotStart)
+	}
+}
+
+func TestHandleHLSAssetProxiesSegment(t *testing.T) {
+	var gotPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "video/mp2t")
+		_, _ = w.Write([]byte{0x47, 0x00})
+	}))
+	defer upstream.Close()
+
+	s := &server{transcoderHTTP: mustURL(upstream.URL)}
+	req := httptest.NewRequest(http.MethodGet, "/stream/hls/0123456789abcdef0123456789abcdef/seg_00000.ts", nil)
+	req.SetPathValue("key", "0123456789abcdef0123456789abcdef")
+	req.SetPathValue("file", "seg_00000.ts")
+	rec := httptest.NewRecorder()
+	s.handleHLSAsset(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if gotPath != "/stream/hls/0123456789abcdef0123456789abcdef/seg_00000.ts" {
+		t.Fatalf("path=%q", gotPath)
+	}
+}
+
+func TestHandleHLSAssetRejectsTraversal(t *testing.T) {
+	s := &server{transcoderHTTP: mustURL("http://127.0.0.1:9526")}
+	req := httptest.NewRequest(http.MethodGet, "/stream/hls/../etc/passwd", nil)
+	req.SetPathValue("key", "../etc")
+	req.SetPathValue("file", "passwd")
+	rec := httptest.NewRecorder()
+	s.handleHLSAsset(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d", rec.Code)
 	}
 }

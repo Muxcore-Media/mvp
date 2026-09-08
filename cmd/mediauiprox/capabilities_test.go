@@ -51,6 +51,9 @@ func TestCapabilitiesOptionalLibrariesDown(t *testing.T) {
 	if body.Features["livetv"] != true || body.Features["quickconnect"] != true {
 		t.Fatalf("expected livetv/quickconnect true, got %#v", body.Features)
 	}
+	if body.Features["offline"] != true || body.Features["watchTogether"] != true {
+		t.Fatalf("expected offline/watchTogether true, got %#v", body.Features)
+	}
 }
 
 func TestCapabilitiesOptionalLibrariesUp(t *testing.T) {
@@ -186,6 +189,52 @@ func TestCapabilitiesWatchlistWhenListSyncLive(t *testing.T) {
 	}
 	if !body.Features["watchlist"] {
 		t.Fatalf("expected watchlist true when list-sync live, got %#v", body.Features)
+	}
+}
+
+func TestCapabilitiesPlaybackMonitorLive(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(up.Close)
+	u, _ := url.Parse(up.URL)
+	s := &server{
+		movies:              stubMoviesClient{},
+		tv:                  stubTVClient{},
+		playbackMonitorHTTP: u,
+		libraryPaths:        newLibraryPathsStore("", t.TempDir()),
+	}
+	w := httptest.NewRecorder()
+	s.handleCapabilities(w, httptest.NewRequest(http.MethodGet, "/api/capabilities", nil))
+	var body struct {
+		Features map[string]bool `json:"features"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Features["playbackMonitor"] {
+		t.Fatalf("expected playbackMonitor true when healthz live, got %#v", body.Features)
+	}
+
+	down := &server{
+		movies:       stubMoviesClient{},
+		tv:           stubTVClient{},
+		libraryPaths: newLibraryPathsStore("", t.TempDir()),
+	}
+	downW := httptest.NewRecorder()
+	down.handleCapabilities(downW, httptest.NewRequest(http.MethodGet, "/api/capabilities", nil))
+	var downBody struct {
+		Features map[string]bool `json:"features"`
+	}
+	if err := json.NewDecoder(downW.Body).Decode(&downBody); err != nil {
+		t.Fatal(err)
+	}
+	if downBody.Features["playbackMonitor"] {
+		t.Fatalf("expected playbackMonitor false when unset, got %#v", downBody.Features)
 	}
 }
 

@@ -25,12 +25,15 @@ func (s *server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 	audiobooks := s.libraryModuleLive(ctx, libraryKind{Upstream: s.audiobooksHTTP, ListPath: "/api/audiobooks"})
 	request := s.requestModuleLive(ctx)
 	watchlist := s.listSyncModuleLive(ctx)
+	releases := s.automation != nil
 
 	homevideos := movies && s.companionLibraryConfigured("homevideos")
 	musicvideos := movies && s.companionLibraryConfigured("musicvideos")
 	transcoder := s.transcoderModuleLive(ctx)
 	debrid := s.debridModuleLive(ctx)
 	graph := s.graphModuleLive(ctx)
+	playbackMonitor := s.playbackMonitorModuleLive(ctx)
+	acquisition := s.acquisitionModuleReady(ctx)
 	pol := loadPlaybackPolicy()
 
 	writeJSON(w, map[string]any{
@@ -45,21 +48,29 @@ func (s *server) handleCapabilities(w http.ResponseWriter, r *http.Request) {
 			"musicvideos": musicvideos,
 		},
 		"features": map[string]bool{
-			"search":       request,
-			"request":      request,
-			"collections":  movies,
-			"studios":      movies,
-			"upcoming":     tv,
-			"mixed":        movies && tv,
-			"livetv":       s.livetv != nil,
-			"quickconnect": s.quickconnect != nil,
-			"playlists":    s.userdata != nil,
-			"queue":        s.userdata != nil,
-			"favorites":    s.userdata != nil,
-			"watchlist":    watchlist,
-			"transcoder":   transcoder,
-			"debrid":       debrid,
-			"graph":        graph,
+			"search":          request,
+			"request":         request,
+			"collections":     movies,
+			"studios":         movies,
+			"upcoming":        tv,
+			"mixed":           movies && tv,
+			"livetv":          s.livetv != nil,
+			"quickconnect":    s.quickconnect != nil,
+			"playlists":       s.userdata != nil,
+			"queue":           s.userdata != nil,
+			"favorites":       s.userdata != nil,
+			"watchlist":       watchlist,
+			"releases":        releases,
+			"activity":        releases,
+			"issues":          true,
+			"watchTogether":   true,
+			"offline":         true,
+			"formats":         s.formats != nil,
+			"transcoder":      transcoder,
+			"debrid":          debrid,
+			"graph":           graph,
+			"playbackMonitor": playbackMonitor,
+			"acquisition":     acquisition,
 		},
 		"playback": map[string]any{
 			"transcoder_available": transcoder,

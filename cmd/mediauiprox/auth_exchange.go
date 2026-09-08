@@ -42,10 +42,11 @@ func writeAuthExchangeError(w http.ResponseWriter, err error) {
 }
 
 type authExchangeResult struct {
-	UserID   string
-	Username string
-	TenantID string
-	Roles    []string
+	UserID    string
+	Username  string
+	TenantID  string
+	AuthToken string
+	Roles     []string
 }
 
 func (s *server) exchangeAuthCode(code string) (*authExchangeResult, error) {
@@ -97,10 +98,11 @@ func (s *server) exchangeAuthCode(code string) (*authExchangeResult, error) {
 		roles = rolesFromClaims(result.Claims)
 	}
 	return &authExchangeResult{
-		UserID:   result.UserID,
-		Username: result.Username,
-		TenantID: tenantID,
-		Roles:    roles,
+		UserID:    result.UserID,
+		Username:  result.Username,
+		TenantID:  tenantID,
+		AuthToken: strings.TrimSpace(result.Token),
+		Roles:     roles,
 	}, nil
 }
 
@@ -109,7 +111,7 @@ func (s *server) createSessionFromAuthCode(code string) (sessionToken string, re
 	if err != nil {
 		return "", nil, err
 	}
-	sessionToken, err = s.sessions.CreateWithRoles(result.UserID, result.Username, result.TenantID, result.Roles)
+	sessionToken, err = s.sessions.CreateWithAuth(result.UserID, result.Username, result.TenantID, result.Roles, result.AuthToken)
 	if err != nil {
 		return "", nil, newAuthErr(http.StatusInternalServerError, "session error", "auth.session_error")
 	}

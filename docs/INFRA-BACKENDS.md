@@ -43,8 +43,9 @@ curl -s http://127.0.0.1:9401/health   # auth
 ## secrets-file → secrets-vault
 
 1. Export secrets from file backend (`SECRETS_FILE_DIR`) — manual copy to Vault paths.
-2. Set `MVP_ENABLE_SECRETS_VAULT=1`, point `VAULT_ADDR` + token env.
+2. Set `MVP_ENABLE_SECRETS_VAULT=1` (or `docker compose --profile secrets-vault up -d`), point `SECRETS_BACKEND` + `VAULT_ADDR` + token env. Stop `secrets-file` first — both advertise capability `secrets`.
 3. Restart modules that read secrets on boot.
+4. Missing `SECRETS_BACKEND` / provider credentials fail-closed (module Init refuses to start).
 
 ## database-sqlite → database-postgres
 

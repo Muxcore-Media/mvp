@@ -33,14 +33,27 @@ EOF
   [[ "${MVP_ENABLE_MEDIA_LIST_SYNC:-0}" == "1" ]] && echo "  media-list-sync     :9530  (admin /list-sync)"
   [[ "${MVP_ENABLE_WORKFLOW_TAPESTRY:-0}" == "1" ]] && echo "  workflow-tapestry   :9603"
   [[ "${MVP_ENABLE_CACHE_REDIS:-0}" == "1" || -n "${REDIS_ADDR:-}" ]] && echo "  cache-redis         :9600  (REDIS_ADDR=${REDIS_ADDR:-})"
-  [[ "${MVP_ENABLE_MEDIA_TRANSCODER:-0}" == "1" ]] && echo "  media-transcoder    :9525"
+  _enable_transcoder="${MVP_ENABLE_MEDIA_TRANSCODER:-}"
+  if [[ -z "$_enable_transcoder" && "${MVP_ENABLE_MEDIA_UI:-1}" != "0" ]]; then
+    _enable_transcoder=1
+  fi
+  [[ "$_enable_transcoder" == "1" ]] && echo "  media-transcoder    :9525"
   [[ "${MVP_ENABLE_MEDIA_TRANSCODER_POOL:-0}" == "1" ]] && echo "  media-transcoder-pool :9720  (gRPC; health :9721)"
   [[ "${MVP_ENABLE_NOTIFICATION_APPRISE:-0}" == "1" ]] && echo "  notification-apprise :9445"
   [[ "${MVP_ENABLE_MEDIA_DLNA:-0}" == "1" ]] && echo "  media-dlna           :9750  (DLNA HTTP; gRPC :9751, health :8751)"
   [[ "${MVP_ENABLE_MEDIA_TAGGING:-0}" == "1" ]] && echo "  media-tagging        :9740  (gRPC; health :9741)"
-  [[ "${MVP_ENABLE_MEDIA_INTRO_OUTRO:-0}" == "1" ]] && echo "  media-intro-outro    :9710  (gRPC; health :9711)"
+  [[ "${MVP_ENABLE_AI:-0}" == "1" ]] && echo "  ai-*                 :9760-9771 (runtime/subtitles/recommend/tickets/filter/librarian)"
+  _enable_intro_outro="${MVP_ENABLE_MEDIA_INTRO_OUTRO:-}"
+  if [[ -z "$_enable_intro_outro" && "${MVP_ENABLE_MEDIA_UI:-1}" != "0" ]]; then
+    _enable_intro_outro=1
+  fi
+  [[ "$_enable_intro_outro" == "1" ]] && echo "  media-intro-outro    :9710  (gRPC; health :9711)"
   [[ "${MVP_ENABLE_PLAYBACK_GUARD:-0}" == "1" ]] && echo "  playback-guard       :9561  (gRPC)"
-  [[ "${MVP_ENABLE_PLAYBACK_MONITOR:-0}" == "1" ]] && echo "  playback-monitor     :9560  (gRPC; HTTP :8560)"
+  _enable_playback_monitor="${MVP_ENABLE_PLAYBACK_MONITOR:-}"
+  if [[ -z "$_enable_playback_monitor" && "${MVP_ENABLE_MEDIA_UI:-1}" != "0" ]]; then
+    _enable_playback_monitor=1
+  fi
+  [[ "$_enable_playback_monitor" == "1" ]] && echo "  playback-monitor     :9560  (gRPC; HTTP :8560)"
   [[ "${MVP_ENABLE_BACKUP_LOCAL:-0}" == "1" ]] && echo "  backup-local        :9302  (household state backups)"
   [[ "${TMDB_FIXTURE:-}" == "1" ]] && echo "  metadata-tmdb       fixture mode (TMDB_FIXTURE=1)"
 } >"$ROOT/run/VIEW-ME.txt"

@@ -91,7 +91,7 @@ func (s *server) handleTVLogin(w http.ResponseWriter, r *http.Request) {
 	if len(roles) == 0 {
 		roles = rolesFromClaims(authResult.Claims)
 	}
-	sess, err := s.sessions.CreateWithRoles(authResult.UserID, authResult.Username, tenantID, roles)
+	sess, err := s.sessions.CreateWithAuth(authResult.UserID, authResult.Username, tenantID, roles, authResult.Token)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "session error", "auth.session_error")
 		return
@@ -153,9 +153,11 @@ func (s *server) handleTVLoginTOTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var authResult struct {
+		Token    string         `json:"token"`
 		UserID   string         `json:"user_id"`
 		Username string         `json:"username"`
 		TenantID string         `json:"tenant_id"`
+		Roles    []string       `json:"roles"`
 		Claims   map[string]any `json:"claims"`
 	}
 	if err := json.Unmarshal(raw, &authResult); err != nil {
@@ -168,8 +170,11 @@ func (s *server) handleTVLoginTOTP(w http.ResponseWriter, r *http.Request) {
 			tenantID = strings.TrimSpace(v)
 		}
 	}
-	roles := rolesFromClaims(authResult.Claims)
-	sess, err := s.sessions.CreateWithRoles(authResult.UserID, authResult.Username, tenantID, roles)
+	roles := append([]string(nil), authResult.Roles...)
+	if len(roles) == 0 {
+		roles = rolesFromClaims(authResult.Claims)
+	}
+	sess, err := s.sessions.CreateWithAuth(authResult.UserID, authResult.Username, tenantID, roles, authResult.Token)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "session error", "auth.session_error")
 		return
