@@ -147,6 +147,8 @@ Proxied from module health HTTP (defaults `:9641` music, `:9651` books, `:9661` 
 
 When the module responds, `available: true` and `items` are the upstream JSON array rows.
 
+`PATCH /api/books/{id}` (author) and `PATCH /api/audiobooks/{id}` accept `{ "monitored": true|false, "root_folder_path": "/data/books" }` — at least one field is required. Author path is the existing library-plus `path` field (Readarr-style root). Audiobook root assignment looks up the author and patches `/api/authors/{id}`. Book works, comic series/issues stay monitor-only (`id` + `monitored` required). Comics have no root-folders kind.
+
 ---
 
 ## Capabilities & discover
