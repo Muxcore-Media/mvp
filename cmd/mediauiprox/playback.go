@@ -122,7 +122,12 @@ func (s *server) handlePlaybackResolve(w http.ResponseWriter, r *http.Request) {
 	} else if pol.EnableTranscode && transcoderAvail {
 		forceTranscode := !pol.PreferDirectPlay
 		if !forceTranscode {
-			if analysis := s.analyzeMediaBySrc(r.Context(), src); analysis != nil && !browserDirectPlayCompatible(analysis) {
+			analysis := s.analyzeMediaBySrc(r.Context(), src)
+			switch {
+			case analysis == nil:
+				// Probe unavailable or file unresolved — do not guess direct play.
+				forceTranscode = true
+			case !browserDirectPlayCompatible(analysis):
 				forceTranscode = true
 			}
 		}
