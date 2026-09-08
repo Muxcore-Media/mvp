@@ -32,6 +32,23 @@ func TestPlaybackResolveDirect(t *testing.T) {
 	}
 }
 
+func TestPlaybackResolveUnknownAnalysisForcesTranscode(t *testing.T) {
+	dir := t.TempDir()
+	policy := filepath.Join(dir, "playback.json")
+	_ = os.WriteFile(policy, []byte(`{"enable_resume":true,"enable_transcode":true,"prefer_direct_play":true}`), 0o600)
+	t.Setenv("ADMIN_UI_PLAYBACK_FILE", policy)
+
+	s := &server{transcoderHTTP: mustURL("http://127.0.0.1:9526")}
+	req := httptest.NewRequest(http.MethodGet, "/api/playback/resolve?src=%2Fstream%2Fmovies%2Fm1", nil)
+	rec := httptest.NewRecorder()
+	s.handlePlaybackResolve(rec, req)
+	var out playbackResolveResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if out.Mode != "transcode" || !strings.Contains(out.StreamURL, "/stream/hls") {
+		t.Fatalf("expected transcode when probe unavailable, got %+v", out)
+	}
+}
+
 func TestPlaybackResolveTranscodeMode(t *testing.T) {
 	dir := t.TempDir()
 	policy := filepath.Join(dir, "playback.json")

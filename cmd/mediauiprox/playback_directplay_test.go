@@ -69,4 +69,13 @@ func TestBrowserDirectPlayCompatible(t *testing.T) {
 	if browserDirectPlayCompatible(ffprobeSurroundMP4) {
 		t.Fatal("ffprobe mp4 family 5.1 aac should require transcode")
 	}
+
+	mp4HEVC := &ffprobev1.AnalyzeResponse{
+		Container: "mov,mp4,m4a,3gp,3g2,mj2",
+		Video:     &ffprobev1.VideoStream{Codec: "hevc"},
+		Audio:     []*ffprobev1.AudioStream{{Codec: "aac", Channels: 2}},
+	}
+	if browserDirectPlayCompatible(mp4HEVC) {
+		t.Fatal("hevc mp4 should require transcode in HTML5 players")
+	}
 }
