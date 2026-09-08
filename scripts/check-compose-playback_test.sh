@@ -30,8 +30,12 @@ check_monitor() {
     || fail "$file playback-monitor must publish container HTTP port 8560"
   grep -A35 '^  playback-monitor:' "$file" | grep -q 'MUXCORE_MODULE_ID: playback-monitor' \
     || fail "$file playback-monitor must set MUXCORE_MODULE_ID"
-  grep -A35 '^  playback-monitor:' "$file" | grep -q 'PLAYBACK_MONITOR_DB_PATH: /data/playback-monitor/monitor.db' \
+  grep -A40 '^  playback-monitor:' "$file" | grep -q 'PLAYBACK_MONITOR_DB_PATH: /data/playback-monitor/monitor.db' \
     || fail "$file playback-monitor must set PLAYBACK_MONITOR_DB_PATH"
+  grep -A40 '^  playback-monitor:' "$file" | grep -q 'PLAYBACK_MONITOR_HTTP_TOKEN' \
+    || fail "$file playback-monitor must set PLAYBACK_MONITOR_HTTP_TOKEN for compose ingest"
+  grep -A40 '^  media-ui:' "$file" | grep -q 'PLAYBACK_MONITOR_HTTP_URL' \
+    || fail "$file media-ui must set PLAYBACK_MONITOR_HTTP_URL for native session ingest"
 }
 
 check_guard "$ROOT/docker-compose.yml"

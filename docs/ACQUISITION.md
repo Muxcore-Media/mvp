@@ -73,6 +73,27 @@ curl -sS -X POST http://127.0.0.1:9380/api/request \
 
 ---
 
+## Household fixture grab (offline)
+
+Default compose / run-host still start `media-automation` + `request-media` **without** an indexer or downloader. Requests are saved; nothing can search or grab until peers are up.
+
+One flag starts the **fixture** indexer + native torrent (no live pirate, no qBit):
+
+```bash
+MVP_ENABLE_ACQUISITION=1
+# equivalent to:
+#   MVP_ENABLE_INDEXER_PIRATEBAY=1 INDEXER_FIXTURE=1
+#   MVP_ENABLE_DOWNLOADER_TORRENT=1 DOWNLOADER_ENGINE=fixture
+```
+
+Compose stays profile-gated:
+
+```bash
+docker compose --profile indexer-piratebay --profile downloader-torrent up -d
+```
+
+Household UI: **Settings → Acquisition** (`GET /api/acquisition`) lists which peers are live. The Discover / In Progress banner links there when grab is incomplete.
+
 ## Enable live acquisition
 
 **Prerequisite:** VPN prove, then flip flags. Leave fixtures until intentionally going live.

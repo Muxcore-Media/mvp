@@ -16,6 +16,7 @@ func (s *server) registerRequestMediaRoutes(mux *http.ServeMux) {
 	mux.Handle("/api/request", h)
 	mux.Handle("/api/requests/", h)
 	mux.Handle("/api/requests", h)
+	mux.Handle("/api/request-policy", h)
 }
 
 func (s *server) proxyRequestMedia(w http.ResponseWriter, r *http.Request) {
@@ -40,8 +41,17 @@ func (s *server) proxyRequestMedia(w http.ResponseWriter, r *http.Request) {
 			req.Header.Add(k, v)
 		}
 	}
-	if username, roles, ok := s.sessionIdentity(r); ok {
-		req.Header.Set("X-MuxCore-User", username)
+	if userID, username, _, roles, ok := s.sessionPrincipal(r); ok {
+		if username != "" {
+			req.Header.Set("X-MuxCore-User", username)
+		}
+		caller := strings.TrimSpace(userID)
+		if caller == "" {
+			caller = strings.TrimSpace(username)
+		}
+		if caller != "" {
+			req.Header.Set("X-Caller-Id", caller)
+		}
 		if len(roles) > 0 {
 			req.Header.Set("X-MuxCore-Roles", strings.Join(roles, ","))
 		}

@@ -38,6 +38,11 @@ func (f fixtureMetadataDiscover) GetTVDetails(_ context.Context, req *metadatav1
 		VoteAverage:  9.5,
 		Genres:       []*metadatav1.Genre{{Name: "Crime"}},
 		Status:       "Ended",
+		Seasons: []*metadatav1.Season{
+			{SeasonNumber: 0, Name: "Specials", EpisodeCount: 2},
+			{SeasonNumber: 1, Name: "Season 1", EpisodeCount: 7},
+			{SeasonNumber: 5, Name: "Season 5", EpisodeCount: 16},
+		},
 	}, nil
 }
 
@@ -88,6 +93,10 @@ func TestHandleDiscoverTVDetail(t *testing.T) {
 	}
 	if body["title"] != "Breaking Bad" || body["mediaType"] != "tv" {
 		t.Fatalf("body=%v", body)
+	}
+	seasons, _ := body["seasons"].([]any)
+	if len(seasons) != 2 {
+		t.Fatalf("seasons=%v", body["seasons"])
 	}
 }
 

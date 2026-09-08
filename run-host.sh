@@ -669,6 +669,13 @@ EOF
       export USERDATA_LOCAL_URL="${USERDATA_LOCAL_URL:-http://127.0.0.1:9672}"
     fi
 
+    # One-flag fixture grab: indexer + native torrent, still INDEXER_FIXTURE / DOWNLOADER_ENGINE=fixture.
+    # Does not enable live pirate, qBit, or SAB. Individual MVP_ENABLE_* flags still win when set.
+    if [[ "${MVP_ENABLE_ACQUISITION:-0}" == "1" ]]; then
+      MVP_ENABLE_DOWNLOADER_TORRENT="${MVP_ENABLE_DOWNLOADER_TORRENT:-1}"
+      MVP_ENABLE_INDEXER_PIRATEBAY="${MVP_ENABLE_INDEXER_PIRATEBAY:-1}"
+    fi
+
     # Optional native torrent peer (:9461) — fixture by default; VPN required for live engine.
     if [[ "${MVP_ENABLE_DOWNLOADER_TORRENT:-0}" == "1" ]]; then
       ensure_origin_module downloader-native-torrent
@@ -886,6 +893,74 @@ EOF
         "$BIN/media-tagging"
     fi
 
+    # Optional AI sidecars (greenfield; do not add model logic to existing modules)
+    if [[ "${MVP_ENABLE_AI:-0}" == "1" || "${MVP_ENABLE_AI_RUNTIME:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/ai-runtime" ]]; then
+        echo "building ai-runtime"
+        (cd "$WS/ai-runtime" && go build -o "$BIN/ai-runtime" ./cmd/module)
+      fi
+      maybe_start ai-runtime env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=ai-runtime MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        AI_RUNTIME_GRPC_ADDR="127.0.0.1:9760" \
+        MUXCORE_HTTP_ADDR="127.0.0.1:9761" \
+        "$BIN/ai-runtime"
+    fi
+    if [[ "${MVP_ENABLE_AI:-0}" == "1" || "${MVP_ENABLE_AI_SUBTITLES:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/ai-subtitles" ]]; then
+        echo "building ai-subtitles"
+        (cd "$WS/ai-subtitles" && go build -o "$BIN/ai-subtitles" ./cmd/module)
+      fi
+      maybe_start ai-subtitles env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=ai-subtitles MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        AI_SUBTITLES_GRPC_ADDR="127.0.0.1:9762" \
+        MUXCORE_HTTP_ADDR="127.0.0.1:9763" \
+        "$BIN/ai-subtitles"
+    fi
+    if [[ "${MVP_ENABLE_AI:-0}" == "1" || "${MVP_ENABLE_AI_RECOMMEND:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/ai-recommend" ]]; then
+        echo "building ai-recommend"
+        (cd "$WS/ai-recommend" && go build -o "$BIN/ai-recommend" ./cmd/module)
+      fi
+      maybe_start ai-recommend env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=ai-recommend MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        AI_RECOMMEND_GRPC_ADDR="127.0.0.1:9764" \
+        MUXCORE_HTTP_ADDR="127.0.0.1:9765" \
+        "$BIN/ai-recommend"
+    fi
+    if [[ "${MVP_ENABLE_AI:-0}" == "1" || "${MVP_ENABLE_AI_TICKETS:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/ai-tickets" ]]; then
+        echo "building ai-tickets"
+        (cd "$WS/ai-tickets" && go build -o "$BIN/ai-tickets" ./cmd/module)
+      fi
+      maybe_start ai-tickets env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=ai-tickets MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        AI_TICKETS_GRPC_ADDR="127.0.0.1:9766" \
+        MUXCORE_HTTP_ADDR="127.0.0.1:9767" \
+        "$BIN/ai-tickets"
+    fi
+    if [[ "${MVP_ENABLE_AI:-0}" == "1" || "${MVP_ENABLE_AI_FILTER:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/ai-filter" ]]; then
+        echo "building ai-filter"
+        (cd "$WS/ai-filter" && go build -o "$BIN/ai-filter" ./cmd/module)
+      fi
+      maybe_start ai-filter env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=ai-filter MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        AI_FILTER_GRPC_ADDR="127.0.0.1:9768" \
+        MUXCORE_HTTP_ADDR="127.0.0.1:9769" \
+        "$BIN/ai-filter"
+    fi
+    if [[ "${MVP_ENABLE_AI:-0}" == "1" || "${MVP_ENABLE_AI_LIBRARIAN:-0}" == "1" ]]; then
+      if [[ ! -x "$BIN/ai-librarian" ]]; then
+        echo "building ai-librarian"
+        (cd "$WS/ai-librarian" && go build -o "$BIN/ai-librarian" ./cmd/module)
+      fi
+      maybe_start ai-librarian env \
+        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=ai-librarian MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+        AI_LIBRARIAN_GRPC_ADDR="127.0.0.1:9770" \
+        MUXCORE_HTTP_ADDR="127.0.0.1:9771" \
+        "$BIN/ai-librarian"
+    fi
+
     # ── Optional peers (env-gated; vault soak enables non-acquisition set via muxcore-test.nix) ──
 
     if [[ "${MVP_ENABLE_BACKUP_LOCAL:-0}" == "1" ]]; then
@@ -924,7 +999,18 @@ EOF
         "$BIN/media-comics"
     fi
 
-    if [[ "${MVP_ENABLE_MEDIA_INTRO_OUTRO:-0}" == "1" ]]; then
+    # Intro/outro skip detection (gRPC :9710, health :9711). Default-on with media-ui
+    # so auto-skip actually has segments. Compose still requires --profile intro-outro.
+    _enable_intro_outro="${MVP_ENABLE_MEDIA_INTRO_OUTRO:-}"
+    if [[ -z "$_enable_intro_outro" && "${MVP_ENABLE_MEDIA_UI:-1}" != "0" ]]; then
+      _enable_intro_outro=1
+    fi
+    if [[ "$_enable_intro_outro" == "1" ]]; then
+      if [[ ! -x "$BIN/media-intro-outro" ]]; then
+        echo "building media-intro-outro"
+        (cd "$WS/media-intro-outro" && go build -o "$BIN/media-intro-outro" ./cmd/module)
+      fi
+      mkdir -p "$DATA/intro-outro"
       maybe_start media-intro-outro env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-intro-outro MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
         INTRO_OUTRO_DATA_DIR="$DATA/intro-outro" \
@@ -997,13 +1083,24 @@ EOF
         "$BIN/playback-guard"
     fi
 
-    if [[ "${MVP_ENABLE_PLAYBACK_MONITOR:-0}" == "1" ]]; then
+    # Playback session monitor (gRPC :9560, HTTP :8560). Default-on with media-ui
+    # so Now watching + native ingest work. Compose still requires --profile playback-monitor.
+    _enable_playback_monitor="${MVP_ENABLE_PLAYBACK_MONITOR:-}"
+    if [[ -z "$_enable_playback_monitor" && "${MVP_ENABLE_MEDIA_UI:-1}" != "0" ]]; then
+      _enable_playback_monitor=1
+    fi
+    if [[ "$_enable_playback_monitor" == "1" ]]; then
+      if [[ ! -x "$BIN/playback-monitor" ]]; then
+        echo "building playback-monitor"
+        (cd "$WS/playback-monitor" && go build -o "$BIN/playback-monitor" ./cmd/module)
+      fi
       mkdir -p "$DATA/playback-monitor"
       maybe_start playback-monitor env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=playback-monitor MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
         PLAYBACK_MONITOR_GRPC_ADDR=":9560" \
         PLAYBACK_MONITOR_HTTP_ADDR=":8560" \
         PLAYBACK_MONITOR_DB_PATH="$DATA/playback-monitor/monitor.db" \
+        PLAYBACK_MONITOR_HTTP_TOKEN="${PLAYBACK_MONITOR_HTTP_TOKEN:-household-monitor}" \
         "$BIN/playback-monitor"
     fi
 
@@ -1199,8 +1296,24 @@ EOF
           FFPROBE_GRPC_CLIENT_ADDR="127.0.0.1:9480" \
           TRANSCODER_HTTP_URL="http://127.0.0.1:9526" \
           LISTSYNC_GRPC_CLIENT_ADDR="${LISTSYNC_GRPC_CLIENT_ADDR:-127.0.0.1:9530}" \
+          AUTOMATION_GRPC_CLIENT_ADDR="${AUTOMATION_GRPC_CLIENT_ADDR:-127.0.0.1:9460}" \
+          SCANNER_GRPC_CLIENT_ADDR="${SCANNER_GRPC_CLIENT_ADDR:-127.0.0.1:9470}" \
+          FORMATS_GRPC_CLIENT_ADDR="${FORMATS_GRPC_CLIENT_ADDR:-127.0.0.1:9490}" \
+          ROOTS_GRPC_CLIENT_ADDR="${ROOTS_GRPC_CLIENT_ADDR:-127.0.0.1:9540}" \
+          RENAME_GRPC_CLIENT_ADDR="${RENAME_GRPC_CLIENT_ADDR:-127.0.0.1:9510}" \
+          PLEX_GRPC_CLIENT_ADDR="${PLEX_GRPC_CLIENT_ADDR:-127.0.0.1:9476}" \
+          MUSIC_GRPC_CLIENT_ADDR="${MUSIC_GRPC_CLIENT_ADDR:-127.0.0.1:9640}" \
+          NOTIFY_GRPC_CLIENT_ADDR="${NOTIFY_GRPC_CLIENT_ADDR:-127.0.0.1:9441}" \
+          INDEXER_TORZNAB_GRPC_CLIENT_ADDR="${INDEXER_TORZNAB_GRPC_CLIENT_ADDR:-127.0.0.1:9486}" \
+          BACKUP_GRPC_CLIENT_ADDR="${BACKUP_GRPC_CLIENT_ADDR:-127.0.0.1:9302}" \
+          MAINTAINER_GRPC_CLIENT_ADDR="${MAINTAINER_GRPC_CLIENT_ADDR:-127.0.0.1:9545}" \
+          PLAYBACK_GUARD_GRPC_CLIENT_ADDR="${PLAYBACK_GUARD_GRPC_CLIENT_ADDR:-127.0.0.1:9561}" \
+          TAGGING_HTTP_URL="${TAGGING_HTTP_URL:-http://127.0.0.1:9741}" \
+          BACKUP_RESTORE_DIR="${BACKUP_RESTORE_DIR:-$DATA/restore}" \
           GRAPH_HTTP_URL="${GRAPH_HTTP_URL:-http://127.0.0.1:9731}" \
           GRAPH_MODULE_TOKEN="${GRAPH_MODULE_TOKEN:-}" \
+          PLAYBACK_MONITOR_HTTP_URL="${PLAYBACK_MONITOR_HTTP_URL:-http://127.0.0.1:8560}" \
+          PLAYBACK_MONITOR_HTTP_TOKEN="${PLAYBACK_MONITOR_HTTP_TOKEN:-household-monitor}" \
           "$BIN/mediauiprox" \
             -listen "${MEDIA_UI_LISTEN:-:5173}" \
             -dist "$UI_DIST" \

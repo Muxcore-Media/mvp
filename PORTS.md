@@ -24,7 +24,7 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9441 | notification-default | |
 | 9445 | notification-apprise | optional (`MVP_ENABLE_NOTIFICATION_APPRISE=1` / compose `apprise`) |
 | 9460 | media-automation | |
-| 9461 | downloader-native-torrent | native torrent engine (gRPC); optional (`MVP_ENABLE_DOWNLOADER_TORRENT=1` / compose `downloader-torrent`) |
+| 9461 / 9464 | downloader-native-torrent | native torrent engine (gRPC / health HTTP); optional (`MVP_ENABLE_DOWNLOADER_TORRENT=1` / compose `downloader-torrent`) |
 | 9462 / 9463 | downloader-qbittorrent | optional qBittorrent WebUI bridge (gRPC / health); compose `downloader-qbittorrent` |
 | 9470 | media-scanner | |
 | 9475 / 8475 | jellyfin gRPC / HTTP | optional (`MVP_ENABLE_JELLYFIN=1` / compose `jellyfin`) |
@@ -40,8 +40,8 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9530 | media-list-sync | optional (`MVP_ENABLE_MEDIA_LIST_SYNC=1` / compose `list-sync`) |
 | 9540 | media-root-folders | |
 | 9545 | media-library-maintainer | optional (`MVP_ENABLE_MEDIA_LIBRARY_MAINTAINER=1` / compose `library-maintainer`) |
-| 9550 / 9551 | secrets-file / secrets-vault | gRPC |
-| 9560 / 8560 | playback-monitor gRPC / HTTP | optional (`MVP_ENABLE_PLAYBACK_MONITOR=1` / compose `playback-monitor`) |
+| 9550 / 9551 | secrets-file / secrets-vault | gRPC (secrets-vault optional: `MVP_ENABLE_SECRETS_VAULT=1` / compose `secrets-vault`) |
+| 9560 / 8560 | playback-monitor gRPC / HTTP | run-host default-on with media-ui (`MVP_ENABLE_PLAYBACK_MONITOR=0` to disable); compose still `playback-monitor` profile. Native player posts `POST /api/playback/session` → `/ingest`; household UI lists `GET /api/sessions` → `/sessions/active` |
 | 9561 | playback-guard | optional gRPC (`MVP_ENABLE_PLAYBACK_GUARD=1` / compose `playback-guard`) |
 | 9600 | cache-redis | optional (`MVP_ENABLE_CACHE_REDIS=1` or `REDIS_ADDR`) |
 | 9601 | encryption-aesgcm | |
@@ -70,11 +70,17 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9690 / 9691 | storage-overlay | optional storage overlay encrypt/compress/dedup (gRPC / health) |
 | 9700 | database-sqlite | SQLite DatabaseProvider (gRPC) |
 | 9701 | database-postgres | PostgreSQL DatabaseProvider (gRPC) |
-| 9710 / 9711 | media-intro-outro | optional intro/outro detection (gRPC / health); `MVP_ENABLE_MEDIA_INTRO_OUTRO=1` |
+| 9710 / 9711 | media-intro-outro | intro/outro detection (gRPC / health); run-host default-on with media UI; compose `--profile intro-outro`; `MVP_ENABLE_MEDIA_INTRO_OUTRO=0` to disable |
 | 9720 / 9721 | media-transcoder-pool | optional transcode worker pool (gRPC / health); `MVP_ENABLE_MEDIA_TRANSCODER_POOL=1` / compose `transcoder-pool` |
 | 9730 / 9731 | media-graph | optional unified media graph (gRPC / health); mediauiprox `GRAPH_HTTP_URL` defaults to `:9731` for `GET /api/graph/related` |
 | 9740 / 9741 | media-tagging | optional content tagging / classification (gRPC / health) |
 | 9750 / 9751 / 8751 | media-dlna | optional DLNA/UPnP server (DLNA HTTP / gRPC / health); `MVP_ENABLE_MEDIA_DLNA=1` |
+| 9760 / 9761 | ai-runtime | optional AI inference gateway (gRPC / health); `MVP_ENABLE_AI=1` |
+| 9762 / 9763 | ai-subtitles | optional AI subtitle generate/sync (gRPC / health); `MVP_ENABLE_AI=1` |
+| 9764 / 9765 | ai-recommend | optional AI add-suggestions (gRPC / health); `MVP_ENABLE_AI=1` |
+| 9766 / 9767 | ai-tickets | optional AI ticket resolver (gRPC / health); `MVP_ENABLE_AI=1` |
+| 9768 / 9769 | ai-filter | optional AI content filter (gRPC / health); `MVP_ENABLE_AI=1` |
+| 9770 / 9771 | ai-librarian | optional AI library QA (gRPC / health); `MVP_ENABLE_AI=1` |
 | 9800 | ratelimit-tokenbucket | spool `default` (fail-open until `RATELIMIT_ENABLED`) |
 | 9900 / 9901 | metrics-prometheus gRPC / HTTP | Prometheus scrape on HTTP |
 | 8082 | admin-ui HTTP | registry / dev compose (`ADMIN_UI_HTTP_PORT`; `run-host.sh` `ADMIN_UI_ADDR`) |

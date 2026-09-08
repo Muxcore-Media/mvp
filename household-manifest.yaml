@@ -70,6 +70,18 @@ optional_env_gated:
     env: MVP_ENABLE_MEDIA_GRAPH
   - name: media-tagging
     env: MVP_ENABLE_MEDIA_TAGGING
+  - name: ai-runtime
+    env: MVP_ENABLE_AI
+  - name: ai-subtitles
+    env: MVP_ENABLE_AI
+  - name: ai-recommend
+    env: MVP_ENABLE_AI
+  - name: ai-tickets
+    env: MVP_ENABLE_AI
+  - name: ai-filter
+    env: MVP_ENABLE_AI
+  - name: ai-librarian
+    env: MVP_ENABLE_AI
   - name: media-intro-outro
     env: MVP_ENABLE_MEDIA_INTRO_OUTRO
   - name: media-dlna
@@ -92,9 +104,12 @@ optional_env_gated:
     env: MVP_ENABLE_AUTH_OIDC
   - name: cache-local
     env: MVP_ENABLE_CACHE_LOCAL
+  - name: secrets-vault
+    env: MVP_ENABLE_SECRETS_VAULT
 
 contract_deps:
   - github.com/Muxcore-Media/contracts-scanner@v0.1.0
   - github.com/Muxcore-Media/contracts-automation@v0.1.0
   - github.com/Muxcore-Media/contracts-metadata@v0.1.0
   - github.com/Muxcore-Media/contracts-media@v0.1.0
+  - github.com/Muxcore-Media/contracts-ai@v0.1.0

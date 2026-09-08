@@ -39,29 +39,40 @@ func chaptersResponseSource(chs []playbackChapter) string {
 	return src
 }
 
-func (s *server) chaptersForMedia(ctx context.Context, kind, mediaID string) []playbackChapter {
-	resp := s.analyzeMediaByStream(ctx, kind, mediaID)
+func playbackChaptersFromAnalyze(resp *ffprobev1.AnalyzeResponse) []playbackChapter {
 	if resp == nil {
 		return nil
 	}
-	return fromFFprobeChapters(resp.GetChapters())
-}
-
-func fromFFprobeChapters(in []*ffprobev1.Chapter) []playbackChapter {
-	out := make([]playbackChapter, 0, len(in))
-	for _, ch := range in {
-		if ch == nil {
+	chs := resp.GetChapters()
+	if len(chs) == 0 {
+		return nil
+	}
+	out := make([]playbackChapter, 0, len(chs))
+	for i, ch := range chs {
+		if ch == nil || ch.GetEndSeconds() <= ch.GetStartSeconds() {
 			continue
 		}
+		title := strings.TrimSpace(ch.GetTitle())
+		if title == "" {
+			title = "Chapter " + strconv.Itoa(i+1)
+		}
+		idx := ch.GetIndex()
+		if idx == 0 && i > 0 {
+			idx = int32(i)
+		}
 		out = append(out, playbackChapter{
-			Index:        ch.GetIndex(),
-			Title:        ch.GetTitle(),
+			Index:        idx,
+			Title:        title,
 			StartSeconds: ch.GetStartSeconds(),
 			EndSeconds:   ch.GetEndSeconds(),
-			Source:       ch.GetSource(),
+			Source:       "embedded",
 		})
 	}
 	return out
+}
+
+func (s *server) chaptersForMedia(ctx context.Context, kind, mediaID string) []playbackChapter {
+	return playbackChaptersFromAnalyze(s.analyzeMediaByStream(ctx, kind, mediaID))
 }
 
 func (s *server) chaptersForMediaID(ctx context.Context, mediaID string) []playbackChapter {

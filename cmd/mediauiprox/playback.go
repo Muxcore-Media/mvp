@@ -128,7 +128,7 @@ func (s *server) handlePlaybackResolve(w http.ResponseWriter, r *http.Request) {
 		}
 		if forceTranscode {
 			mode = "transcode"
-			streamURL = "/stream/transcode?src=" + url.QueryEscape(src)
+			streamURL = "/stream/hls?src=" + url.QueryEscape(src)
 		}
 	}
 	writeJSONStatus(w, http.StatusOK, playbackResolveResponse{
@@ -205,6 +205,133 @@ func (s *server) handlePlaybackSegments(w http.ResponseWriter, r *http.Request) 
 	writeJSONStatus(w, http.StatusOK, playbackSegmentsResponse{MediaID: mediaID, Segments: out, Enabled: true})
 }
 
+type putPlaybackSegmentsBody struct {
+	MediaID  string            `json:"media_id"`
+	Segments []playbackSegment `json:"segments"`
+}
+
+// handlePutPlaybackSegments replaces skip points for a title (SetSegments).
+// Admin/manager only. SPA: PUT /api/playback/segments
+func (s *server) handlePutPlaybackSegments(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		writePlaybackError(w, newPlaybackErr(http.StatusMethodNotAllowed, "method not allowed", "playback.method_not_allowed"))
+		return
+	}
+	if !s.sessionHasPrivilegedRole(r) {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin or manager role required", "code": "playback.forbidden"})
+		return
+	}
+	var body putPlaybackSegmentsBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writePlaybackError(w, newPlaybackErr(http.StatusBadRequest, "invalid json", "playback.invalid_json"))
+		return
+	}
+	mediaID := strings.TrimSpace(body.MediaID)
+	if mediaID == "" {
+		mediaID = strings.TrimSpace(r.URL.Query().Get("media_id"))
+	}
+	if mediaID == "" {
+		writePlaybackError(w, newPlaybackErr(http.StatusBadRequest, "media_id required", "playback.media_id_required"))
+		return
+	}
+	if s.introOutro == nil {
+		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": "intro/outro service unavailable", "code": "playback.segments_unavailable"})
+		return
+	}
+	if body.Segments == nil {
+		body.Segments = []playbackSegment{}
+	}
+	pb := toIntroOutroSegments(body.Segments)
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	resp, err := s.introOutro.SetSegments(ctx, &introoutrov1.SetSegmentsRequest{MediaId: mediaID, Segments: pb})
+	if err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": err.Error(), "code": "playback.segments_invalid"})
+		return
+	}
+	writeJSONStatus(w, http.StatusOK, playbackSegmentsResponse{
+		MediaID:  resp.GetMediaId(),
+		Segments: fromIntroOutroSegments(resp.GetSegments()),
+		Enabled:  true,
+	})
+}
+
+// handleDeletePlaybackSegments clears skip points for a title (DeleteSegments).
+// Admin/manager only. SPA: DELETE /api/playback/segments?media_id=…
+func (s *server) handleDeletePlaybackSegments(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		writePlaybackError(w, newPlaybackErr(http.StatusMethodNotAllowed, "method not allowed", "playback.method_not_allowed"))
+		return
+	}
+	if !s.sessionHasPrivilegedRole(r) {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin or manager role required", "code": "playback.forbidden"})
+		return
+	}
+	mediaID := strings.TrimSpace(r.URL.Query().Get("media_id"))
+	if mediaID == "" {
+		writePlaybackError(w, newPlaybackErr(http.StatusBadRequest, "media_id required", "playback.media_id_required"))
+		return
+	}
+	if s.introOutro == nil {
+		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": "intro/outro service unavailable", "code": "playback.segments_unavailable"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	if _, err := s.introOutro.DeleteSegments(ctx, &introoutrov1.DeleteSegmentsRequest{MediaId: mediaID}); err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": err.Error(), "code": "playback.segments_invalid"})
+		return
+	}
+	writeJSONStatus(w, http.StatusOK, playbackSegmentsResponse{MediaID: mediaID, Segments: []playbackSegment{}, Enabled: true})
+}
+
+// handleListPlaybackSegmentMedia lists titles that already have skip points (ListMedia).
+// Any signed-in household member. SPA: GET /api/playback/segments/media
+func (s *server) handleListPlaybackSegmentMedia(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeAPIMethodNotAllowed(w)
+		return
+	}
+	if s.introOutro == nil {
+		writeJSON(w, map[string]any{"available": false, "items": []any{}, "total": 0})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+	defer cancel()
+	resp, err := s.introOutro.ListMedia(ctx, &introoutrov1.ListMediaRequest{})
+	if err != nil {
+		writeJSON(w, map[string]any{"available": false, "items": []any{}, "total": 0, "error": err.Error()})
+		return
+	}
+	items := make([]map[string]any, 0, len(resp.GetMediaIds()))
+	for _, id := range resp.GetMediaIds() {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		items = append(items, map[string]any{"id": id})
+	}
+	writeJSON(w, map[string]any{"available": true, "items": items, "total": len(items)})
+}
+
+func toIntroOutroSegments(in []playbackSegment) []*introoutrov1.Segment {
+	out := make([]*introoutrov1.Segment, 0, len(in))
+	for _, seg := range in {
+		kind := strings.ToLower(strings.TrimSpace(seg.Kind))
+		if kind == "" {
+			continue
+		}
+		out = append(out, &introoutrov1.Segment{
+			Kind:         kind,
+			StartSeconds: seg.StartSeconds,
+			EndSeconds:   seg.EndSeconds,
+			Confidence:   seg.Confidence,
+			Source:       strings.TrimSpace(seg.Source),
+		})
+	}
+	return out
+}
+
 func fromIntroOutroSegments(in []*introoutrov1.Segment) []playbackSegment {
 	out := make([]playbackSegment, 0, len(in))
 	for _, seg := range in {
@@ -266,12 +393,126 @@ func (s *server) handleTranscodeStream(w http.ResponseWriter, r *http.Request) {
 	if audioIndex := strings.TrimSpace(r.URL.Query().Get("audio_index")); audioIndex != "" {
 		q.Set("audio_index", audioIndex)
 	}
+	if subtitleIndex := strings.TrimSpace(r.URL.Query().Get("subtitle_index")); subtitleIndex != "" {
+		q.Set("subtitle_index", subtitleIndex)
+	}
 
 	r2 := r.Clone(r.Context())
 	r2.URL.Scheme = upstream.Scheme
 	r2.URL.Host = upstream.Host
 	r2.URL.Path = "/stream/transcode"
 	r2.URL.RawQuery = q.Encode()
+	proxy.ServeHTTP(w, r2)
+}
+
+func (s *server) handleHLSIndex(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		writePlaybackError(w, newPlaybackErr(http.StatusMethodNotAllowed, "method not allowed", "playback.method_not_allowed"))
+		return
+	}
+	src := strings.TrimSpace(r.URL.Query().Get("src"))
+	if src == "" {
+		writePlaybackError(w, newPlaybackErr(http.StatusBadRequest, "src required", "playback.src_required"))
+		return
+	}
+	pol := loadPlaybackPolicy()
+	if !pol.EnableTranscode {
+		http.Redirect(w, r, src, http.StatusTemporaryRedirect)
+		return
+	}
+	if s.transcoderHTTP == nil {
+		http.Redirect(w, r, src, http.StatusTemporaryRedirect)
+		return
+	}
+
+	sourceURL := s.playbackSourceURL(src)
+	upstream := *s.transcoderHTTP
+	upstream.Path = ""
+	upstream.RawPath = ""
+	upstream.Fragment = ""
+	proxy := httputil.NewSingleHostReverseProxy(&upstream)
+
+	q := url.Values{}
+	q.Set("src", sourceURL)
+	if profile := strings.TrimSpace(r.URL.Query().Get("profile")); profile != "" {
+		q.Set("profile", profile)
+	}
+	if gpu := strings.TrimSpace(r.URL.Query().Get("gpu")); gpu != "" {
+		q.Set("gpu", gpu)
+	}
+	if maxHeight := strings.TrimSpace(r.URL.Query().Get("max_height")); maxHeight != "" {
+		q.Set("max_height", maxHeight)
+	}
+	if audioIndex := strings.TrimSpace(r.URL.Query().Get("audio_index")); audioIndex != "" {
+		q.Set("audio_index", audioIndex)
+	}
+	if subtitleIndex := strings.TrimSpace(r.URL.Query().Get("subtitle_index")); subtitleIndex != "" {
+		q.Set("subtitle_index", subtitleIndex)
+	}
+	if start := strings.TrimSpace(r.URL.Query().Get("start")); start != "" {
+		q.Set("start", start)
+	}
+
+	r2 := r.Clone(r.Context())
+	r2.URL.Scheme = upstream.Scheme
+	r2.URL.Host = upstream.Host
+	r2.URL.Path = "/stream/hls"
+	r2.URL.RawQuery = q.Encode()
+	proxy.ServeHTTP(w, r2)
+}
+
+func validHLSKey(key string) bool {
+	if len(key) < 16 || len(key) > 64 {
+		return false
+	}
+	for _, c := range key {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func validHLSFile(name string) bool {
+	if name == "index.m3u8" {
+		return true
+	}
+	if !strings.HasPrefix(name, "seg_") || !strings.HasSuffix(name, ".ts") {
+		return false
+	}
+	for _, c := range strings.TrimSuffix(strings.TrimPrefix(name, "seg_"), ".ts") {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *server) handleHLSAsset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		writePlaybackError(w, newPlaybackErr(http.StatusMethodNotAllowed, "method not allowed", "playback.method_not_allowed"))
+		return
+	}
+	key := r.PathValue("key")
+	file := r.PathValue("file")
+	if !validHLSKey(key) || !validHLSFile(file) {
+		writePlaybackError(w, newPlaybackErr(http.StatusBadRequest, "invalid hls path", "playback.hls_path"))
+		return
+	}
+	if s.transcoderHTTP == nil {
+		writePlaybackError(w, newPlaybackErr(http.StatusServiceUnavailable, "transcoder unavailable", "playback.transcoder_unavailable"))
+		return
+	}
+	upstream := *s.transcoderHTTP
+	upstream.Path = ""
+	upstream.RawPath = ""
+	upstream.Fragment = ""
+	proxy := httputil.NewSingleHostReverseProxy(&upstream)
+	r2 := r.Clone(r.Context())
+	r2.URL.Scheme = upstream.Scheme
+	r2.URL.Host = upstream.Host
+	r2.URL.Path = "/stream/hls/" + key + "/" + file
+	r2.URL.RawQuery = ""
 	proxy.ServeHTTP(w, r2)
 }
 

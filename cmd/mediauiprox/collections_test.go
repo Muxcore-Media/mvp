@@ -6,7 +6,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	mgmntv1 "github.com/Muxcore-Media/media-movies/proto/mgmntv1"
 	"google.golang.org/grpc"
@@ -15,6 +17,8 @@ import (
 
 type fixtureCollectionsMovies struct {
 	mgmntv1.UnimplementedMovieManagementServiceServer
+	monitored bool
+	synced    bool
 }
 
 func (f fixtureCollectionsMovies) ListCollections(_ context.Context, _ *mgmntv1.ListCollectionsRequest) (*mgmntv1.ListCollectionsResponse, error) {
@@ -23,6 +27,7 @@ func (f fixtureCollectionsMovies) ListCollections(_ context.Context, _ *mgmntv1.
 			CollectionId: 42,
 			Name:         "Marvel Cinematic Universe",
 			MovieCount:   3,
+			Monitored:    true,
 		}},
 	}, nil
 }
@@ -41,13 +46,31 @@ func (f fixtureCollectionsMovies) GetCollectionMovies(_ context.Context, req *mg
 	}, nil
 }
 
+func (f *fixtureCollectionsMovies) GetCollectionPrefs(_ context.Context, req *mgmntv1.GetCollectionPrefsRequest) (*mgmntv1.GetCollectionPrefsResponse, error) {
+	return &mgmntv1.GetCollectionPrefsResponse{Prefs: &mgmntv1.CollectionPrefs{
+		CollectionId: req.GetCollectionId(), Name: "Marvel Cinematic Universe", Monitored: f.monitored, SearchOnAdd: true,
+	}}, nil
+}
+
+func (f *fixtureCollectionsMovies) SetCollectionMonitored(_ context.Context, req *mgmntv1.SetCollectionMonitoredRequest) (*mgmntv1.SetCollectionMonitoredResponse, error) {
+	f.monitored = req.GetMonitored()
+	return &mgmntv1.SetCollectionMonitoredResponse{Prefs: &mgmntv1.CollectionPrefs{
+		CollectionId: req.GetCollectionId(), Monitored: f.monitored, SearchOnAdd: true,
+	}}, nil
+}
+
+func (f *fixtureCollectionsMovies) SyncCollection(_ context.Context, _ *mgmntv1.SyncCollectionRequest) (*mgmntv1.SyncCollectionResponse, error) {
+	f.synced = true
+	return &mgmntv1.SyncCollectionResponse{Added: 2, AlreadyPresent: 1}, nil
+}
+
 func dialMoviesFixture(t *testing.T) mgmntv1.MovieManagementServiceClient {
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	srv := grpc.NewServer()
-	mgmntv1.RegisterMovieManagementServiceServer(srv, fixtureCollectionsMovies{})
+	mgmntv1.RegisterMovieManagementServiceServer(srv, &fixtureCollectionsMovies{monitored: true})
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(func() { srv.Stop(); _ = lis.Close() })
 
@@ -118,5 +141,52 @@ func TestHandleCollectionByIDInvalid(t *testing.T) {
 	s.handleCollectionByID(w, httptest.NewRequest(http.MethodGet, "/api/collections/not-a-number", nil))
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status %d", w.Code)
+	}
+}
+
+func TestHandleSetCollectionMonitoredAndSync(t *testing.T) {
+	fake := &fixtureCollectionsMovies{}
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := grpc.NewServer()
+	mgmntv1.RegisterMovieManagementServiceServer(srv, fake)
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(func() { srv.Stop(); _ = lis.Close() })
+	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	sessions := newSessionStore(time.Hour)
+	tok, err := sessions.CreateWithRoles("admin-1", "admin", "", []string{"admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{movies: mgmntv1.NewMovieManagementServiceClient(conn), sessions: sessions}
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/collections/42", strings.NewReader(`{"monitored":true}`))
+	req.SetPathValue("id", "42")
+	req.AddCookie(&http.Cookie{Name: "session", Value: tok})
+	w := httptest.NewRecorder()
+	s.handleSetCollectionMonitored(w, req)
+	if w.Code != http.StatusOK || !fake.monitored {
+		t.Fatalf("monitor %d %s mon=%v", w.Code, w.Body.String(), fake.monitored)
+	}
+
+	syncReq := httptest.NewRequest(http.MethodPost, "/api/collections/42/sync", strings.NewReader(`{"add_missing":true}`))
+	syncReq.SetPathValue("id", "42")
+	syncReq.AddCookie(&http.Cookie{Name: "session", Value: tok})
+	sw := httptest.NewRecorder()
+	s.handleSyncCollection(sw, syncReq)
+	if sw.Code != http.StatusOK || !fake.synced {
+		t.Fatalf("sync %d %s synced=%v", sw.Code, sw.Body.String(), fake.synced)
+	}
+	var body struct {
+		Added int `json:"added"`
+	}
+	if err := json.NewDecoder(sw.Body).Decode(&body); err != nil || body.Added != 2 {
+		t.Fatalf("sync body %+v %v", body, err)
 	}
 }
