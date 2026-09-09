@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	mediaadminv1 "github.com/Muxcore-Media/contracts-media-admin/gen/muxcore/media/admin/v1"
 	musicv1 "github.com/Muxcore-Media/media-music/proto/gen/muxcore/music/v1"
 	mgmntv1 "github.com/Muxcore-Media/media-movies/proto/mgmntv1"
 	tvmgmtv1 "github.com/Muxcore-Media/media-tvshows/proto/tvmgmtv1"
@@ -56,6 +58,8 @@ func normalizeTagMedia(raw string) string {
 		return "movie"
 	case "music", "artist", "artists":
 		return "music"
+	case "book", "books", "author", "authors":
+		return "book"
 	default:
 		return "all"
 	}
@@ -70,7 +74,7 @@ func (s *server) handleListTags(w http.ResponseWriter, r *http.Request) {
 	out := make([]map[string]any, 0)
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	movieOK, tvOK, musicOK := false, false, false
+	movieOK, tvOK, musicOK, bookOK := false, false, false, false
 	if media != "tv" && media != "music" && s.movies != nil {
 		resp, err := s.movies.ListTags(ctx, &mgmntv1.ListTagsRequest{})
 		if err == nil {
@@ -107,7 +111,21 @@ func (s *server) handleListTags(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	available := (media == "movie" && movieOK) || (media == "tv" && tvOK) || (media == "music" && musicOK) || (media == "all" && (movieOK || tvOK || musicOK))
+	if media != "movie" && media != "tv" && media != "music" && s.booksAdmin != nil {
+		resp, err := s.booksAdmin.ListTags(ctx, &mediaadminv1.ListTagsRequest{})
+		if err == nil {
+			bookOK = true
+			for _, t := range resp.GetTags() {
+				if t == nil {
+					continue
+				}
+				out = append(out, map[string]any{
+					"id": t.GetId(), "label": t.GetLabel(), "created_at": t.GetCreatedAt(), "media": "book",
+				})
+			}
+		}
+	}
+	available := (media == "movie" && movieOK) || (media == "tv" && tvOK) || (media == "music" && musicOK) || (media == "book" && bookOK) || (media == "all" && (movieOK || tvOK || musicOK || bookOK))
 	if media == "movie" && s.movies == nil {
 		available = false
 	}
@@ -115,6 +133,9 @@ func (s *server) handleListTags(w http.ResponseWriter, r *http.Request) {
 		available = false
 	}
 	if media == "music" && s.music == nil {
+		available = false
+	}
+	if media == "book" && s.booksAdmin == nil {
 		available = false
 	}
 	writeJSON(w, map[string]any{"available": available, "tags": out})
@@ -172,6 +193,19 @@ func (s *server) handleCreateTag(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, map[string]any{"tag": map[string]any{"id": resp.GetTagId(), "label": label, "media": "music"}})
+		return
+	}
+	if media == "book" {
+		if s.booksAdmin == nil {
+			writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": "Books module unavailable", "code": "tags.unavailable"})
+			return
+		}
+		resp, err := s.booksAdmin.CreateTag(ctx, &mediaadminv1.CreateTagRequest{Label: label})
+		if err != nil {
+			writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "code": "tags.create_failed"})
+			return
+		}
+		writeJSON(w, map[string]any{"tag": map[string]any{"id": resp.GetTagId(), "label": label, "media": "book"}})
 		return
 	}
 	if s.movies == nil {
@@ -443,6 +477,73 @@ func (s *server) handleSetMusicTags(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	if _, err := s.music.SetItemTags(ctx, &musicv1.SetItemTagsRequest{ItemId: id, TagIds: ids}); err != nil {
+		writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "code": "tags.set_failed"})
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "id": id, "tag_ids": ids})
+}
+
+func (s *server) handleGetBookTags(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeAPIMethodNotAllowed(w)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "id required", "code": "tags.id_required"})
+		return
+	}
+	if s.booksHTTP == nil || s.booksHTTP.String() == "" {
+		writeJSON(w, map[string]any{"available": false, "tags": []any{}})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	raw, err := s.getLibraryPlusJSON(ctx, s.booksHTTP, "/api/authors/"+url.PathEscape(id)+"/tags")
+	if err != nil {
+		writeJSON(w, map[string]any{"available": false, "tags": []any{}, "error": err.Error()})
+		return
+	}
+	if _, ok := raw["available"]; !ok {
+		raw["available"] = true
+	}
+	writeJSON(w, raw)
+}
+
+func (s *server) handleSetBookTags(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut && r.Method != http.MethodPost {
+		writeAPIMethodNotAllowed(w)
+		return
+	}
+	if !s.sessionHasPrivilegedRole(r) {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin or manager role required", "code": "tags.forbidden"})
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "id required", "code": "tags.id_required"})
+		return
+	}
+	if s.booksAdmin == nil {
+		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": "Books module unavailable", "code": "tags.unavailable"})
+		return
+	}
+	var body struct {
+		TagIDs []string `json:"tag_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err.Error() != "EOF" {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "invalid json", "code": "tags.invalid_json"})
+		return
+	}
+	ids := make([]string, 0, len(body.TagIDs))
+	for _, raw := range body.TagIDs {
+		if id := strings.TrimSpace(raw); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	if _, err := s.booksAdmin.SetItemTags(ctx, &mediaadminv1.SetItemTagsRequest{ItemId: id, TagIds: ids}); err != nil {
 		writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "code": "tags.set_failed"})
 		return
 	}
