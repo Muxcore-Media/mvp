@@ -117,3 +117,19 @@ func (s *server) handleListTVHistory(w http.ResponseWriter, r *http.Request) {
 	body, _ := s.listItemHistory(ctx, s.tvAdmin, id, r.URL.Query().Get("event"))
 	writeJSON(w, body)
 }
+
+func (s *server) handleListMusicHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeAPIMethodNotAllowed(w)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "id required", "code": "history.id_required"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	body, _ := s.listItemHistory(ctx, s.musicAdmin, id, r.URL.Query().Get("event"))
+	writeJSON(w, body)
+}

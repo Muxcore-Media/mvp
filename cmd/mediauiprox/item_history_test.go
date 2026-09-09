@@ -118,3 +118,18 @@ func TestHandleListTVHistory(t *testing.T) {
 		t.Fatalf("item=%q", fake.itemID)
 	}
 }
+
+func TestHandleListMusicHistory(t *testing.T) {
+	fake, client := dialItemHistory(t)
+	s := &server{musicAdmin: client}
+	req := httptest.NewRequest(http.MethodGet, "/api/music/ar1/history?event=import", nil)
+	req.SetPathValue("id", "ar1")
+	w := httptest.NewRecorder()
+	s.handleListMusicHistory(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d %s", w.Code, w.Body.String())
+	}
+	if fake.itemID != "ar1" || fake.event != mediaadminv1.HistoryEventType_HISTORY_EVENT_TYPE_IMPORT {
+		t.Fatalf("item=%q event=%v", fake.itemID, fake.event)
+	}
+}

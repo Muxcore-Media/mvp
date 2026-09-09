@@ -195,6 +195,7 @@ func main() {
 	}
 
 	var musicClient musicv1.MusicManagementServiceClient
+	var musicAdminClient mediaadminv1.MediaAdminServiceClient
 	if addr := strings.TrimSpace(*musicGRPC); addr != "" {
 		musicConn, err := dialMeshGRPC(addr)
 		if err != nil {
@@ -202,6 +203,7 @@ func main() {
 		} else {
 			defer func() { _ = musicConn.Close() }()
 			musicClient = musicv1.NewMusicManagementServiceClient(musicConn)
+			musicAdminClient = mediaadminv1.NewMediaAdminServiceClient(musicConn)
 		}
 	}
 
@@ -326,6 +328,7 @@ func main() {
 		tv:               tvmgmtv1.NewTvManagementServiceClient(tvConn),
 		tvAdmin:          mediaadminv1.NewMediaAdminServiceClient(tvConn),
 		music:            musicClient,
+		musicAdmin:       musicAdminClient,
 		jellyfin:         jellyfinv1.NewJellyfinBridgeClient(jellyfinConn),
 		plex:             plexClient,
 		notify:           notifyClient,
@@ -772,6 +775,7 @@ type server struct {
 	tv                   tvmgmtv1.TvManagementServiceClient
 	tvAdmin              mediaadminv1.MediaAdminServiceClient
 	music                musicv1.MusicManagementServiceClient
+	musicAdmin           mediaadminv1.MediaAdminServiceClient
 	arrHTTP              *http.Client
 	jellyfin             jellyfinv1.JellyfinBridgeClient
 	plex                 plexv1.PlexBridgeServiceClient
