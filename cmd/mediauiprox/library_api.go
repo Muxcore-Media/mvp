@@ -54,6 +54,8 @@ func (s *server) registerLibraryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /api/books/{id}", s.handlePatchBookAuthor)
 	mux.HandleFunc("DELETE /api/books/{id}", s.handleDeleteBookAuthor)
 	mux.HandleFunc("GET /api/books/{id}/history", s.handleListBookHistory)
+	mux.HandleFunc("GET /api/books/{id}/artwork", s.handleListBookArtwork)
+	mux.HandleFunc("POST /api/books/{id}/artwork", s.handleReplaceBookArtwork)
 	mux.HandleFunc("GET /api/books/", s.handleBookAuthorByID)
 	mux.HandleFunc("GET /stream/books/", s.handleBookStream)
 	mux.HandleFunc("POST /api/comics/issues/{id}/import", s.handleImportComicIssue)
@@ -68,6 +70,8 @@ func (s *server) registerLibraryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/audiobooks/{id}/import", s.handleImportAudiobook)
 	mux.HandleFunc("PATCH /api/audiobooks/{id}", s.handlePatchAudiobook)
 	mux.HandleFunc("DELETE /api/audiobooks/{id}", s.handleDeleteAudiobook)
+	mux.HandleFunc("GET /api/audiobooks/{id}/artwork", s.handleListAudiobookArtwork)
+	mux.HandleFunc("POST /api/audiobooks/{id}/artwork", s.handleReplaceAudiobookArtwork)
 	mux.HandleFunc("GET /api/audiobooks/", s.handleAudiobookByID)
 	mux.HandleFunc("GET /stream/audiobooks/", s.handleAudiobookStream)
 }
