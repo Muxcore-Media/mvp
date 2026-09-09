@@ -103,6 +103,12 @@ Resolves a MuxCore library id through jellyfin item links → `{ "url": "https:/
 
 `404` when unlinked or Jellyfin base URL unset; `503` when the jellyfin bridge is unreachable.
 
+### `GET /api/plex/play?rating_key=`
+
+Resolves a Plex rating key through plex `PlayURL` → `{ "url": "https://…/web/index.html#!/server/{machine}/details?key=/library/metadata/{rating_key}" }`.
+
+`404` when Plex base URL or machine id is unset; `503` when the plex bridge is unreachable. PlayURL failure falls back to `Status` the same way Jellyfin play does.
+
 ## Playback resolve (native player)
 
 ### `GET /api/playback/resolve?src=`

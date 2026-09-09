@@ -513,6 +513,7 @@ func main() {
 	mux.HandleFunc("POST /api/jellyfin/match", s.handleJellyfinMatch)
 	mux.HandleFunc("/api/jellyfin/play", s.handleJellyfinPlay)
 	mux.HandleFunc("GET /api/plex/sync-lists", s.handlePlexSyncLists)
+	mux.HandleFunc("/api/plex/play", s.handlePlexPlay)
 	mux.HandleFunc("GET /api/playback/resolve", s.handlePlaybackResolve)
 	mux.HandleFunc("POST /api/playback/session", s.handlePlaybackSession)
 	mux.HandleFunc("GET /api/sessions/events", s.handlePlaybackSessionEvents)
