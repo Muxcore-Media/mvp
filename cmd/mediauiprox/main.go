@@ -62,6 +62,7 @@ func main() {
 	musicHTTP := flag.String("music-http", envOr("MUSIC_HTTP_URL", "http://127.0.0.1:9641"), "media-music HTTP (optional library-plus)")
 	musicGRPC := flag.String("music-grpc", envOr("MUSIC_GRPC_CLIENT_ADDR", "127.0.0.1:9640"), "media-music gRPC (optional household Lidarr migrate)")
 	booksHTTP := flag.String("books-http", envOr("BOOKS_HTTP_URL", "http://127.0.0.1:9651"), "media-books HTTP (optional library-plus)")
+	booksGRPC := flag.String("books-grpc", envOr("BOOKS_GRPC_CLIENT_ADDR", "127.0.0.1:9650"), "media-books gRPC (optional household author history)")
 	comicsHTTP := flag.String("comics-http", envOr("COMICS_HTTP_URL", "http://127.0.0.1:9661"), "media-comics HTTP (optional library-plus)")
 	audiobooksHTTP := flag.String("audiobooks-http", envOr("AUDIOBOOKS_HTTP_URL", "http://127.0.0.1:9671"), "media-audiobooks HTTP (optional library-plus)")
 	transcoderHTTP := flag.String("transcoder-http", envOr("TRANSCODER_HTTP_URL", "http://127.0.0.1:9526"), "media-transcoder playback HTTP (on-the-fly transcode)")
@@ -207,6 +208,17 @@ func main() {
 		}
 	}
 
+	var booksAdminClient mediaadminv1.MediaAdminServiceClient
+	if addr := strings.TrimSpace(*booksGRPC); addr != "" {
+		booksConn, err := dialMeshGRPC(addr)
+		if err != nil {
+			log.Printf("warn: dial books grpc %s: %v (household book history disabled)", addr, err)
+		} else {
+			defer func() { _ = booksConn.Close() }()
+			booksAdminClient = mediaadminv1.NewMediaAdminServiceClient(booksConn)
+		}
+	}
+
 	var plexClient plexv1.PlexBridgeServiceClient
 	if addr := strings.TrimSpace(*plexGRPC); addr != "" {
 		plexConn, err := dialMeshGRPC(addr)
@@ -329,6 +341,7 @@ func main() {
 		tvAdmin:          mediaadminv1.NewMediaAdminServiceClient(tvConn),
 		music:            musicClient,
 		musicAdmin:       musicAdminClient,
+		booksAdmin:       booksAdminClient,
 		jellyfin:         jellyfinv1.NewJellyfinBridgeClient(jellyfinConn),
 		plex:             plexClient,
 		notify:           notifyClient,
@@ -427,6 +440,9 @@ func main() {
 	mux.HandleFunc("DELETE /api/formats/{id}", s.handleDeleteCustomFormat)
 	mux.HandleFunc("GET /api/acquisition", s.handleAcquisition)
 	mux.HandleFunc("GET /api/indexers", s.handleListIndexers)
+	mux.HandleFunc("POST /api/indexers", s.handleCreateIndexer)
+	mux.HandleFunc("PATCH /api/indexers/{id}", s.handleUpdateIndexer)
+	mux.HandleFunc("DELETE /api/indexers/{id}", s.handleDeleteIndexer)
 	mux.HandleFunc("GET /api/releases/search", s.handleReleaseSearch)
 	mux.HandleFunc("POST /api/releases/grab", s.handleReleaseGrab)
 	mux.HandleFunc("GET /api/releases/upgrades", s.handleCutoffUnmet)
@@ -682,6 +698,7 @@ func main() {
 	// SPA uses /images/movies/<rel> and /images/tv/<rel>; modules serve under /images/<rel>.
 	mux.Handle("/images/movies/", imagePrefixProxy("/images/movies", "/images", reverseProxy(s.moviesHTTP)))
 	mux.Handle("/images/tv/", imagePrefixProxy("/images/tv", "/images", reverseProxy(s.tvHTTP)))
+	mux.Handle("/images/music/", imagePrefixProxy("/images/music", "/images", reverseProxy(s.musicHTTP)))
 	mux.Handle("/stream/movies/", reverseProxy(s.moviesHTTP))
 	mux.Handle("/stream/tv/", reverseProxy(s.tvHTTP))
 	mux.HandleFunc("/", s.spa)
@@ -776,6 +793,7 @@ type server struct {
 	tvAdmin              mediaadminv1.MediaAdminServiceClient
 	music                musicv1.MusicManagementServiceClient
 	musicAdmin           mediaadminv1.MediaAdminServiceClient
+	booksAdmin           mediaadminv1.MediaAdminServiceClient
 	arrHTTP              *http.Client
 	jellyfin             jellyfinv1.JellyfinBridgeClient
 	plex                 plexv1.PlexBridgeServiceClient
@@ -1253,6 +1271,9 @@ func consumerImageURL(kind, raw string) string {
 	raw = strings.TrimPrefix(raw, "/")
 	if kind == "tv" {
 		return "/images/tv/" + raw
+	}
+	if kind == "music" {
+		return "/images/music/" + raw
 	}
 	return "/images/movies/" + raw
 }

@@ -229,11 +229,15 @@ Probes configured indexer/downloader health HTTP (Pirate Bay, native torrent, qB
 }
 ```
 
-`ready` is true only when at least one indexer **and** one downloader are live. HTTP peers answer `< 500` on `/healthz` or `/`. Torznab/Prowlarr counts when `ListIndexers` returns a configured child. Defaults: `INDEXER_PIRATEBAY_HTTP_URL`, `INDEXER_TORZNAB_GRPC_CLIENT_ADDR` (`:9486`), `DOWNLOADER_TORRENT_HTTP_URL` (`:9464`), `DOWNLOADER_QBIT_HTTP_URL`, `DOWNLOADER_SAB_HTTP_URL`, `DOWNLOADER_USENET_HTTP_URL`, `DEBRID_HTTP_URL`.
+`ready` is true only when at least one indexer **and** one downloader are live. HTTP peers answer `< 500` on `/healthz` or `/`. Torznab/Prowlarr counts when `ListIndexers` returns a configured child. Also reports `live_grab_allowed`, `downloader_mode` (`fixture` unless `DOWNLOADER_ENGINE` is live), `indexer_mode`, and `vpn.{configured,conf_present}` from `WG_CONF`. Live grab stays opt-in: fixture engines are always allowed; live torrent needs a readable `WG_CONF`. Defaults: `INDEXER_PIRATEBAY_HTTP_URL`, `INDEXER_TORZNAB_GRPC_CLIENT_ADDR` (`:9486`), `DOWNLOADER_TORRENT_HTTP_URL` (`:9464`), `DOWNLOADER_QBIT_HTTP_URL`, `DOWNLOADER_SAB_HTTP_URL`, `DOWNLOADER_USENET_HTTP_URL`, `DEBRID_HTTP_URL`.
 
 ### `GET /api/indexers`
 
-Household Prowlarr/Jackett catalog from `indexer-torznab` `ListIndexers`. `{ available, indexers: [{ id, name, protocol, language, configured }] }`. Module unset/down → `{ available: false, indexers: [] }`. Not a feature key — Settings → Acquisition shows the catalog. There is no household add/delete: indexers are created in Prowlarr/Jackett.
+Household Prowlarr/Jackett catalog from `indexer-torznab` `ListIndexers`. `{ available, indexers: [{ id, name, protocol, language, configured }] }`. Module unset/down → `{ available: false, indexers: [] }`. Not a feature key — Settings → Acquisition shows the catalog.
+
+### `POST /api/indexers` / `PATCH /api/indexers/{id}` / `DELETE /api/indexers/{id}`
+
+Admin/manager. Proxies Prowlarr Torznab/Newznab CRUD (`name`, `base_url`, `api_key`, `implementation`, `enable`). `api_key` is write-only; responses use `has_api_key`. Direct Torznab/Jackett (no `PROWLARR_URL`) returns `indexers.unsupported`.
 
 `GET /api/capabilities` includes `features.acquisition` when `ready` is true.
 

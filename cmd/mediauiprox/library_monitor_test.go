@@ -117,6 +117,46 @@ func TestHandlePatchBookAuthorRootFolder(t *testing.T) {
 	}
 }
 
+func TestHandlePatchComicSeriesRootFolder(t *testing.T) {
+	var gotPath string
+	var gotBody []byte
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotBody, _ = io.ReadAll(r.Body)
+		if r.Method != http.MethodPatch {
+			http.Error(w, "method", http.StatusMethodNotAllowed)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "s1", "path": "/data/comics", "monitored": true})
+	}))
+	t.Cleanup(up.Close)
+
+	s := &server{comicsHTTP: mustURL(up.URL)}
+	mux := http.NewServeMux()
+	s.registerLibraryRoutes(mux)
+	req := httptest.NewRequest(http.MethodPatch, "/api/comics/s1", bytes.NewBufferString(`{"root_folder_path":"/data/comics"}`))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d body=%s", w.Code, w.Body.String())
+	}
+	if gotPath != "/api/series/s1" {
+		t.Fatalf("upstream path %q", gotPath)
+	}
+	if !bytes.Contains(gotBody, []byte(`"path":"/data/comics"`)) {
+		t.Fatalf("upstream body %s", gotBody)
+	}
+	var body struct {
+		RootFolderPath string `json:"root_folder_path"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.RootFolderPath != "/data/comics" {
+		t.Fatalf("root %q", body.RootFolderPath)
+	}
+}
+
 func TestHandlePatchAudiobookRootFolder(t *testing.T) {
 	var patched []string
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

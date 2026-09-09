@@ -90,6 +90,10 @@ func TestHouseholdArtworkURL(t *testing.T) {
 	if got != "/images/tv/s1/fanart.jpg" {
 		t.Fatalf("got %q", got)
 	}
+	got = householdArtworkURL("music", "http://127.0.0.1:9/images/ar1/poster.jpg")
+	if got != "/images/music/ar1/poster.jpg" {
+		t.Fatalf("got %q", got)
+	}
 }
 
 func TestHandleListMovieArtworkUnavailable(t *testing.T) {
@@ -182,6 +186,39 @@ func TestHandleReplaceMovieArtwork(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !body.OK || body.Artwork.URL != "/images/movies/m1/poster.jpg" {
+		t.Fatalf("%#v", body)
+	}
+}
+
+func TestHandleReplaceMusicArtwork(t *testing.T) {
+	fake, client := dialItemArtwork(t)
+	sessions := newSessionStore(time.Hour)
+	tok, err := sessions.CreateWithRoles("admin", "admin", "", []string{"admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{musicAdmin: client, sessions: sessions}
+	req := httptest.NewRequest(http.MethodPost, "/api/music/ar1/artwork", strings.NewReader(`{"type":"poster","filename":"poster.jpg","data":"iVBORw0KGgo="}`))
+	req.AddCookie(&http.Cookie{Name: "session", Value: tok})
+	req.SetPathValue("id", "ar1")
+	w := httptest.NewRecorder()
+	s.handleReplaceMusicArtwork(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d %s", w.Code, w.Body.String())
+	}
+	if fake.replaced != "ar1" {
+		t.Fatalf("replaced=%q", fake.replaced)
+	}
+	var body struct {
+		OK      bool `json:"ok"`
+		Artwork struct {
+			URL string `json:"url"`
+		} `json:"artwork"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK || body.Artwork.URL != "/images/music/ar1/poster.jpg" {
 		t.Fatalf("%#v", body)
 	}
 }
