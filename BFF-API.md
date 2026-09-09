@@ -398,11 +398,11 @@ Household Arr library import (admin-ui `/migrate`). Admin/manager only. Body `{ 
 
 ### `GET /api/tags` · `POST /api/tags` · `DELETE /api/tags/{id}`
 
-Household Arr tags (movies + TV catalogs). GET `?media=movie|tv|all` returns `{ available, tags: [{ id, label, media, created_at }] }` to any signed-in session. POST `{ label, media: movie|tv }` and DELETE `?media=` are admin/manager. Module unset/down → GET `{ available: false, tags: [] }`. Not a feature key — Settings hides Tags when the session is not admin/manager.
+Household Arr tags (movies + TV + music catalogs). GET `?media=movie|tv|music|artist|all` returns `{ available, tags: [{ id, label, media, created_at }] }` to any signed-in session. POST `{ label, media: movie|tv|music|artist }` and DELETE `?media=` are admin/manager. Module unset/down → GET `{ available: false, tags: [] }`. Not a feature key — Settings hides Tags when the session is not admin/manager.
 
-### `GET|PUT /api/movies/{id}/tags` · `GET|PUT /api/tv/{id}/tags`
+### `GET|PUT /api/movies/{id}/tags` · `GET|PUT /api/tv/{id}/tags` · `GET|PUT /api/music/{id}/tags`
 
-Per-title tag assignment. GET `{ available, tags }`. PUT `{ tag_ids: [] }` replaces the item’s tags (admin/manager).
+Per-title tag assignment (music id is the artist). GET `{ available, tags }`. PUT `{ tag_ids: [] }` replaces the item’s tags (admin/manager).
 
 ### `GET|POST /api/movies/{id}/titles` · `DELETE /api/movies/{id}/titles/{titleId}` · `GET|POST /api/tv/{id}/titles` · `DELETE /api/tv/{id}/titles/{titleId}`
 

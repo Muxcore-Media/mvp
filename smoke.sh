@@ -549,6 +549,17 @@ for it in d.get("items") or []:
       exit 1
       ;;
   esac
+  music_tags_code=$(curl -s -c "$media_cj" -b "$media_cj" -o /tmp/muxcore-music-tags.json -w '%{http_code}' \
+    "${MEDIA_UI_URL}/api/music/smoke/tags")
+  case "$music_tags_code" in
+    200) echo "OK /api/music/{id}/tags (HTTP $music_tags_code)" ;;
+    *)
+      echo "FAIL: /api/music/{id}/tags HTTP $music_tags_code (expected 200)" >&2
+      head -c 200 /tmp/muxcore-music-tags.json >&2 || true
+      echo >&2
+      exit 1
+      ;;
+  esac
   echo "==> media-ui → request-media search/request"
   mr_flags=(-base "$MEDIA_UI_URL" -cookie-jar "$media_cj")
   if [[ "${TMDB_FIXTURE:-}" == "1" || "${SMOKE_REQUIRE_TMDB_SEARCH:-}" == "1" || -n "${TMDB_API_KEY:-}" ]]; then
