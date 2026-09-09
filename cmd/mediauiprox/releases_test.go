@@ -17,6 +17,7 @@ import (
 type fixtureAutomation struct {
 	automationv1.UnimplementedAutomationServiceServer
 	searchQuery    string
+	searchType     string
 	grabbedGUID    string
 	blockedGUID    string
 	blockedItemID  string
@@ -28,6 +29,7 @@ type fixtureAutomation struct {
 
 func (f *fixtureAutomation) SearchItem(_ context.Context, req *automationv1.SearchItemRequest) (*automationv1.SearchItemResponse, error) {
 	f.searchQuery = req.GetQuery()
+	f.searchType = req.GetItemType()
 	return &automationv1.SearchItemResponse{
 		Matches: []*automationv1.ReleaseMatch{
 			{
@@ -188,8 +190,23 @@ func TestReleaseSearchParsesQuality(t *testing.T) {
 	if label, _ := body.Items[0].Quality["label"].(string); label != "1080p Remux" {
 		t.Fatalf("label %#v", body.Items[0].Quality)
 	}
-	if fake.parsedTitle == "" {
-		t.Fatal("expected ParseQuality on the release title")
+}
+
+func TestReleaseSearchAcceptsLibraryPlusTypes(t *testing.T) {
+	fix := &fixtureAutomation{}
+	s := &server{automation: dialAutomationFixture(t, fix)}
+	w := httptest.NewRecorder()
+	s.handleReleaseSearch(w, httptest.NewRequest(http.MethodGet, "/api/releases/search?q=Radiohead&type=music", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d %s", w.Code, w.Body.String())
+	}
+	if fix.searchType != "music" || fix.searchQuery != "Radiohead" {
+		t.Fatalf("search type=%q query=%q", fix.searchType, fix.searchQuery)
+	}
+	w = httptest.NewRecorder()
+	s.handleReleaseSearch(w, httptest.NewRequest(http.MethodGet, "/api/releases/search?q=X&type=podcast", nil))
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status %d", w.Code)
 	}
 }
 

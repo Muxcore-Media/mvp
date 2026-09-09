@@ -12,16 +12,16 @@ import (
 )
 
 type releaseMatchJSON struct {
-	GUID             string `json:"guid"`
-	Title            string `json:"title"`
-	IndexerName      string `json:"indexer_name"`
-	DownloadProtocol string `json:"download_protocol"`
-	Size             int64  `json:"size"`
-	Seeders          int32  `json:"seeders"`
-	Peers            int32  `json:"peers"`
-	Score            int32  `json:"score"`
-	DownloadURL      string `json:"download_url"`
-	InfoURL          string `json:"info_url,omitempty"`
+	GUID             string         `json:"guid"`
+	Title            string         `json:"title"`
+	IndexerName      string         `json:"indexer_name"`
+	DownloadProtocol string         `json:"download_protocol"`
+	Size             int64          `json:"size"`
+	Seeders          int32          `json:"seeders"`
+	Peers            int32          `json:"peers"`
+	Score            int32          `json:"score"`
+	DownloadURL      string         `json:"download_url"`
+	InfoURL          string         `json:"info_url,omitempty"`
 	Category         string         `json:"category,omitempty"`
 	Quality          map[string]any `json:"quality,omitempty"`
 }
@@ -50,8 +50,8 @@ func (s *server) handleReleaseSearch(w http.ResponseWriter, r *http.Request) {
 	if itemType == "" {
 		itemType = "movie"
 	}
-	if itemType != "movie" && itemType != "tv" {
-		writeAPIError(w, http.StatusBadRequest, "type must be movie or tv", "releases.bad_type")
+	if !releaseSearchTypeOK(itemType) {
+		writeAPIError(w, http.StatusBadRequest, "type must be movie, tv, music, book, comic, or audiobook", "releases.bad_type")
 		return
 	}
 	limit := int32(50)
@@ -338,4 +338,13 @@ func (s *server) handleReleaseGrab(w http.ResponseWriter, r *http.Request) {
 		"download_id": resp.GetDownloadId(),
 		"status":      resp.GetStatus(),
 	})
+}
+
+func releaseSearchTypeOK(itemType string) bool {
+	switch itemType {
+	case "movie", "tv", "music", "book", "comic", "audiobook":
+		return true
+	default:
+		return false
+	}
 }
