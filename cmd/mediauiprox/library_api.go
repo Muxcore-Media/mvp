@@ -37,6 +37,7 @@ func (s *server) registerLibraryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /api/music/{id}", s.handlePatchMusicArtist)
 	mux.HandleFunc("DELETE /api/music/{id}", s.handleDeleteMusicArtist)
 	mux.HandleFunc("POST /api/music/{id}/refresh", s.handleRefreshMusicArtist)
+	mux.HandleFunc("GET /api/music/{id}/history", s.handleListMusicHistory)
 	mux.HandleFunc("GET /api/music/{id}/tags", s.handleGetMusicTags)
 	mux.HandleFunc("PUT /api/music/{id}/tags", s.handleSetMusicTags)
 	mux.HandleFunc("POST /api/music/{id}/tags", s.handleSetMusicTags)

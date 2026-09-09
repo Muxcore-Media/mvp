@@ -408,9 +408,9 @@ Per-title tag assignment (music id is the artist). GET `{ available, tags }`. PU
 
 Household Arr alternate titles used for grab/import matching. GET `{ available, titles: [{ id, title, clean_title, source, user }] }` — any signed-in session; module unset/down → `{ available: false, titles: [] }`. POST `{ title }` adds a user title (admin/manager). DELETE removes a user-sourced title only (the module refuses primary/TMDB rows). Not a feature key — movie/TV detail shows the card when the catalog is available.
 
-### `GET /api/movies/{id}/history` · `GET /api/tv/{id}/history`
+### `GET /api/movies/{id}/history` · `GET /api/tv/{id}/history` · `GET /api/music/{id}/history`
 
-Household Arr title history (grab / import / delete file / delete item) from movies and TV `ListHistory`. Any signed-in session. Optional `?event=grab|import|delete_file|delete_item`. Response `{ available, items: [{ id, event_type, item_id, title, source_title, quality, indexer, file_path, download_id, created_at }], total }`. Module unset/down → `{ available: false, items: [] }`. Not a feature key — movie/TV detail hides the card when unavailable.
+Household Arr title history (grab / import / delete file / delete item) from movies, TV, and music `ListHistory`. Music id is the artist. Any signed-in session. Optional `?event=grab|import|delete_file|delete_item`. Response `{ available, items: [{ id, event_type, item_id, title, source_title, quality, indexer, file_path, download_id, created_at }], total }`. Module unset/down → `{ available: false, items: [] }`. Not a feature key — movie/TV/artist detail hides the card when unavailable.
 
 ### `GET /api/notifications` · `PUT|POST /api/notifications` · `POST /api/notifications/test`
 
