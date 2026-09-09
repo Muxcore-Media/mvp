@@ -538,6 +538,17 @@ for it in d.get("items") or []:
       exit 1
       ;;
   esac
+  plex_play_code=$(curl -s -c "$media_cj" -b "$media_cj" -o /tmp/muxcore-plex-play.json -w '%{http_code}' \
+    "${MEDIA_UI_URL}/api/plex/play?rating_key=1")
+  case "$plex_play_code" in
+    200|404|503) echo "OK /api/plex/play (HTTP $plex_play_code)" ;;
+    *)
+      echo "FAIL: /api/plex/play HTTP $plex_play_code (expected 200, 404, or 503)" >&2
+      head -c 200 /tmp/muxcore-plex-play.json >&2 || true
+      echo >&2
+      exit 1
+      ;;
+  esac
   echo "==> media-ui → request-media search/request"
   mr_flags=(-base "$MEDIA_UI_URL" -cookie-jar "$media_cj")
   if [[ "${TMDB_FIXTURE:-}" == "1" || "${SMOKE_REQUIRE_TMDB_SEARCH:-}" == "1" || -n "${TMDB_API_KEY:-}" ]]; then
