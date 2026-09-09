@@ -699,6 +699,8 @@ func main() {
 	mux.Handle("/images/movies/", imagePrefixProxy("/images/movies", "/images", reverseProxy(s.moviesHTTP)))
 	mux.Handle("/images/tv/", imagePrefixProxy("/images/tv", "/images", reverseProxy(s.tvHTTP)))
 	mux.Handle("/images/music/", imagePrefixProxy("/images/music", "/images", reverseProxy(s.musicHTTP)))
+	mux.Handle("/images/books/", imagePrefixProxy("/images/books", "/images", reverseProxy(s.booksHTTP)))
+	mux.Handle("/images/audiobooks/", imagePrefixProxy("/images/audiobooks", "/images", reverseProxy(s.audiobooksHTTP)))
 	mux.Handle("/stream/movies/", reverseProxy(s.moviesHTTP))
 	mux.Handle("/stream/tv/", reverseProxy(s.tvHTTP))
 	mux.HandleFunc("/", s.spa)
@@ -1274,6 +1276,12 @@ func consumerImageURL(kind, raw string) string {
 	}
 	if kind == "music" {
 		return "/images/music/" + raw
+	}
+	if kind == "books" {
+		return "/images/books/" + raw
+	}
+	if kind == "audiobooks" {
+		return "/images/audiobooks/" + raw
 	}
 	return "/images/movies/" + raw
 }

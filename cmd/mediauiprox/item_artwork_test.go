@@ -94,6 +94,14 @@ func TestHouseholdArtworkURL(t *testing.T) {
 	if got != "/images/music/ar1/poster.jpg" {
 		t.Fatalf("got %q", got)
 	}
+	got = householdArtworkURL("books", "http://127.0.0.1:9/images/au1/poster.jpg")
+	if got != "/images/books/au1/poster.jpg" {
+		t.Fatalf("got %q", got)
+	}
+	got = householdArtworkURL("audiobooks", "http://127.0.0.1:9/images/ab1/poster.jpg")
+	if got != "/images/audiobooks/ab1/poster.jpg" {
+		t.Fatalf("got %q", got)
+	}
 }
 
 func TestHandleListMovieArtworkUnavailable(t *testing.T) {
@@ -219,6 +227,116 @@ func TestHandleReplaceMusicArtwork(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !body.OK || body.Artwork.URL != "/images/music/ar1/poster.jpg" {
+		t.Fatalf("%#v", body)
+	}
+}
+
+func TestHandleReplaceBookArtwork(t *testing.T) {
+	fake, client := dialItemArtwork(t)
+	sessions := newSessionStore(time.Hour)
+	tok, err := sessions.CreateWithRoles("admin", "admin", "", []string{"admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{booksAdmin: client, sessions: sessions}
+	req := httptest.NewRequest(http.MethodPost, "/api/books/au1/artwork", strings.NewReader(`{"type":"poster","filename":"poster.jpg","data":"iVBORw0KGgo="}`))
+	req.AddCookie(&http.Cookie{Name: "session", Value: tok})
+	req.SetPathValue("id", "au1")
+	w := httptest.NewRecorder()
+	s.handleReplaceBookArtwork(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d %s", w.Code, w.Body.String())
+	}
+	if fake.replaced != "au1" {
+		t.Fatalf("replaced=%q", fake.replaced)
+	}
+	var body struct {
+		OK      bool `json:"ok"`
+		Artwork struct {
+			URL string `json:"url"`
+		} `json:"artwork"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK || body.Artwork.URL != "/images/books/au1/poster.jpg" {
+		t.Fatalf("%#v", body)
+	}
+}
+
+func TestHandleListAudiobookArtwork(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/audiobooks/ab1/artwork" {
+			t.Fatalf("path %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"available": true,
+			"items": []map[string]any{{
+				"id": "ab1_poster", "item_id": "ab1", "type": "poster",
+				"url": "http://127.0.0.1:9/images/ab1/poster.jpg",
+			}},
+		})
+	}))
+	t.Cleanup(up.Close)
+	s := &server{audiobooksHTTP: mustURL(up.URL)}
+	req := httptest.NewRequest(http.MethodGet, "/api/audiobooks/ab1/artwork", nil)
+	req.SetPathValue("id", "ab1")
+	w := httptest.NewRecorder()
+	s.handleListAudiobookArtwork(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Available bool `json:"available"`
+		Items     []struct {
+			URL string `json:"url"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Available || len(body.Items) != 1 || body.Items[0].URL != "/images/audiobooks/ab1/poster.jpg" {
+		t.Fatalf("%#v", body)
+	}
+}
+
+func TestHandleReplaceAudiobookArtwork(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/audiobooks/ab1/artwork" {
+			t.Fatalf("%s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"artwork": map[string]any{
+				"id": "ab1_poster", "url": "http://127.0.0.1:9/images/ab1/poster.jpg",
+			},
+		})
+	}))
+	t.Cleanup(up.Close)
+	sessions := newSessionStore(time.Hour)
+	tok, err := sessions.CreateWithRoles("admin", "admin", "", []string{"admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{audiobooksHTTP: mustURL(up.URL), sessions: sessions}
+	req := httptest.NewRequest(http.MethodPost, "/api/audiobooks/ab1/artwork", strings.NewReader(`{"type":"poster","filename":"poster.jpg","data":"iVBORw0KGgo="}`))
+	req.AddCookie(&http.Cookie{Name: "session", Value: tok})
+	req.SetPathValue("id", "ab1")
+	w := httptest.NewRecorder()
+	s.handleReplaceAudiobookArtwork(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		OK      bool `json:"ok"`
+		Artwork struct {
+			URL string `json:"url"`
+		} `json:"artwork"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK || body.Artwork.URL != "/images/audiobooks/ab1/poster.jpg" {
 		t.Fatalf("%#v", body)
 	}
 }
