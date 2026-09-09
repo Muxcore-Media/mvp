@@ -14,17 +14,17 @@ import (
 )
 
 type stubFormatsClient struct {
-	formats  []*formatsv1.CustomFormat
-	profiles []*formatsv1.QualityProfile
-	release  []*formatsv1.ReleaseProfile
-	sync     *formatsv1.SyncTrashGuidesResponse
-	score    *formatsv1.ScoreReleaseResponse
-	created        *formatsv1.CreateProfileRequest
-	updated        *formatsv1.UpdateProfileRequest
-	deleted        string
-	createdFormat  *formatsv1.CreateFormatRequest
-	updatedFormat  *formatsv1.UpdateFormatRequest
-	deletedFormat  string
+	formats         []*formatsv1.CustomFormat
+	profiles        []*formatsv1.QualityProfile
+	release         []*formatsv1.ReleaseProfile
+	sync            *formatsv1.SyncTrashGuidesResponse
+	score           *formatsv1.ScoreReleaseResponse
+	created         *formatsv1.CreateProfileRequest
+	updated         *formatsv1.UpdateProfileRequest
+	deleted         string
+	createdFormat   *formatsv1.CreateFormatRequest
+	updatedFormat   *formatsv1.UpdateFormatRequest
+	deletedFormat   string
 	upsertedRelease *formatsv1.UpsertReleaseProfileRequest
 	deletedRelease  string
 	lastSync        *formatsv1.SyncTrashGuidesRequest
@@ -216,7 +216,7 @@ func TestHandleFormatsSyncTrashOfficial(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status %d %s", w.Code, w.Body.String())
 	}
-	if fake.lastSync == nil || fake.lastSync.GetGuidesPath() != "official" {
+	if fake.lastSync == nil || fake.lastSync.GetGuidesPath() != "official-refresh" {
 		t.Fatalf("sync req %#v", fake.lastSync)
 	}
 }

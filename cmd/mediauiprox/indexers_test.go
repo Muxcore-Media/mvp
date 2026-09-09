@@ -6,7 +6,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	indexerv1 "github.com/Muxcore-Media/contracts-indexer/muxcore/indexer/v1"
 	"google.golang.org/grpc"
@@ -15,9 +17,10 @@ import (
 
 type fixtureIndexer struct {
 	indexerv1.UnimplementedIndexerServiceServer
-	listed []*indexerv1.IndexerInfo
-	caps   *indexerv1.GetCapabilitiesResponse
-	err    error
+	listed  []*indexerv1.IndexerInfo
+	caps    *indexerv1.GetCapabilitiesResponse
+	created *indexerv1.IndexerSpec
+	err     error
 }
 
 func (f *fixtureIndexer) ListIndexers(_ context.Context, _ *indexerv1.ListIndexersRequest) (*indexerv1.ListIndexersResponse, error) {
@@ -25,6 +28,45 @@ func (f *fixtureIndexer) ListIndexers(_ context.Context, _ *indexerv1.ListIndexe
 		return nil, f.err
 	}
 	return &indexerv1.ListIndexersResponse{Indexers: f.listed}, nil
+}
+
+func (f *fixtureIndexer) CreateIndexer(_ context.Context, req *indexerv1.CreateIndexerRequest) (*indexerv1.IndexerSpec, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	spec := req.GetIndexer()
+	if spec == nil {
+		spec = &indexerv1.IndexerSpec{}
+	}
+	out := *spec
+	out.Id = 9
+	out.ApiKey = ""
+	out.HasApiKey = spec.GetApiKey() != ""
+	if out.Protocol == "" {
+		out.Protocol = "torrent"
+	}
+	if out.Implementation == "" {
+		out.Implementation = "torznab"
+	}
+	f.created = &out
+	return &out, nil
+}
+
+func (f *fixtureIndexer) UpdateIndexer(_ context.Context, req *indexerv1.UpdateIndexerRequest) (*indexerv1.IndexerSpec, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	spec := req.GetIndexer()
+	out := *spec
+	out.ApiKey = ""
+	return &out, nil
+}
+
+func (f *fixtureIndexer) DeleteIndexer(context.Context, *indexerv1.DeleteIndexerRequest) (*indexerv1.DeleteIndexerResponse, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return &indexerv1.DeleteIndexerResponse{}, nil
 }
 
 func (f *fixtureIndexer) GetCapabilities(context.Context, *indexerv1.GetCapabilitiesRequest) (*indexerv1.GetCapabilitiesResponse, error) {
@@ -160,5 +202,47 @@ func TestAcquisitionIncludesIndexerCapabilities(t *testing.T) {
 	}
 	if len(body.Capabilities.SupportedProtocols) != 2 {
 		t.Fatalf("protocols %#v", body.Capabilities.SupportedProtocols)
+	}
+}
+
+func TestHandleCreateIndexer(t *testing.T) {
+	fake := &fixtureIndexer{}
+	sessions := newSessionStore(time.Hour)
+	tok, err := sessions.CreateWithRoles("admin", "admin", "", []string{"admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{indexer: indexerServer(t, fake), sessions: sessions}
+	req := httptest.NewRequest(http.MethodPost, "/api/indexers", strings.NewReader(`{"name":"Knaben","base_url":"https://knaben.example/api","api_key":"secret"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(&http.Cookie{Name: "session", Value: tok})
+	w := httptest.NewRecorder()
+	s.handleCreateIndexer(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		ID        int32  `json:"id"`
+		Name      string `json:"name"`
+		HasAPIKey bool   `json:"has_api_key"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.ID != 9 || body.Name != "Knaben" || !body.HasAPIKey {
+		t.Fatalf("%#v", body)
+	}
+	if strings.Contains(w.Body.String(), "secret") {
+		t.Fatal("api key leaked")
+	}
+}
+
+func TestHandleCreateIndexerForbidden(t *testing.T) {
+	s := &server{indexer: indexerServer(t, &fixtureIndexer{}), sessions: newSessionStore(time.Hour)}
+	req := httptest.NewRequest(http.MethodPost, "/api/indexers", strings.NewReader(`{"name":"x","base_url":"https://x.test"}`))
+	w := httptest.NewRecorder()
+	s.handleCreateIndexer(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status %d", w.Code)
 	}
 }

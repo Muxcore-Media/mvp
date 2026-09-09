@@ -45,7 +45,10 @@ func householdArtworkURL(kind, raw string) string {
 		if kind == "tv" {
 			prefix = "tv/"
 		}
-		if strings.HasPrefix(rest, "movies/") || strings.HasPrefix(rest, "tv/") {
+		if kind == "music" {
+			prefix = "music/"
+		}
+		if strings.HasPrefix(rest, "movies/") || strings.HasPrefix(rest, "tv/") || strings.HasPrefix(rest, "music/") {
 			return "/images/" + rest
 		}
 		return "/images/" + prefix + rest
@@ -227,4 +230,23 @@ func (s *server) handleReplaceMovieArtwork(w http.ResponseWriter, r *http.Reques
 
 func (s *server) handleReplaceTVArtwork(w http.ResponseWriter, r *http.Request) {
 	s.handleReplaceArtwork(w, r, s.tvAdmin, "tv")
+}
+
+func (s *server) handleListMusicArtwork(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeAPIMethodNotAllowed(w)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "id required", "code": "artwork.id_required"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	writeJSON(w, s.listItemArtwork(ctx, s.musicAdmin, "music", id))
+}
+
+func (s *server) handleReplaceMusicArtwork(w http.ResponseWriter, r *http.Request) {
+	s.handleReplaceArtwork(w, r, s.musicAdmin, "music")
 }

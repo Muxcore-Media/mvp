@@ -67,7 +67,7 @@ func (s *server) handleFormatsSyncTrash(w http.ResponseWriter, r *http.Request) 
 	}
 	guidesPath := ""
 	if official {
-		guidesPath = "official"
+		guidesPath = "official-refresh"
 	}
 	timeout := 30 * time.Second
 	if official {

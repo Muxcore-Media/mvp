@@ -21,7 +21,7 @@ func (s *server) handlePatchBook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handlePatchComicSeries(w http.ResponseWriter, r *http.Request) {
-	s.patchLibraryMonitored(w, r, s.comicsHTTP, "/api/series/", "comics")
+	s.patchLibraryPlus(w, r, s.comicsHTTP, "/api/series/", "comics")
 }
 
 func (s *server) handlePatchComicIssue(w http.ResponseWriter, r *http.Request) {

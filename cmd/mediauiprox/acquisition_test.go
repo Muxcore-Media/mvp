@@ -82,6 +82,34 @@ func TestHandleAcquisitionIndexerOnly(t *testing.T) {
 	}
 }
 
+func TestAcquisitionReportsLiveGrabPolicy(t *testing.T) {
+	t.Setenv("DOWNLOADER_ENGINE", "")
+	t.Setenv("WG_CONF", "")
+	s := &server{}
+	w := httptest.NewRecorder()
+	s.handleAcquisition(w, httptest.NewRequest(http.MethodGet, "/api/acquisition", nil))
+	var body struct {
+		LiveGrabAllowed bool   `json:"live_grab_allowed"`
+		DownloaderMode  string `json:"downloader_mode"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.LiveGrabAllowed || body.DownloaderMode != "fixture" {
+		t.Fatalf("%#v", body)
+	}
+
+	t.Setenv("DOWNLOADER_ENGINE", "live")
+	w = httptest.NewRecorder()
+	s.handleAcquisition(w, httptest.NewRequest(http.MethodGet, "/api/acquisition", nil))
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.LiveGrabAllowed || body.DownloaderMode != "live" {
+		t.Fatalf("live without WG should block grab: %#v", body)
+	}
+}
+
 func TestHandleAcquisitionMethodNotAllowed(t *testing.T) {
 	s := &server{}
 	w := httptest.NewRecorder()

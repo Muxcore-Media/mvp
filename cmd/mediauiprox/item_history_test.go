@@ -133,3 +133,18 @@ func TestHandleListMusicHistory(t *testing.T) {
 		t.Fatalf("item=%q event=%v", fake.itemID, fake.event)
 	}
 }
+
+func TestHandleListBookHistory(t *testing.T) {
+	fake, client := dialItemHistory(t)
+	s := &server{booksAdmin: client}
+	req := httptest.NewRequest(http.MethodGet, "/api/books/au1/history", nil)
+	req.SetPathValue("id", "au1")
+	w := httptest.NewRecorder()
+	s.handleListBookHistory(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d %s", w.Code, w.Body.String())
+	}
+	if fake.itemID != "au1" {
+		t.Fatalf("item=%q", fake.itemID)
+	}
+}
