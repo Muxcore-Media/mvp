@@ -55,8 +55,11 @@ func householdArtworkURL(kind, raw string) string {
 		if kind == "audiobooks" {
 			prefix = "audiobooks/"
 		}
+		if kind == "comics" {
+			prefix = "comics/"
+		}
 		if strings.HasPrefix(rest, "movies/") || strings.HasPrefix(rest, "tv/") || strings.HasPrefix(rest, "music/") ||
-			strings.HasPrefix(rest, "books/") || strings.HasPrefix(rest, "audiobooks/") {
+			strings.HasPrefix(rest, "books/") || strings.HasPrefix(rest, "audiobooks/") || strings.HasPrefix(rest, "comics/") {
 			return "/images/" + rest
 		}
 		return "/images/" + prefix + rest
@@ -278,7 +281,7 @@ func (s *server) handleReplaceBookArtwork(w http.ResponseWriter, r *http.Request
 	s.handleReplaceArtwork(w, r, s.booksAdmin, "books")
 }
 
-func rewriteAudiobookArtworkList(raw map[string]any) map[string]any {
+func rewriteLibraryArtworkList(kind string, raw map[string]any) map[string]any {
 	items := make([]map[string]any, 0)
 	switch rows := raw["items"].(type) {
 	case []any:
@@ -288,12 +291,16 @@ func rewriteAudiobookArtworkList(raw map[string]any) map[string]any {
 				continue
 			}
 			if u, ok := rec["url"].(string); ok {
-				rec["url"] = householdArtworkURL("audiobooks", u)
+				rec["url"] = householdArtworkURL(kind, u)
 			}
 			items = append(items, rec)
 		}
 	}
 	return map[string]any{"available": true, "items": items}
+}
+
+func rewriteAudiobookArtworkList(raw map[string]any) map[string]any {
+	return rewriteLibraryArtworkList("audiobooks", raw)
 }
 
 func (s *server) handleListAudiobookArtwork(w http.ResponseWriter, r *http.Request) {
@@ -373,6 +380,92 @@ func (s *server) handleReplaceAudiobookArtwork(w http.ResponseWriter, r *http.Re
 	if art, ok := out["artwork"].(map[string]any); ok {
 		if u, ok := art["url"].(string); ok {
 			art["url"] = householdArtworkURL("audiobooks", u)
+		}
+		out["artwork"] = art
+	}
+	if _, ok := out["ok"]; !ok {
+		out["ok"] = true
+	}
+	writeJSON(w, out)
+}
+
+func (s *server) handleListComicArtwork(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeAPIMethodNotAllowed(w)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "id required", "code": "artwork.id_required"})
+		return
+	}
+	if s.comicsHTTP == nil || s.comicsHTTP.String() == "" {
+		writeJSON(w, map[string]any{"available": false, "items": []any{}})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	raw, err := s.getLibraryPlusJSON(ctx, s.comicsHTTP, "/api/series/"+url.PathEscape(id)+"/artwork")
+	if err != nil {
+		writeJSON(w, map[string]any{"available": false, "items": []any{}, "error": err.Error()})
+		return
+	}
+	writeJSON(w, rewriteLibraryArtworkList("comics", raw))
+}
+
+func (s *server) handleReplaceComicArtwork(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeAPIMethodNotAllowed(w)
+		return
+	}
+	if !s.sessionHasPrivilegedRole(r) {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin or manager role required", "code": "artwork.forbidden"})
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "id required", "code": "artwork.id_required"})
+		return
+	}
+	if s.comicsHTTP == nil || s.comicsHTTP.String() == "" {
+		writeJSONStatus(w, http.StatusServiceUnavailable, map[string]any{"error": "media module unavailable", "code": "artwork.unavailable"})
+		return
+	}
+	var body struct {
+		Type     string `json:"type"`
+		Filename string `json:"filename"`
+		Data     string `json:"data"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	data, err := decodeArtworkPayload(body.Data)
+	if err != nil {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "invalid artwork data", "code": "artwork.data_invalid"})
+		return
+	}
+	if len(data) == 0 {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "artwork data required", "code": "artwork.data_required"})
+		return
+	}
+	filename := strings.TrimSpace(body.Filename)
+	if filename == "" {
+		filename = "artwork.jpg"
+	}
+	typ := strings.TrimSpace(body.Type)
+	if typ == "" {
+		typ = "poster"
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	out, err := s.postLibraryPlusJSON(ctx, s.comicsHTTP, "/api/series/"+url.PathEscape(id)+"/artwork", map[string]any{
+		"type": typ, "filename": filename, "data": body.Data,
+	})
+	if err != nil {
+		writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "code": "artwork.replace_failed"})
+		return
+	}
+	if art, ok := out["artwork"].(map[string]any); ok {
+		if u, ok := art["url"].(string); ok {
+			art["url"] = householdArtworkURL("comics", u)
 		}
 		out["artwork"] = art
 	}

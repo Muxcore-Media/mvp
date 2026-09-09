@@ -102,6 +102,10 @@ func TestHouseholdArtworkURL(t *testing.T) {
 	if got != "/images/audiobooks/ab1/poster.jpg" {
 		t.Fatalf("got %q", got)
 	}
+	got = householdArtworkURL("comics", "http://127.0.0.1:9/images/cs1/poster.jpg")
+	if got != "/images/comics/cs1/poster.jpg" {
+		t.Fatalf("got %q", got)
+	}
 }
 
 func TestHandleListMovieArtworkUnavailable(t *testing.T) {

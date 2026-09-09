@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -148,4 +149,42 @@ func (s *server) handleListBookHistory(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	body, _ := s.listItemHistory(ctx, s.booksAdmin, id, r.URL.Query().Get("event"))
 	writeJSON(w, body)
+}
+
+func (s *server) listLibraryPlusHistory(w http.ResponseWriter, r *http.Request, upstream *url.URL, modulePath string) {
+	if r.Method != http.MethodGet {
+		writeAPIMethodNotAllowed(w)
+		return
+	}
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "id required", "code": "history.id_required"})
+		return
+	}
+	if upstream == nil || upstream.String() == "" {
+		writeJSON(w, map[string]any{"available": false, "items": []any{}, "total": 0})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	raw, err := s.getLibraryPlusJSON(ctx, upstream, modulePath+url.PathEscape(id)+"/history")
+	if err != nil {
+		writeJSON(w, map[string]any{"available": false, "items": []any{}, "total": 0, "error": err.Error()})
+		return
+	}
+	if _, ok := raw["available"]; !ok {
+		raw["available"] = true
+	}
+	if _, ok := raw["items"]; !ok {
+		raw["items"] = []any{}
+	}
+	writeJSON(w, raw)
+}
+
+func (s *server) handleListComicHistory(w http.ResponseWriter, r *http.Request) {
+	s.listLibraryPlusHistory(w, r, s.comicsHTTP, "/api/series/")
+}
+
+func (s *server) handleListAudiobookHistory(w http.ResponseWriter, r *http.Request) {
+	s.listLibraryPlusHistory(w, r, s.audiobooksHTTP, "/api/audiobooks/")
 }
