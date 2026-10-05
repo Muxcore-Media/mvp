@@ -1,0 +1,61 @@
+# Fixture for check-state-coverage_test.sh (bad case: see check-state-coverage_test.sh).
+version: "1"
+core_tag: v0.0.0
+
+required:
+  - core
+  - auth-local
+  - notification-default   # stateless
+
+recommended:
+  - media-rename
+
+optional_env_gated:
+  - name: playback-guard
+    env: MVP_ENABLE_PLAYBACK_GUARD
+  - name: backup-local
+    env: MVP_ENABLE_BACKUP_LOCAL
+
+state:
+  core:
+    volume: core-data
+    mount: /app/data
+    env: {MUXCORE_STORAGE_DIR: /app/data/storage}
+    kind: files
+    personal: false
+  auth-local:
+    volume: auth-data
+    mount: /data
+    env: {AUTH_DB_PATH: /data/auth.db}
+    kind: sqlite
+    personal: true
+  media-rename:
+    volume: media-rename-data
+    mount: /data
+    env: {RENAME_DB_PATH: /data/rename.db}
+    kind: sqlite
+    personal: false
+  encryption-aesgcm:
+    volume: encryption-aesgcm-data
+    mount: /data
+    env: {ENCRYPTION_KEY_FILE: /data/master.key}
+    kind: files
+    personal: false
+    backup: false
+  playback-guard:
+    volume: playback-guard-data
+    mount: /data/playback-guard
+    env: {PLAYBACK_GUARD_DB_PATH: /data/playback-guard/guard.db}
+    kind: sqlite
+    personal: true
+
+stateless:
+  - health-monitor
+
+excluded_volumes:
+  - volume: movies
+    reason: library media
+  - volume: encryption-aesgcm-data
+    reason: key material
+  - volume: backup-data
+    reason: backup output

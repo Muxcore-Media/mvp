@@ -21,6 +21,10 @@ echo "==> check-household-manifest.sh"
 if ! bash "$ROOT/scripts/check-household-manifest.sh"; then
   failed=1
 fi
+echo "==> check-state-coverage.sh"
+if ! bash "$ROOT/scripts/check-state-coverage.sh"; then
+  failed=1
+fi
 for t in "$SCRIPT_DIR"/*_test.sh; do
   [[ -f "$t" ]] || continue
   echo "==> $(basename "$t")"

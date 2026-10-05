@@ -1,0 +1,71 @@
+# Fixture for check-state-coverage_test.sh (bad case: see check-state-coverage_test.sh).
+x-image: &image
+  image: example/module:test
+  environment: &module_env
+    MUXCORE_GRPC_ADDR: core:9090
+
+services:
+  core:
+    image: example/muxcored:test
+    environment:
+      MUXCORE_STORAGE_DIR: /app/data/storage
+    volumes:
+      - core-data:/app/data
+      - ./muxcore.json:/app/muxcore.json:ro
+  auth-local:
+    <<: *image
+    environment:
+      <<: *module_env
+      AUTH_DB_PATH: /data/auth.db
+    volumes:
+      - auth-data:/data
+  notification-default:
+    <<: *image
+    environment:
+      <<: *module_env
+  media-rename:
+    <<: *image
+    environment:
+      <<: *module_env
+      RENAME_DB_PATH: /data/rename.db
+    volumes:
+      - media-rename-data:/data
+  encryption-aesgcm:
+    <<: *image
+    environment:
+      <<: *module_env
+      ENCRYPTION_KEY_FILE: /data/master.key
+    volumes:
+      - encryption-aesgcm-data:/data
+  media-movies:
+    <<: *image
+    volumes:
+      - movies:/data/movies:ro
+  playback-guard:
+    <<: *image
+    environment:
+      <<: *module_env
+      PLAYBACK_GUARD_DB_PATH: /data/playback-guard/guard.db
+    volumes:
+      - playback-guard-data:/data/playback-guard
+    profiles: ["playback-guard"]
+  backup-local:
+    <<: *image
+    environment:
+      <<: *module_env
+      BACKUP_SOURCE_DIRS: ${BACKUP_SOURCE_DIRS:-/source/core,/source/auth-local,/source/media-rename,/source/playback-guard}
+    volumes:
+      - backup-data:/data/backups
+      - core-data:/source/core:ro
+      - auth-data:/source/auth-local:ro
+      - playback-guard-data:/source/playback-guard:ro
+    profiles: ["backup-local"]
+
+volumes:
+  core-data:
+  auth-data:
+  media-rename-data:
+  encryption-aesgcm-data:
+  playback-guard-data:
+  movies:
+  backup-data:
