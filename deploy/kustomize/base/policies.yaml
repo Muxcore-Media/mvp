@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
         - name: call-policy-default
-          image: localhost:5000/muxcore/call-policy-default:v0.6.13
+          image: localhost:5000/muxcore/call-policy-default:v0.6.15
           imagePullPolicy: IfNotPresent
           env:
             - name: MUXCORE_GRPC_ADDR
@@ -55,7 +55,7 @@ spec:
     spec:
       containers:
         - name: publish-policy-default
-          image: localhost:5000/muxcore/publish-policy-default:v0.6.13
+          image: localhost:5000/muxcore/publish-policy-default:v0.6.15
           imagePullPolicy: IfNotPresent
           env:
             - name: MUXCORE_GRPC_ADDR

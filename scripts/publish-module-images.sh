@@ -2,11 +2,11 @@
 # Build and push sidecar module images to an OCI registry (LAN default; GHCR optional).
 #
 # Usage:
-#   ./scripts/publish-module-images.sh v0.6.13
-#   MODULES="api-rest auth-local media-automation" ./scripts/publish-module-images.sh v0.6.13
-#   BUILD_ONLY=1 MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-module-images.sh v0.6.13
-#   MUXCORE_REGISTRY=ghcr.io/muxcore-media ./scripts/publish-module-images.sh v0.6.13   # needs write:packages
-#   PREBUILT_DIR=/tmp/muxcore-bin ./scripts/publish-module-images.sh v0.6.13      # ADR-0014 prebuilt mode
+#   ./scripts/publish-module-images.sh v0.6.15
+#   MODULES="api-rest auth-local media-automation" ./scripts/publish-module-images.sh v0.6.15
+#   BUILD_ONLY=1 MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-module-images.sh v0.6.15
+#   MUXCORE_REGISTRY=ghcr.io/muxcore-media ./scripts/publish-module-images.sh v0.6.15   # needs write:packages
+#   PREBUILT_DIR=/tmp/muxcore-bin ./scripts/publish-module-images.sh v0.6.15      # ADR-0014 prebuilt mode
 #
 # PREBUILT_DIR mode packages binaries built on the host by
 # scripts/build-module-binaries.sh (workspace mode, ADR-0012 flags) with
@@ -89,7 +89,7 @@ detect_runtime() {
 }
 
 if [[ -z "$TAG" ]]; then
-  die "usage: $0 <tag> (e.g. v0.6.13)"
+  die "usage: $0 <tag> (e.g. v0.6.15)"
 fi
 [[ -f "$DOCKERFILE" ]] || die "missing $DOCKERFILE"
 
