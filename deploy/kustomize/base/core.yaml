@@ -20,7 +20,7 @@ spec:
     spec:
       containers:
         - name: muxcored
-          image: localhost:5000/muxcore/muxcored:v0.6.7
+          image: localhost:5000/muxcore/muxcored:v0.6.13
           imagePullPolicy: IfNotPresent
           env:
             - name: MUXCORE_CONFIG

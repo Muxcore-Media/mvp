@@ -28,7 +28,7 @@ cd _mvp
 
 # Registry install (see docs/PUBLIC-INSTALL.md)
 ./local-registry.sh start
-export MUXCORE_REGISTRY=localhost:5000/muxcore MUXCORE_IMAGE_TAG=v0.6.7
+export MUXCORE_REGISTRY=localhost:5000/muxcore MUXCORE_IMAGE_TAG=v0.6.13
 docker compose -f docker-compose.registry.yml up -d
 
 # Vault deploy (from workspace root)

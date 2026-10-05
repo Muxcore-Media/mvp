@@ -10,7 +10,7 @@ require (
 	github.com/Muxcore-Media/contracts-metadata v0.2.0
 	github.com/Muxcore-Media/contracts-notification v0.1.2
 	github.com/Muxcore-Media/contracts-scanner v0.2.0
-	github.com/Muxcore-Media/core v0.6.12
+	github.com/Muxcore-Media/core v0.6.13
 	github.com/Muxcore-Media/core/sdk/go/client v0.6.1
 	github.com/Muxcore-Media/jellyfin v0.3.3
 	github.com/Muxcore-Media/media-custom-formats v0.1.13
