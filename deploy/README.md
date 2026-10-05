@@ -13,7 +13,7 @@ These manifests mirror the **minimal platform** slice (core + api-rest + auth-lo
 
 ```bash
 kubectl -n muxcore create secret generic muxcore-auth \
-  --from-literal=admin-password='change-me'
+  --from-literal=admin-password="$(openssl rand -hex 16)"
 ```
 
 - **health-monitor bearer token** (NFR-SEC-011). health-monitor (v0.1.7+) binds `0.0.0.0:9203` here and refuses to start on a non-loopback address without `HEALTH_MONITOR_HTTP_TOKEN`; admin-ui reads the same value as `ADMIN_UI_HEALTH_MONITOR_TOKEN`. Neither the chart nor the overlays ship a default, so a deploy without a token fails at render time:

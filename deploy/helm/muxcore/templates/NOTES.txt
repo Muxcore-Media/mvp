@@ -1,6 +1,6 @@
 1. Create the auth secret (if not using an external IdP):
    kubectl -n {{ .Values.namespace }} create secret generic {{ .Values.auth.existingSecret }} \
-     --from-literal={{ .Values.auth.passwordKey }}=CHANGE_ME
+     --from-literal={{ .Values.auth.passwordKey }}="$(openssl rand -hex 16)"
 
 2. Images default to localhost:5000/muxcore/* (LAN OCI registry) — see docs/PUBLIC-INSTALL.md.
    Override registry/coreTag via values; set registry=ghcr.io/muxcore-media once images are on GHCR.

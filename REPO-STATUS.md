@@ -82,7 +82,7 @@ Auth bootstrap + authenticated API smoke + storage health on the MVP host stack.
 - Core [#30](https://github.com/Muxcore-Media/core/pull/30): `_`-prefixed health probe keys are informational only — `GET /health` returns **HTTP 200** with `status:ok`.
 
 ### Auth bootstrap
-- [`_mvp/bootstrap-auth.sh`](_mvp/bootstrap-auth.sh) + `authctl` / [`_mvp/cmd/gettoken`](_mvp/cmd/gettoken) → `run/admin.token` (dev defaults `admin` / `admin-dev-only`).
+- [`_mvp/bootstrap-auth.sh`](_mvp/bootstrap-auth.sh) + `authctl` / [`_mvp/cmd/gettoken`](_mvp/cmd/gettoken) → `run/admin.token` (password from `MVP_ADMIN_PASSWORD`, or the one-time random one `run-host.sh` generates into `data/auth/admin.password`).
 
 ### Identity forwarding (local fixes)
 - **core** [`#31`](https://github.com/Muxcore-Media/core/pull/31): `SidecarIdentityProvider` populates `ExtractIdentityRequest` from gRPC `authorization` / `x-caller-id` metadata (was sending an empty request).

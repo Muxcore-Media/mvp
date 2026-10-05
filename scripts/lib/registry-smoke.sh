@@ -391,7 +391,7 @@ registry_smoke_cmd() {
 registry_smoke_bootstrap_auth() {
   local user pass token_file auth_addr
   user="${MVP_ADMIN_USER:-admin}"
-  pass="${MVP_ADMIN_PASSWORD:-admin-dev-only}"
+  pass="${MVP_ADMIN_PASSWORD:?MVP_ADMIN_PASSWORD is not set (set it in .env; no default)}"
   token_file="${MVP_TOKEN_FILE:-${registry_smoke_root}/run/admin.token}"
   auth_addr="${AUTH_GRPC_ADDR:-auth-local:9403}"
   mkdir -p "$(dirname "$token_file")"

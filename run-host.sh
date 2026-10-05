@@ -7,6 +7,9 @@ BIN="$ROOT/bin"
 RUN="$ROOT/run"
 DATA="$ROOT/data"
 
+# shellcheck disable=SC1091
+source "$ROOT/scripts/lib/admin-secret.sh"
+
 # Load $ROOT/.env defaults without clobbering env already set (systemd/nix on vault).
 load_env_file() {
   local f="$1"
@@ -360,12 +363,14 @@ EOF
       API_REST_HTTP_ADDR=":18080" API_REST_GRPC_ADDR=":9400" \
       "$BIN/api-rest"
 
+    # No default admin password (FR-INS-004): generated once into data/auth/admin.password.
+    mvp_admin_password_ensure "$ROOT"
     maybe_start auth-local env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=auth-local MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       AUTH_DB_PATH="$DATA/auth/auth.db" \
       AUTH_GRPC_ADDR=":9403" AUTH_HTTP_ADDR=":9401" \
       AUTH_BOOTSTRAP_USER="${MVP_ADMIN_USER:-admin}" \
-      AUTH_BOOTSTRAP_PASSWORD="${MVP_ADMIN_PASSWORD:-admin-dev-only}" \
+      AUTH_BOOTSTRAP_PASSWORD="$MVP_ADMIN_PASSWORD" \
       ADMIN_UI_PUBLIC_URL="${ADMIN_UI_PUBLIC_URL:-}" \
       MEDIA_UI_PUBLIC_URL="${MEDIA_UI_PUBLIC_URL:-}" \
       AUTH_ALLOWED_REDIRECT_HOSTS="${AUTH_ALLOWED_REDIRECT_HOSTS:-}" \
@@ -468,6 +473,13 @@ EOF
       HEALTH_MONITOR_HTTP_TOKEN="$(ensure_secret_file "$DATA/health-monitor/http.token")"
     fi
     export HEALTH_MONITOR_HTTP_TOKEN
+
+    # playback-monitor operator/ingest bearer: generated once into the data dir
+    # when unset; shared with the media-ui BFF. No default token (NFR-SEC-001).
+    if [[ -z "${PLAYBACK_MONITOR_HTTP_TOKEN:-}" ]]; then
+      PLAYBACK_MONITOR_HTTP_TOKEN="$(ensure_secret_file "$DATA/playback-monitor/http.token")"
+    fi
+    export PLAYBACK_MONITOR_HTTP_TOKEN
     maybe_start health-monitor env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=health-monitor MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
@@ -1100,8 +1112,8 @@ EOF
         OVERLAY_DEDUP="${OVERLAY_DEDUP:-true}" \
         OVERLAY_S3_ENDPOINT="${OVERLAY_S3_ENDPOINT:-${S3_ENDPOINT:-127.0.0.1:9000}}" \
         OVERLAY_S3_BUCKET="${OVERLAY_S3_BUCKET:-${S3_BUCKET:-muxcore}}" \
-        OVERLAY_S3_ACCESS_KEY="${OVERLAY_S3_ACCESS_KEY:-${S3_ACCESS_KEY:-minioadmin}}" \
-        OVERLAY_S3_SECRET_KEY="${OVERLAY_S3_SECRET_KEY:-${S3_SECRET_KEY:-minioadmin}}" \
+        OVERLAY_S3_ACCESS_KEY="${OVERLAY_S3_ACCESS_KEY:-${S3_ACCESS_KEY:?MVP_ENABLE_STORAGE_OVERLAY requires S3_ACCESS_KEY (or OVERLAY_S3_ACCESS_KEY)}}" \
+        OVERLAY_S3_SECRET_KEY="${OVERLAY_S3_SECRET_KEY:-${S3_SECRET_KEY:?MVP_ENABLE_STORAGE_OVERLAY requires S3_SECRET_KEY (or OVERLAY_S3_SECRET_KEY)}}" \
         OVERLAY_S3_PATH_STYLE="${OVERLAY_S3_PATH_STYLE:-true}" \
         OVERLAY_S3_USE_SSL="${OVERLAY_S3_USE_SSL:-false}" \
         "$BIN/storage-overlay"
@@ -1143,7 +1155,7 @@ EOF
         PLAYBACK_MONITOR_GRPC_ADDR=":9560" \
         PLAYBACK_MONITOR_HTTP_ADDR=":8560" \
         PLAYBACK_MONITOR_DB_PATH="$DATA/playback-monitor/monitor.db" \
-        PLAYBACK_MONITOR_HTTP_TOKEN="${PLAYBACK_MONITOR_HTTP_TOKEN:-household-monitor}" \
+        PLAYBACK_MONITOR_HTTP_TOKEN="$PLAYBACK_MONITOR_HTTP_TOKEN" \
         "$BIN/playback-monitor"
     fi
 
@@ -1356,7 +1368,7 @@ EOF
           GRAPH_HTTP_URL="${GRAPH_HTTP_URL:-http://127.0.0.1:9731}" \
           GRAPH_MODULE_TOKEN="${GRAPH_MODULE_TOKEN:-}" \
           PLAYBACK_MONITOR_HTTP_URL="${PLAYBACK_MONITOR_HTTP_URL:-http://127.0.0.1:8560}" \
-          PLAYBACK_MONITOR_HTTP_TOKEN="${PLAYBACK_MONITOR_HTTP_TOKEN:-household-monitor}" \
+          PLAYBACK_MONITOR_HTTP_TOKEN="$PLAYBACK_MONITOR_HTTP_TOKEN" \
           "$BIN/mediauiprox" \
             -listen "${MEDIA_UI_LISTEN:-:5173}" \
             -dist "$UI_DIST" \

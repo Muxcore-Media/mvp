@@ -5,6 +5,11 @@ set -euo pipefail
 smoke_cmd_root="${SMOKE_CMD_ROOT:-${ROOT:-}}"
 
 smoke_cmd_init() {
+  # No default admin password (FR-INS-004): use MVP_ADMIN_PASSWORD or the file
+  # run-host.sh generated; exported for the smoke helpers when available.
+  # shellcheck disable=SC1091
+  source "${smoke_cmd_root}/scripts/lib/admin-secret.sh"
+  mvp_admin_password_load "$smoke_cmd_root"
   # shellcheck disable=SC1091
   source "${smoke_cmd_root}/scripts/lib/registry-smoke.sh"
   # shellcheck disable=SC1091

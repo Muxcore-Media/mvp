@@ -292,7 +292,7 @@ registry_smoke_acquisition_bff() {
   curl -s -c "$jar" -b "$jar" "${auth}/login?redirect=${redir_enc}" >/dev/null
   csrf="$(awk -F'\t' '($6=="muxcore-auth-csrf" || $6=="csrf-token"){print $7}' "$jar" | tr -d '\r')"
   code="$(curl -s -c "$jar" -b "$jar" -D "$hdr" -o /dev/null -w '%{http_code}' -X POST "${auth}/login/password" \
-    --data-urlencode "username=${MVP_ADMIN_USER:-admin}" --data-urlencode "password=${MVP_ADMIN_PASSWORD:-admin-dev-only}" \
+    --data-urlencode "username=${MVP_ADMIN_USER:-admin}" --data-urlencode "password=${MVP_ADMIN_PASSWORD:?MVP_ADMIN_PASSWORD is not set}" \
     --data-urlencode "csrf_token=${csrf}" --data-urlencode "redirect=${base}/auth/callback")"
   loc="$(awk -F': ' 'tolower($1)=="location"{gsub(/\r/,"",$2); print $2; exit}' "$hdr")"
   if [[ "$code" != 30[23] || -z "$loc" ]]; then

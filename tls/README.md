@@ -43,7 +43,7 @@ NixOS: after install, `imports = [ ./muxcore-mesh-trust.nix ];` and `nixos-rebui
 | https://core.gringotts | core HTTP |
 | https://health.gringotts | health-monitor |
 
-Dev login: `admin` / `admin-dev-only` (see `mvp/.env`).
+Dev login: user `admin` (`MVP_ADMIN_USER`), password from `MVP_ADMIN_PASSWORD` in `mvp/.env` (or `data/auth/admin.password`, generated once by `run-host.sh`); there is no default password.
 
 ## WireGuard VPN (gringotts)
 

@@ -24,6 +24,15 @@ prompt() {
   printf -v "$var" '%s' "$ans"
 }
 
+# gen_secret <bytes>: random hex (no default credentials ship; FR-INS-004).
+gen_secret() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex "$1"
+  else
+    od -An -tx1 -N"$1" /dev/urandom | tr -d ' \n'
+  fi
+}
+
 prompt_secret() {
   local var="$1" q="$2" def="${3:-}" ans
   if [[ -n "$def" ]]; then
@@ -145,8 +154,18 @@ main() {
   echo
   echo "Admin account (auth-local)"
   prompt admin_user "Admin username" "${MVP_ADMIN_USER:-admin}"
-  prompt_secret admin_pass "Admin password" "${MVP_ADMIN_PASSWORD:-admin-dev-only}"
-  [[ -n "$admin_pass" ]] || die "admin password required"
+  prompt_secret admin_pass "Admin password (empty = generate a random one)" "${MVP_ADMIN_PASSWORD:-}"
+  if [[ -z "$admin_pass" ]]; then
+    admin_pass="$(gen_secret 16)"
+    echo "  generated admin password (shown once; stored in $ENVF as MVP_ADMIN_PASSWORD): $admin_pass"
+  fi
+  # Bearer tokens that compose / run-host share between modules: generate once.
+  if [[ -z "${HEALTH_MONITOR_HTTP_TOKEN:-}" ]]; then
+    env_set HEALTH_MONITOR_HTTP_TOKEN "$(gen_secret 32)"
+  fi
+  if [[ -z "${PLAYBACK_MONITOR_HTTP_TOKEN:-}" ]]; then
+    env_set PLAYBACK_MONITOR_HTTP_TOKEN "$(gen_secret 32)"
+  fi
   env_set MVP_ADMIN_USER "$admin_user"
   env_set MVP_ADMIN_PASSWORD "$admin_pass"
   MVP_ADMIN_USER="$admin_user"
