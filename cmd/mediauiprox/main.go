@@ -110,6 +110,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Mesh identity first: dialMeshGRPC reads the MUXCORE_TLS_* it exports.
+	mustEnsureMeshIdentity()
 	moviesConn, err := dialMeshGRPC(*moviesGRPC)
 	if err != nil {
 		log.Fatalf("dial movies: %v", err)

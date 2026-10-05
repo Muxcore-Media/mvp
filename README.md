@@ -33,6 +33,7 @@ Operator references in this repo: [`PORTS.md`](PORTS.md) (default gRPC/HTTP port
 export MUXCORE_REGISTRY=localhost:5000/muxcore   # or ghcr.io/muxcore-media once published
 export MUXCORE_IMAGE_TAG=v0.6.13
 export DOWNLOADER_ENGINE=fixture
+./scripts/gen-enrollment.sh   # household mesh enrollment secret + tokens into .env (ADR-0017)
 docker compose -f docker-compose.registry.yml pull
 docker compose -f docker-compose.registry.yml up -d
 ./scripts/smoke-registry.sh   # or ./smoke.sh (auto-detects registry mode)

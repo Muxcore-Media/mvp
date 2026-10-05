@@ -7,8 +7,8 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 RUN useradd -u 1000 -U -M -d /data app \
-  && mkdir -p /data/media-ui /data/restore \
-  && chown -R app:app /data
+  && mkdir -p /data/media-ui /data/restore /data/mesh-id /data/mesh-ca \
+  && chown -R app:app /data && chmod 700 /data/mesh-id
 COPY dist-app /app/dist-app
 COPY mediauiprox /usr/local/bin/mediauiprox
 ENV MEDIA_UI_DIST=/app/dist-app \
