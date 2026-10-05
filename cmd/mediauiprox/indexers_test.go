@@ -13,6 +13,7 @@ import (
 	indexerv1 "github.com/Muxcore-Media/contracts-indexer/muxcore/indexer/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/proto"
 )
 
 type fixtureIndexer struct {
@@ -38,7 +39,7 @@ func (f *fixtureIndexer) CreateIndexer(_ context.Context, req *indexerv1.CreateI
 	if spec == nil {
 		spec = &indexerv1.IndexerSpec{}
 	}
-	out := *spec
+	out := proto.Clone(spec).(*indexerv1.IndexerSpec)
 	out.Id = 9
 	out.ApiKey = ""
 	out.HasApiKey = spec.GetApiKey() != ""
@@ -48,8 +49,8 @@ func (f *fixtureIndexer) CreateIndexer(_ context.Context, req *indexerv1.CreateI
 	if out.Implementation == "" {
 		out.Implementation = "torznab"
 	}
-	f.created = &out
-	return &out, nil
+	f.created = out
+	return out, nil
 }
 
 func (f *fixtureIndexer) UpdateIndexer(_ context.Context, req *indexerv1.UpdateIndexerRequest) (*indexerv1.IndexerSpec, error) {
@@ -57,9 +58,9 @@ func (f *fixtureIndexer) UpdateIndexer(_ context.Context, req *indexerv1.UpdateI
 		return nil, f.err
 	}
 	spec := req.GetIndexer()
-	out := *spec
+	out := proto.Clone(spec).(*indexerv1.IndexerSpec)
 	out.ApiKey = ""
-	return &out, nil
+	return out, nil
 }
 
 func (f *fixtureIndexer) DeleteIndexer(context.Context, *indexerv1.DeleteIndexerRequest) (*indexerv1.DeleteIndexerResponse, error) {

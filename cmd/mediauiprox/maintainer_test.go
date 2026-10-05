@@ -44,9 +44,9 @@ func (f *fixtureMaintainer) ListCandidates(context.Context, *maintainv1.ListCand
 		Total: 1, Page: 1, PageSize: 50,
 		Candidates: []*maintainv1.Candidate{{
 			Id: "c1", Title: "Old Movie", Year: 1999, ItemId: "m1",
-			Status: maintainv1.CandidateStatus_CANDIDATE_STATUS_PENDING,
+			Status:    maintainv1.CandidateStatus_CANDIDATE_STATUS_PENDING,
 			ArrAction: maintainv1.ArrAction_ARR_ACTION_DELETE,
-			Scope: maintainv1.MediaScope_MEDIA_SCOPE_MOVIE,
+			Scope:     maintainv1.MediaScope_MEDIA_SCOPE_MOVIE,
 			SizeBytes: 12 << 30,
 		}},
 	}, nil
@@ -72,9 +72,9 @@ func (f *fixtureMaintainer) GetStorageMetrics(context.Context, *maintainv1.GetSt
 func (f *fixtureMaintainer) ListRules(context.Context, *maintainv1.ListRulesRequest) (*maintainv1.ListRulesResponse, error) {
 	return &maintainv1.ListRulesResponse{Rules: []*maintainv1.RuleGroup{{
 		Id: "rule1", Name: "Unwatched 90d", Enabled: true,
-		Scope: maintainv1.MediaScope_MEDIA_SCOPE_MOVIE,
-		ArrAction: maintainv1.ArrAction_ARR_ACTION_DELETE,
-		CollectionId: "col1",
+		Scope:          maintainv1.MediaScope_MEDIA_SCOPE_MOVIE,
+		ArrAction:      maintainv1.ArrAction_ARR_ACTION_DELETE,
+		CollectionId:   "col1",
 		DefinitionJson: `{"op":"and"}`,
 	}}}, nil
 }
@@ -82,7 +82,7 @@ func (f *fixtureMaintainer) ListRules(context.Context, *maintainv1.ListRulesRequ
 func (f *fixtureMaintainer) ListCollections(context.Context, *maintainv1.ListCollectionsRequest) (*maintainv1.ListCollectionsResponse, error) {
 	return &maintainv1.ListCollectionsResponse{Collections: []*maintainv1.Collection{{
 		Id: "col1", Name: "Leaving soon", Enabled: true, GraceDays: 7,
-		ArrAction: maintainv1.ArrAction_ARR_ACTION_DELETE,
+		ArrAction:          maintainv1.ArrAction_ARR_ACTION_DELETE,
 		LeavingSoonEnabled: true, LeavingSoonLabel: "Leaving Soon",
 	}}}, nil
 }
@@ -142,7 +142,7 @@ func (f *fixtureMaintainer) ImportRules(_ context.Context, req *maintainv1.Impor
 func (f *fixtureMaintainer) GetRule(_ context.Context, req *maintainv1.GetRuleRequest) (*maintainv1.GetRuleResponse, error) {
 	return &maintainv1.GetRuleResponse{Rule: &maintainv1.RuleGroup{
 		Id: req.GetId(), Name: "Unwatched 90d", Enabled: true,
-		Scope: maintainv1.MediaScope_MEDIA_SCOPE_MOVIE,
+		Scope:     maintainv1.MediaScope_MEDIA_SCOPE_MOVIE,
 		ArrAction: maintainv1.ArrAction_ARR_ACTION_DELETE,
 	}}, nil
 }
@@ -188,7 +188,7 @@ func (f *fixtureMaintainer) DeleteProtection(_ context.Context, req *maintainv1.
 func (f *fixtureMaintainer) PreviewRule(context.Context, *maintainv1.PreviewRuleRequest) (*maintainv1.PreviewRuleResponse, error) {
 	f.previewed = true
 	return &maintainv1.PreviewRuleResponse{
-		Total: 1,
+		Total:   1,
 		Matches: []*maintainv1.Candidate{{Id: "c1", Title: "Old Movie"}},
 	}, nil
 }

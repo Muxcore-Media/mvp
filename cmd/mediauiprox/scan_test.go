@@ -17,10 +17,10 @@ import (
 
 type fixtureLibraryScan struct {
 	scannerv1.UnimplementedScannerServiceServer
-	watch   bool
-	roots   bool
-	path    string
-	media   string
+	watch bool
+	roots bool
+	path  string
+	media string
 }
 
 func (f *fixtureLibraryScan) GetStats(context.Context, *scannerv1.GetStatsRequest) (*scannerv1.GetStatsResponse, error) {
@@ -266,7 +266,7 @@ func TestHandleLibraryScanStatusPlusWithoutScanner(t *testing.T) {
 		t.Fatalf("status %d %s", w.Code, w.Body.String())
 	}
 	var body struct {
-		Available bool `json:"available"`
+		Available bool   `json:"available"`
 		Status    string `json:"status"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {

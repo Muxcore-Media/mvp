@@ -75,6 +75,9 @@ func (s *server) resolvePlaybackMediaFile(ctx context.Context, kind, mediaID str
 	}
 	switch kind {
 	case "movie":
+		if s.movies == nil {
+			return "", ""
+		}
 		files, err := s.movies.ListFiles(ctx, &mgmntv1.ListFilesRequest{MovieId: mediaID})
 		if err != nil || len(files.GetFiles()) == 0 {
 			return "", ""

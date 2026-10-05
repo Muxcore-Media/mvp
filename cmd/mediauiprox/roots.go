@@ -143,12 +143,12 @@ func (s *server) handleProbeRoot(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.roots == nil {
 		writeJSON(w, map[string]any{
-			"available":  false,
-			"path":       path,
-			"accessible": false,
-			"free_bytes": 0,
+			"available":   false,
+			"path":        path,
+			"accessible":  false,
+			"free_bytes":  0,
 			"total_bytes": 0,
-			"error":      "roots unavailable",
+			"error":       "roots unavailable",
 		})
 		return
 	}
@@ -238,14 +238,14 @@ func (s *server) handlePatchRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Path               string `json:"path"`
-		Name               string `json:"name"`
-		MediaKind          string `json:"media_kind"`
-		MediaKindCamel     string `json:"mediaKind"`
-		NamingTemplateID   string `json:"naming_template_id"`
+		Path                string `json:"path"`
+		Name                string `json:"name"`
+		MediaKind           string `json:"media_kind"`
+		MediaKindCamel      string `json:"mediaKind"`
+		NamingTemplateID    string `json:"naming_template_id"`
 		NamingTemplateCamel string `json:"namingTemplateId"`
-		IsDefault          *bool  `json:"is_default"`
-		IsDefaultCamel     *bool  `json:"isDefault"`
+		IsDefault           *bool  `json:"is_default"`
+		IsDefaultCamel      *bool  `json:"isDefault"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err.Error() != "EOF" {
 		writeJSONStatus(w, http.StatusBadRequest, map[string]any{"error": "invalid json", "code": "roots.invalid_json"})
@@ -266,12 +266,12 @@ func (s *server) handlePatchRoot(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	resp, err := s.roots.UpdateRoot(ctx, &rootsv1.UpdateRootRequest{
-		Id:                id,
-		Path:              strings.TrimSpace(body.Path),
-		Name:              strings.TrimSpace(body.Name),
-		MediaKind:         kind,
-		NamingTemplateId:  tpl,
-		IsDefault:         isDefault,
+		Id:               id,
+		Path:             strings.TrimSpace(body.Path),
+		Name:             strings.TrimSpace(body.Name),
+		MediaKind:        kind,
+		NamingTemplateId: tpl,
+		IsDefault:        isDefault,
 	})
 	if err != nil {
 		writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "code": "roots.update_failed"})

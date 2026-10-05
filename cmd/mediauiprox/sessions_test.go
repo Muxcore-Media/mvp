@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -286,11 +287,49 @@ func TestHandlePlaybackSessionEventsUnavailable(t *testing.T) {
 	}
 }
 
+// syncRecorder is a ResponseRecorder safe for reading the body while a
+// streaming handler is still writing to it.
+type syncRecorder struct {
+	mu  sync.Mutex
+	rec *httptest.ResponseRecorder
+}
+
+func newSyncRecorder() *syncRecorder { return &syncRecorder{rec: httptest.NewRecorder()} }
+
+func (r *syncRecorder) Header() http.Header { return r.rec.Header() }
+
+func (r *syncRecorder) WriteHeader(code int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rec.WriteHeader(code)
+}
+
+func (r *syncRecorder) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rec.Write(p)
+}
+
+func (r *syncRecorder) Flush() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rec.Flush()
+}
+
+func (r *syncRecorder) bodyString() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rec.Body.String()
+}
+
 func TestHandlePlaybackSessionEvents(t *testing.T) {
+	var mu sync.Mutex
 	var gotAuth, gotPath string
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		gotPath = r.URL.Path
 		gotAuth = r.Header.Get("Authorization")
+		mu.Unlock()
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher, _ := w.(http.Flusher)
 		_, _ = w.Write([]byte("event: connected\ndata: {\"event\":\"connected\"}\n\n"))
@@ -304,7 +343,7 @@ func TestHandlePlaybackSessionEvents(t *testing.T) {
 	s := &server{playbackMonitorHTTP: u, playbackMonitorToken: "house-token"}
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest(http.MethodGet, "/api/sessions/events", nil).WithContext(ctx)
-	w := httptest.NewRecorder()
+	w := newSyncRecorder()
 	done := make(chan struct{})
 	go func() {
 		s.handlePlaybackSessionEvents(w, req)
@@ -312,18 +351,20 @@ func TestHandlePlaybackSessionEvents(t *testing.T) {
 	}()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if strings.Contains(w.Body.String(), "connected") {
+		if strings.Contains(w.bodyString(), "connected") {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	cancel()
 	<-done
+	mu.Lock()
+	defer mu.Unlock()
 	if gotPath != "/events/streams" || gotAuth != "Bearer house-token" {
 		t.Fatalf("path=%q auth=%q", gotPath, gotAuth)
 	}
-	if !strings.Contains(w.Body.String(), "connected") {
-		t.Fatalf("body %q", w.Body.String())
+	if !strings.Contains(w.bodyString(), "connected") {
+		t.Fatalf("body %q", w.bodyString())
 	}
 }
 

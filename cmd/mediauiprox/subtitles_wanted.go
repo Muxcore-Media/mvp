@@ -81,9 +81,9 @@ func publicLanguageProfile(p *subtv1.LanguageProfile) map[string]any {
 			continue
 		}
 		langs = append(langs, map[string]any{
-			"language":          lr.GetLanguage(),
-			"hearing_impaired":  lr.GetHearingImpaired(),
-			"forced":            lr.GetForced(),
+			"language":         lr.GetLanguage(),
+			"hearing_impaired": lr.GetHearingImpaired(),
+			"forced":           lr.GetForced(),
 		})
 	}
 	return map[string]any{

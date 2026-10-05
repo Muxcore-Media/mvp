@@ -28,14 +28,14 @@ func publicWatchDir(dir *scannerv1.WatchDir) map[string]any {
 		return map[string]any{}
 	}
 	return map[string]any{
-		"id":                dir.GetId(),
-		"path":              dir.GetPath(),
-		"media_type":        dir.GetMediaType(),
-		"library_path":      dir.GetLibraryPath(),
-		"tv_library_path":   dir.GetTvLibraryPath(),
+		"id":                 dir.GetId(),
+		"path":               dir.GetPath(),
+		"media_type":         dir.GetMediaType(),
+		"library_path":       dir.GetLibraryPath(),
+		"tv_library_path":    dir.GetTvLibraryPath(),
 		"music_library_path": dir.GetMusicLibraryPath(),
-		"enabled":           dir.GetEnabled(),
-		"created_at":        dir.GetCreatedAt(),
+		"enabled":            dir.GetEnabled(),
+		"created_at":         dir.GetCreatedAt(),
 	}
 }
 

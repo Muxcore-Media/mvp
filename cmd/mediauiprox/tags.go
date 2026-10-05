@@ -9,8 +9,8 @@ import (
 	"time"
 
 	mediaadminv1 "github.com/Muxcore-Media/contracts-media-admin/gen/muxcore/media/admin/v1"
-	musicv1 "github.com/Muxcore-Media/media-music/proto/gen/muxcore/music/v1"
 	mgmntv1 "github.com/Muxcore-Media/media-movies/proto/mgmntv1"
+	musicv1 "github.com/Muxcore-Media/media-music/proto/gen/muxcore/music/v1"
 	tvmgmtv1 "github.com/Muxcore-Media/media-tvshows/proto/tvmgmtv1"
 )
 

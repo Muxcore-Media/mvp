@@ -19,17 +19,17 @@ func publicSubtitleFile(f *subtv1.SubtitleFile) map[string]any {
 		return map[string]any{}
 	}
 	return map[string]any{
-		"id":                f.GetId(),
-		"media_file_id":     f.GetMediaFileId(),
-		"language":          f.GetLanguage(),
-		"format":            strings.TrimPrefix(f.GetFormat(), "."),
-		"forced":            f.GetForced(),
-		"hearing_impaired":  f.GetHearingImpaired(),
-		"source":            f.GetSource(),
-		"provider":          f.GetProvider(),
-		"score":             f.GetScore(),
-		"size_bytes":        f.GetSizeBytes(),
-		"filename":          filepath.Base(f.GetFilePath()),
+		"id":               f.GetId(),
+		"media_file_id":    f.GetMediaFileId(),
+		"language":         f.GetLanguage(),
+		"format":           strings.TrimPrefix(f.GetFormat(), "."),
+		"forced":           f.GetForced(),
+		"hearing_impaired": f.GetHearingImpaired(),
+		"source":           f.GetSource(),
+		"provider":         f.GetProvider(),
+		"score":            f.GetScore(),
+		"size_bytes":       f.GetSizeBytes(),
+		"filename":         filepath.Base(f.GetFilePath()),
 	}
 }
 
@@ -215,10 +215,10 @@ func (s *server) uploadHouseholdSubtitle(ctx context.Context, mediaFileID, langu
 		return map[string]any{"error": err.Error(), "code": "subtitles.upload_failed"}, http.StatusBadGateway
 	}
 	meta, err := json.Marshal(map[string]any{
-		"media_file_id":     mediaFileID,
-		"language":          language,
-		"forced":            forced,
-		"hearing_impaired":  hi,
+		"media_file_id":    mediaFileID,
+		"language":         language,
+		"forced":           forced,
+		"hearing_impaired": hi,
 	})
 	if err != nil {
 		return map[string]any{"error": err.Error(), "code": "subtitles.upload_failed"}, http.StatusBadRequest

@@ -17,13 +17,13 @@ import (
 
 type fixtureListSources struct {
 	listsyncv1.UnimplementedListSyncServiceServer
-	created *listsyncv1.AddSourceRequest
-	updated *listsyncv1.UpdateSourceRequest
-	deleted   string
-	synced    bool
-	syncedID  string
-	testedID  string
-	paused    bool
+	created  *listsyncv1.AddSourceRequest
+	updated  *listsyncv1.UpdateSourceRequest
+	deleted  string
+	synced   bool
+	syncedID string
+	testedID string
+	paused   bool
 }
 
 func (f *fixtureListSources) ListSources(context.Context, *listsyncv1.ListSourcesRequest) (*listsyncv1.ListSourcesResponse, error) {

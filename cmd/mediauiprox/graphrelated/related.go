@@ -80,7 +80,7 @@ func Handle(base *url.URL, token string) http.HandlerFunc {
 			writeJSON(w, http.StatusOK, relatedResponse{Items: []relatedItem{}, Available: false})
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 
 		// Title not in the graph store: rail can stay visible but empty.
