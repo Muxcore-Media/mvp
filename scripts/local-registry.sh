@@ -4,7 +4,7 @@
 # Usage:
 #   ./scripts/local-registry.sh          # start registry on :5000
 #   ./scripts/local-registry.sh stop
-#   MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-muxcored-local.sh v0.5.7
+#   MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-muxcored-local.sh v0.6.7
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
