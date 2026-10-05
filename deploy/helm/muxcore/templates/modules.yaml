@@ -8,8 +8,8 @@
   (dict "name" "encryption-aesgcm" "image" .Values.images.encryptionAesgcm)
   (dict "name" "call-policy-default" "image" .Values.images.callPolicy)
   (dict "name" "publish-policy-default" "image" .Values.images.publishPolicy)
-  (dict "name" "health-monitor" "image" .Values.images.healthMonitor "http" 9203 "svcHttp" 9203 "grpc" 9202 "health" "/status" "extra" (list (dict "name" "HEALTH_MONITOR_GRPC_ADDR" "value" ":9202") (dict "name" "HEALTH_MONITOR_HTTP_ADDR" "value" ":9203")))
-  (dict "name" "admin-ui" "image" .Values.images.adminUi "http" 8082 "svcHttp" 8082 "health" "/health" "extra" (list (dict "name" "ADMIN_UI_ADDR" "value" ":8082") (dict "name" "ADMIN_UI_AUTH_ADDR" "value" "http://auth-local:9401") (dict "name" "ADMIN_UI_HEALTH_MONITOR_URL" "value" "http://health-monitor:9203")))
+  (dict "name" "health-monitor" "image" .Values.images.healthMonitor "http" 9203 "svcHttp" 9203 "grpc" 9202 "health" "/status" "extra" (list (dict "name" "HEALTH_MONITOR_GRPC_ADDR" "value" ":9202") (dict "name" "HEALTH_MONITOR_HTTP_ADDR" "value" "0.0.0.0:9203")) "secretEnv" (list (dict "name" "HEALTH_MONITOR_HTTP_TOKEN" "secret" (include "muxcore.healthMonitorSecretName" .) "key" (include "muxcore.healthMonitorSecretKey" .))))
+  (dict "name" "admin-ui" "image" .Values.images.adminUi "http" 8082 "svcHttp" 8082 "health" "/health" "extra" (list (dict "name" "ADMIN_UI_ADDR" "value" ":8082") (dict "name" "ADMIN_UI_AUTH_ADDR" "value" "http://auth-local:9401") (dict "name" "ADMIN_UI_HEALTH_MONITOR_URL" "value" "http://health-monitor:9203")) "secretEnv" (list (dict "name" "ADMIN_UI_HEALTH_MONITOR_TOKEN" "secret" (include "muxcore.healthMonitorSecretName" .) "key" (include "muxcore.healthMonitorSecretKey" .))))
 -}}
 {{- range $m := $modules }}
 {{- if $m.pvc }}
@@ -61,6 +61,13 @@ spec:
             {{- range $e := $m.extra }}
             - name: {{ $e.name }}
               value: {{ $e.value | quote }}
+            {{- end }}
+            {{- range $e := $m.secretEnv }}
+            - name: {{ $e.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $e.secret }}
+                  key: {{ $e.key }}
             {{- end }}
           {{- if $m.http }}
           ports:

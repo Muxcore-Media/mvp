@@ -32,6 +32,11 @@ spec:
               value: http://auth-local:9401
             - name: ADMIN_UI_HEALTH_MONITOR_URL
               value: http://health-monitor:9203
+            - name: ADMIN_UI_HEALTH_MONITOR_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: health-monitor-token
+                  key: HEALTH_MONITOR_HTTP_TOKEN
           ports:
             - name: http
               containerPort: 8082

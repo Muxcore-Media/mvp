@@ -65,3 +65,11 @@ acquisition:
     downloaderNativeTorrent: localhost:5000/muxcore/downloader-native-torrent:v0.6.7
     downloaderSabnzbd: localhost:5000/muxcore/downloader-sabnzbd:v0.6.7
     downloaderDebrid: localhost:5000/muxcore/downloader-debrid:v0.6.7
+
+# health-monitor HTTP bearer (NFR-SEC-011). health-monitor v0.1.7+ refuses a non-loopback
+# HEALTH_MONITOR_HTTP_ADDR without a token; admin-ui reads the same value as
+# ADMIN_UI_HEALTH_MONITOR_TOKEN. There is no default: set exactly one of these or rendering fails.
+healthMonitor:
+  token: ""           # chart renders Secret "health-monitor-token" from this value
+  existingSecret: ""  # or name a Secret you created out-of-band (preferred; keeps the token out of values)
+  secretKey: token    # key inside the Secret

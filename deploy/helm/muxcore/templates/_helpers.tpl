@@ -8,3 +8,11 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 - name: MUXCORE_INSECURE_DISABLE_TLS
   value: {{ .Values.insecureDisableTLS | quote }}
 {{- end -}}
+
+{{- define "muxcore.healthMonitorSecretName" -}}
+{{- default "health-monitor-token" .Values.healthMonitor.existingSecret -}}
+{{- end -}}
+
+{{- define "muxcore.healthMonitorSecretKey" -}}
+{{- default "token" .Values.healthMonitor.secretKey -}}
+{{- end -}}
