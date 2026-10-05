@@ -109,7 +109,32 @@ start_one() {
   echo $! >"$pidfile"
 }
 
+# wait_pids_gone <timeout-sec> <pid>...: wait for the processes to exit; SIGKILL
+# whatever is still alive at the deadline (e.g. a muxcored stuck in gRPC
+# GracefulStop), so the next `up` can bind its ports.
+wait_pids_gone() {
+  local timeout="$1" pid alive
+  shift
+  (($# > 0)) || return 0
+  local deadline=$((SECONDS + timeout))
+  while :; do
+    alive=()
+    for pid in "$@"; do
+      kill -0 "$pid" 2>/dev/null && alive+=("$pid")
+    done
+    ((${#alive[@]} == 0)) && return 0
+    ((SECONDS >= deadline)) && break
+    sleep 0.25
+  done
+  for pid in "${alive[@]}"; do
+    echo "WARN: pid $pid ($(ps -o comm= -p "$pid" 2>/dev/null || echo '?')) still alive after ${timeout}s; SIGKILL" >&2
+    kill -9 "$pid" 2>/dev/null || true
+  done
+}
+
 stop_all() {
+  local -a pids=()
+  local pid name f bin base
   for f in "$RUN"/*.pid; do
     [[ -f "$f" ]] || continue
     pid=$(cat "$f")
@@ -117,7 +142,7 @@ stop_all() {
     if kill -0 "$pid" 2>/dev/null; then
       echo "stopping $name ($pid)"
       kill "$pid" 2>/dev/null || true
-      wait "$pid" 2>/dev/null || true
+      pids+=("$pid")
     fi
     rm -f "$f"
   done
@@ -131,8 +156,15 @@ stop_all() {
       esac
       pkill -x "$base" 2>/dev/null || true
     done
-    sleep 0.5
+    # pkill -x matches the 15-char comm name; also catch longer names by path.
+    while read -r pid; do
+      [[ -n "$pid" ]] || continue
+      kill "$pid" 2>/dev/null || true
+      pids+=("$pid")
+    done < <(pgrep -af "^$BIN/" 2>/dev/null | awk '$2 !~ /\/caddy$/ { print $1 }')
   fi
+  # `wait` cannot wait for non-children: poll until they exit (MVP_STOP_TIMEOUT_SEC).
+  wait_pids_gone "${MVP_STOP_TIMEOUT_SEC:-15}" "${pids[@]}"
 }
 
 # Graceful stop of a single sidecar (SIGTERM, wait, then SIGKILL). Removes pidfile.
@@ -706,11 +738,18 @@ EOF
         (cd "$WS/userdata-local" && go build -o "$BIN/userdata-local" ./cmd/module)
       fi
       mkdir -p "$DATA/userdata"
+      # userdata-local reads USERDATA_LOCAL_DB_PATH only; without it the DB lands in
+      # ~/.muxcore/userdata.db, outside data/ and the backup (ADR-0013).
+      userdata_db="${USERDATA_LOCAL_DB_PATH:-$DATA/userdata/userdata.db}"
+      if [[ ! -e "$userdata_db" && -s "$HOME/.muxcore/userdata.db" ]]; then
+        echo "WARN: userdata-local now stores $userdata_db; an older DB exists at $HOME/.muxcore/userdata.db." >&2
+        echo "      To keep it: ./run-host.sh stop-one userdata-local; mv $HOME/.muxcore/userdata.db* $(dirname "$userdata_db")/; ./run-host.sh restart userdata-local" >&2
+      fi
       maybe_start userdata-local env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=userdata-local MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
         USERDATA_LOCAL_HTTP_ADDR=":9672" \
         USERDATA_LOCAL_GRPC_ADDR=":9673" \
-        USERDATA_LOCAL_DATA_DIR="$DATA/userdata" \
+        USERDATA_LOCAL_DB_PATH="$userdata_db" \
         "$BIN/userdata-local"
       export USERDATA_LOCAL_URL="${USERDATA_LOCAL_URL:-http://127.0.0.1:9672}"
     fi
@@ -1018,13 +1057,30 @@ EOF
 
     # ── Optional peers (env-gated; vault soak enables non-acquisition set via muxcore-test.nix) ──
 
-    if [[ "${MVP_ENABLE_BACKUP_LOCAL:-0}" == "1" ]]; then
+    # Sources = the backed-up `state:` host dirs from household-manifest.yaml
+    # (ADR-0013): never all of data/, which held library media, downloads, key
+    # material and backup-local's own archives. Override with BACKUP_SOURCE_DIRS.
+    if [[ "${MVP_ENABLE_BACKUP_LOCAL:-0}" == "1" ]] && [[ -z "${START_ONLY:-}" || "$START_ONLY" == "backup-local" ]]; then
       mkdir -p "$DATA/backup"
-      maybe_start backup-local env \
-        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=backup-local MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
-        BACKUP_DIR="$DATA/backup" \
-        BACKUP_SOURCE_DIRS="$DATA" \
-        "$BIN/backup-local"
+      backup_sources="${BACKUP_SOURCE_DIRS:-}"
+      if [[ -z "$backup_sources" ]]; then
+        # shellcheck disable=SC1091
+        source "$ROOT/scripts/lib/state-map.sh"
+        backup_sources="$(state_map_host_sources "$ROOT/household-manifest.yaml" "$DATA")" || backup_sources=""
+        if [[ -n "$backup_sources" ]]; then
+          IFS=',' read -ra _backup_dirs <<<"$backup_sources"
+          mkdir -p "${_backup_dirs[@]}"
+        fi
+      fi
+      if [[ -z "$backup_sources" ]]; then
+        echo "WARN: backup-local not started: cannot derive BACKUP_SOURCE_DIRS from household-manifest.yaml (needs yq v4 + jq); set BACKUP_SOURCE_DIRS" >&2
+      else
+        maybe_start backup-local env \
+          MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=backup-local MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
+          BACKUP_DIR="$DATA/backup" \
+          BACKUP_SOURCE_DIRS="$backup_sources" \
+          "$BIN/backup-local"
+      fi
     fi
 
     if [[ "${MVP_ENABLE_MEDIA_AUDIOBOOKS:-0}" == "1" ]]; then

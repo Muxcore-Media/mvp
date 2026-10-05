@@ -3,7 +3,7 @@ module github.com/Muxcore-Media/mvp-smoke
 go 1.26.6
 
 require (
-	github.com/Muxcore-Media/backup-local v0.1.3
+	github.com/Muxcore-Media/backup-local v0.1.5
 	github.com/Muxcore-Media/contracts-automation v0.1.1
 	github.com/Muxcore-Media/contracts-indexer v0.1.1
 	github.com/Muxcore-Media/contracts-media-admin v0.1.1

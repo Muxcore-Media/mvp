@@ -119,18 +119,26 @@ optional_env_gated:
 #             /source/<module-id> and lists it in default BACKUP_SOURCE_DIRS.
 #             false: volume must be in excluded_volumes (e.g. key material).
 #   shares    (optional) other state volumes this service also mounts; owned elsewhere
+#   host      (optional) host-mode state directory under run-host.sh's data/ (single
+#             path segment). Several modules may share one (admin-ui and media-ui
+#             both use data/media-ui). Omitted when run-host keeps no state for it.
+#             backup-local archives each host dir as data/<basename> (run-host
+#             BACKUP_SOURCE_DIRS); scripts/restore-drill.sh and docs/RESTORE.md map
+#             archive entries back with it (FR-BAK-004).
 # Every required/recommended module is in `state` or `stateless` (error otherwise);
 # optional modules are checked too but drift only warns.
 state:
   core:
     volume: core-data
     mount: /app/data
+    host: storage
     env: {MUXCORE_STORAGE_DIR: /app/data/storage}
     kind: files
     personal: false
   auth-local:
     volume: auth-data
     mount: /data
+    host: auth
     env: {AUTH_DB_PATH: /data/auth.db}
     kind: sqlite
     personal: true
@@ -138,6 +146,7 @@ state:
   database-sqlite:
     volume: sqlite-data
     mount: /data
+    host: sqlite
     env: {SQLITE_DB_PATH: /data/muxcore.db}
     kind: sqlite
     personal: true
@@ -145,6 +154,7 @@ state:
   secrets-file:
     volume: secrets-file-data
     mount: /data
+    host: secrets
     env: {SECRETS_STORE: /data/secrets.json}
     kind: json
     personal: false
@@ -155,6 +165,7 @@ state:
   encryption-aesgcm:
     volume: encryption-aesgcm-data
     mount: /data
+    host: encryption
     env: {ENCRYPTION_KEY_FILE: /data/master.key}
     kind: files
     personal: false
@@ -163,6 +174,7 @@ state:
   admin-ui:
     volume: admin-ui-data
     mount: /data
+    host: media-ui
     env: {ADMIN_UI_DATA_DIR: /data}
     kind: json
     personal: true
@@ -171,30 +183,35 @@ state:
   media-movies:
     volume: media-movies-data
     mount: /data
+    host: movies
     env: {MOVIES_DB_PATH: /data/movies.db, MOVIES_IMAGE_DIR: /data/images}
     kind: sqlite
     personal: false
   media-tvshows:
     volume: media-tvshows-data
     mount: /data
+    host: tvshows
     env: {TVSHOWS_DB_PATH: /data/tvshows.db, TVSHOWS_IMAGE_DIR: /data/images}
     kind: sqlite
     personal: false
   media-scanner:
     volume: media-scanner-data
     mount: /data
+    host: scanner
     env: {SCANNER_DB_PATH: /data/scanner.db}
     kind: sqlite
     personal: false
   media-automation:
     volume: media-automation-data
     mount: /data
+    host: automation
     env: {AUTOMATION_DB_PATH: /data/automation.db}
     kind: sqlite
     personal: false
   request-media:
     volume: request-media-data
     mount: /data
+    host: request
     env: {REQUEST_DATA_DIR: /data}
     kind: sqlite
     personal: true
@@ -202,6 +219,7 @@ state:
   userdata-local:
     volume: userdata-data
     mount: /data
+    host: userdata
     env: {USERDATA_LOCAL_DB_PATH: /data/userdata.db}
     kind: sqlite
     personal: true
@@ -209,6 +227,7 @@ state:
   media-ui:
     volume: media-ui-data
     mount: /data/media-ui
+    host: media-ui
     env:
       MEDIA_UI_USERDATA_DIR: /data/media-ui
       MEDIA_UI_PASSWORD_RESET_FILE: /data/media-ui/password-resets.json
@@ -218,18 +237,21 @@ state:
   media-custom-formats:
     volume: media-custom-formats-data
     mount: /data
+    host: formats
     env: {FORMATS_DB_PATH: /data/formats.db}
     kind: sqlite
     personal: false
   media-rename:
     volume: media-rename-data
     mount: /data
+    host: rename
     env: {RENAME_DB_PATH: /data/rename.db}
     kind: sqlite
     personal: false
   media-ffprobe:
     volume: media-ffprobe-data
     mount: /data
+    host: ffprobe
     env: {FFPROBE_DB_PATH: /data/cache.db}
     kind: sqlite
     personal: false
@@ -237,12 +259,14 @@ state:
   media-subtitles:
     volume: media-subtitles-data
     mount: /data
+    host: subtitles
     env: {SUBS_DB_PATH: /data/subtitles.db, SUBS_DIR: /data/files}
     kind: sqlite
     personal: false
   media-root-folders:
     volume: media-root-folders-data
     mount: /data
+    host: roots
     env: {ROOTS_DB_PATH: /data/roots.db}
     kind: sqlite
     personal: false
@@ -250,42 +274,49 @@ state:
   auth-oidc:
     volume: auth-oidc-data
     mount: /data
+    host: auth-oidc
     env: {AUTH_OIDC_DB_PATH: /data/auth-oidc/auth.db}
     kind: sqlite
     personal: true
   playback-guard:
     volume: playback-guard-data
     mount: /data/playback-guard
+    host: playback-guard
     env: {PLAYBACK_GUARD_DB_PATH: /data/playback-guard/guard.db}
     kind: sqlite
     personal: true
   playback-monitor:
     volume: playback-monitor-data
     mount: /data/playback-monitor
+    host: playback-monitor
     env: {PLAYBACK_MONITOR_DB_PATH: /data/playback-monitor/monitor.db}
     kind: sqlite
     personal: true
   media-dlna:
     volume: dlna-data
     mount: /data/dlna
+    host: dlna
     env: {DLNA_PROBE_CACHE_PATH: /data/dlna/ffprobe-cache.json}
     kind: json
     personal: false
   media-tagging:
     volume: tagging-data
     mount: /data/tagging
+    host: tagging
     env: {TAGGING_DATA_DIR: /data/tagging}
     kind: files
     personal: false
   media-intro-outro:
     volume: intro-outro-data
     mount: /data/intro-outro
+    host: intro-outro
     env: {INTRO_OUTRO_DATA_DIR: /data/intro-outro}
     kind: files
     personal: false
   media-transcoder-pool:
     volume: transcoder-pool-data
     mount: /data/transcoder-pool
+    host: transcoder-pool
     env: {POOL_DB_PATH: /data/transcoder-pool/pool.db}
     kind: sqlite
     personal: false
@@ -293,6 +324,7 @@ state:
     service: jellyfin-bridge
     volume: jellyfin-data
     mount: /data
+    host: jellyfin
     env: {JELLYFIN_DATA_DIR: /data/jellyfin}
     kind: files
     personal: true

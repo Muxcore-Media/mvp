@@ -264,3 +264,20 @@ func TestPickFixtureMatchAllRejected(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestReleaseMatches(t *testing.T) {
+	cases := []struct {
+		path, release string
+		want          bool
+	}{
+		{"/lib/Movies/Fight Club (1999)/Fight Club (1999) [720p.WEB-DL].mkv", "Fight.Club.1999.720p.WEB-DL", true},
+		{"/lib/Movies/Fight Club (1999)/Fight.Club.1999.1080p.BluRay.x264.mkv", "Fight.Club.1999.1080p.BluRay.x264", true},
+		{"/lib/Movies/Fight Club (1999)/Fight Club (1999) [1080p.BluRay].mkv", "Fight.Club.1999.720p.WEB-DL", false},
+		{"/lib/Movies/Fight Club (1999)/Fight Club (1999).mkv", "", false},
+	}
+	for _, tc := range cases {
+		if got := releaseMatches(tc.path, tc.release); got != tc.want {
+			t.Errorf("releaseMatches(%q, %q) = %v, want %v", tc.path, tc.release, got, tc.want)
+		}
+	}
+}
