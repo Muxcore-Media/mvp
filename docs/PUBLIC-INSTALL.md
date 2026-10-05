@@ -35,12 +35,15 @@ cd _mvp
 export MUXCORE_REGISTRY=localhost:5000/muxcore   # or ghcr.io/muxcore-media once images are published
 export MUXCORE_IMAGE_TAG=v0.6.7
 export DOWNLOADER_ENGINE=fixture
+export SECRETS_MASTER_KEY=...   # generate ONCE with `openssl rand -hex 32`; keep it outside backups and reuse it
 docker compose -f docker-compose.registry.yml pull
 docker compose -f docker-compose.registry.yml up -d
 ./scripts/smoke-registry.sh
 ```
 
 `./scripts/smoke-registry.sh` (or `./smoke.sh` when the registry compose stack is up and host `go build` is unavailable) verifies the install using **curl**, **docker compose**, and a **grpcurl** container only — no sibling clones and no Go toolchain on the host.
+
+**State and backups (ADR-0013).** Every stateful module keeps its data on a named volume mounted at a fixed path, as declared in the `state:` map of [`household-manifest.yaml`](../household-manifest.yaml). The `backup-local` profile mounts each of those volumes read-only at `/source/<module-id>` and archives them by default. Library media (`movies`, `shows`, `downloads`) and key material are not archived: keep `SECRETS_MASTER_KEY` (and an export of the `encryption-aesgcm-data` keyring) somewhere else, because a restored `secrets.json` cannot be read without the key. `./scripts/check-state-coverage.sh` verifies that the manifest, the compose file, and the backup mounts agree.
 
 Operator UI defaults ([`PORTS.md`](../PORTS.md)):
 

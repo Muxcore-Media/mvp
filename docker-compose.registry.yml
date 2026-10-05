@@ -148,6 +148,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: database-sqlite
+      SQLITE_DB_PATH: /data/muxcore.db
     volumes:
       - sqlite-data:/data
     depends_on:
@@ -160,6 +161,13 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: secrets-file
+      SECRETS_STORE: /data/secrets.json
+      # Required (64 hex chars, e.g. `openssl rand -hex 32`). Keep it OUTSIDE the
+      # backup archive (operator .env / password manager): a restored secrets.json
+      # is unreadable without it. Unset = fail closed at Init (ADR-0013).
+      SECRETS_MASTER_KEY: ${SECRETS_MASTER_KEY:-}
+    volumes:
+      - secrets-file-data:/data
     depends_on:
       core:
         condition: service_healthy
@@ -206,6 +214,11 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: encryption-aesgcm
+      # Keyring is generated on first start. Key material: not in the backup
+      # archive (household-manifest excluded_volumes); export it separately.
+      ENCRYPTION_KEY_FILE: /data/master.key
+    volumes:
+      - encryption-aesgcm-data:/data
     depends_on:
       core:
         condition: service_healthy
@@ -248,11 +261,13 @@ services:
       MUXCORE_MODULE_ID: admin-ui
       ADMIN_UI_ADDR: ":8082"
       ADMIN_UI_AUTH_ADDR: http://auth-local:9401
+      ADMIN_UI_DATA_DIR: /data
       # Shared with media-ui consumer POST /api/password-reset (umbrella #111).
       ADMIN_UI_PASSWORD_RESET_FILE: /data/media-ui/password-resets.json
     ports:
       - "${ADMIN_UI_HTTP_PORT:-8082}:8082"
     volumes:
+      - admin-ui-data:/data
       - media-ui-data:/data/media-ui
     depends_on:
       core:
@@ -266,6 +281,16 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-movies
+      MOVIES_DB_PATH: /data/movies.db
+      MOVIES_IMAGE_DIR: /data/images
+      # Insecure dev mode rewrites ":port" binds to loopback; bind the service
+      # name so the media-ui BFF can reach gRPC across containers.
+      MOVIES_GRPC_ADDR: media-movies:9420
+      MOVIES_HTTP_ADDR: ":9430"
+    volumes:
+      - media-movies-data:/data
+      # Library (scanner import target) read-only for /stream.
+      - movies:/data/movies:ro
     depends_on:
       core:
         condition: service_healthy
@@ -276,6 +301,14 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-tvshows
+      TVSHOWS_DB_PATH: /data/tvshows.db
+      TVSHOWS_IMAGE_DIR: /data/images
+      TVSHOWS_GRPC_ADDR: ":9440"
+      TVSHOWS_HTTP_ADDR: ":9450"
+    volumes:
+      - media-tvshows-data:/data
+      # Library (scanner import target) read-only for /stream/tv.
+      - shows:/data/shows:ro
     depends_on:
       core:
         condition: service_healthy
@@ -287,9 +320,11 @@ services:
       <<: *module_env
       MUXCORE_MODULE_ID: media-automation
       DOWNLOADER_ENGINE: ${DOWNLOADER_ENGINE:-fixture}
+      AUTOMATION_DB_PATH: /data/automation.db
       AUTOMATION_DOWNLOAD_DIR: /data/downloads
       MVP_DOWNLOADS_DIR: /data/downloads
     volumes:
+      - media-automation-data:/data
       - downloads:/data/downloads
     depends_on:
       core:
@@ -471,9 +506,11 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-scanner
+      SCANNER_DB_PATH: /data/scanner.db
       SCANNER_LIBRARY_ROOT: /data/movies
       SCANNER_TV_LIBRARY_ROOT: /data/shows
     volumes:
+      - media-scanner-data:/data
       - downloads:/data/downloads
       - movies:/data/movies
       - shows:/data/shows
@@ -487,8 +524,14 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: request-media
-      REQUEST_HTTP_ADDR: "127.0.0.1:9380"
+      # HTTP on all container interfaces (not published) so the media-ui BFF can
+      # reach it; gRPC binds the service name (insecure mode rewrites ":port").
+      REQUEST_HTTP_ADDR: ":9380"
+      REQUEST_GRPC_ADDR: request-media:9481
+      REQUEST_DATA_DIR: /data
       REQUEST_REQUIRE_APPROVAL: ${REQUEST_REQUIRE_APPROVAL:-false}
+    volumes:
+      - request-media-data:/data
     depends_on:
       core:
         condition: service_healthy
@@ -510,11 +553,14 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-custom-formats
+      FORMATS_DB_PATH: /data/formats.db
       FORMATS_SEED_DEFAULTS: "true"
       FORMATS_TRASH_SYNC: "${FORMATS_TRASH_SYNC:-true}"
       FORMATS_TRASH_IMPORT_PROFILES: "${FORMATS_TRASH_IMPORT_PROFILES:-true}"
       FORMATS_TRASH_SCORE_SET: "${FORMATS_TRASH_SCORE_SET:-default}"
       FORMATS_TRASH_SERVICES: "${FORMATS_TRASH_SERVICES:-radarr,sonarr}"
+    volumes:
+      - media-custom-formats-data:/data
     depends_on:
       core:
         condition: service_healthy
@@ -525,6 +571,10 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-rename
+      RENAME_DB_PATH: /data/rename.db
+      RENAME_GRPC_ADDR: ":9510"
+    volumes:
+      - media-rename-data:/data
     depends_on:
       core:
         condition: service_healthy
@@ -535,6 +585,9 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-ffprobe
+      FFPROBE_DB_PATH: /data/cache.db
+    volumes:
+      - media-ffprobe-data:/data
     depends_on:
       core:
         condition: service_healthy
@@ -545,6 +598,10 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-subtitles
+      SUBS_DB_PATH: /data/subtitles.db
+      SUBS_DIR: /data/files
+    volumes:
+      - media-subtitles-data:/data
     depends_on:
       core:
         condition: service_healthy
@@ -555,6 +612,9 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-root-folders
+      ROOTS_DB_PATH: /data/roots.db
+    volumes:
+      - media-root-folders-data:/data
     depends_on:
       core:
         condition: service_healthy
@@ -591,7 +651,11 @@ services:
 
   # Optional household backup — profile: backup-local
   #   docker compose -f docker-compose.registry.yml --profile backup-local up -d
-  # /source/userdata is userdata-data volume root (userdata.db); not a separate JSON export tree.
+  # State model (ADR-0013): every backed-up `state:` volume in household-manifest.yaml
+  # is mounted read-only at /source/<module-id> and listed in the default
+  # BACKUP_SOURCE_DIRS (scripts/check-state-coverage.sh enforces both). Library media
+  # (movies/shows/downloads) and key material (encryption-aesgcm, SECRETS_MASTER_KEY)
+  # are deliberately excluded. Stop writers before a backup for a consistent archive.
   backup-local:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/backup-local:${MUXCORE_IMAGE_TAG:-v0.6.7}
@@ -601,16 +665,40 @@ services:
       BACKUP_DIR: /data/backups
       BACKUP_GRPC_ADDR: ":9302"
       BACKUP_GRPC_BIND_ALL: "true"
-      BACKUP_SOURCE_DIRS: ${BACKUP_SOURCE_DIRS:-/source/auth,/source/sqlite,/source/userdata}
+      BACKUP_SOURCE_DIRS: ${BACKUP_SOURCE_DIRS:-/source/core,/source/auth-local,/source/database-sqlite,/source/secrets-file,/source/admin-ui,/source/media-movies,/source/media-tvshows,/source/media-scanner,/source/media-automation,/source/request-media,/source/userdata-local,/source/media-ui,/source/media-custom-formats,/source/media-rename,/source/media-ffprobe,/source/media-subtitles,/source/media-root-folders,/source/auth-oidc,/source/playback-guard,/source/playback-monitor,/source/media-dlna,/source/media-tagging,/source/media-intro-outro,/source/media-transcoder-pool,/source/jellyfin,/source/plex,/source/emby}
       BACKUP_SCHEDULE_CRON: ${BACKUP_SCHEDULE_CRON:-}
       BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-10}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-0}
     volumes:
       - backup-data:/data/backups
       - backup-restore-data:/data/restore
-      - auth-data:/source/auth:ro
-      - sqlite-data:/source/sqlite:ro
-      - userdata-data:/source/userdata:ro
+      - core-data:/source/core:ro
+      - auth-data:/source/auth-local:ro
+      - sqlite-data:/source/database-sqlite:ro
+      - secrets-file-data:/source/secrets-file:ro
+      - admin-ui-data:/source/admin-ui:ro
+      - media-movies-data:/source/media-movies:ro
+      - media-tvshows-data:/source/media-tvshows:ro
+      - media-scanner-data:/source/media-scanner:ro
+      - media-automation-data:/source/media-automation:ro
+      - request-media-data:/source/request-media:ro
+      - userdata-data:/source/userdata-local:ro
+      - media-ui-data:/source/media-ui:ro
+      - media-custom-formats-data:/source/media-custom-formats:ro
+      - media-rename-data:/source/media-rename:ro
+      - media-ffprobe-data:/source/media-ffprobe:ro
+      - media-subtitles-data:/source/media-subtitles:ro
+      - media-root-folders-data:/source/media-root-folders:ro
+      - auth-oidc-data:/source/auth-oidc:ro
+      - playback-guard-data:/source/playback-guard:ro
+      - playback-monitor-data:/source/playback-monitor:ro
+      - dlna-data:/source/media-dlna:ro
+      - tagging-data:/source/media-tagging:ro
+      - intro-outro-data:/source/media-intro-outro:ro
+      - transcoder-pool-data:/source/media-transcoder-pool:ro
+      - jellyfin-data:/source/jellyfin:ro
+      - plex-data:/source/plex:ro
+      - emby-data:/source/emby:ro
     depends_on:
       core:
         condition: service_healthy
@@ -792,6 +880,19 @@ services:
       DOWNLOADER_SAB_HTTP_URL: http://downloader-sabnzbd:9621
       DOWNLOADER_USENET_HTTP_URL: http://downloader-native-usenet:9623
       DEBRID_HTTP_URL: http://downloader-debrid:9631
+      # Library + recommended peers (container DNS, not the 127.0.0.1 defaults).
+      MOVIES_GRPC_CLIENT_ADDR: media-movies:9420
+      TVSHOWS_GRPC_CLIENT_ADDR: media-tvshows:9440
+      MOVIES_HTTP_URL: http://media-movies:9430
+      TVSHOWS_HTTP_URL: http://media-tvshows:9450
+      REQUEST_MEDIA_HTTP_URL: http://request-media:9380
+      ROOTS_GRPC_CLIENT_ADDR: media-root-folders:9540
+      RENAME_GRPC_CLIENT_ADDR: media-rename:9510
+      FFPROBE_GRPC_CLIENT_ADDR: media-ffprobe:9480
+      SUBTITLES_GRPC_CLIENT_ADDR: media-subtitles:9520
+      METADATA_TMDB_GRPC_ADDR: metadata-tmdb:9411
+      # Durable BFF JSON state (playback policy, livetv, library paths).
+      MEDIA_UI_USERDATA_DIR: /data/media-ui
       # Shared with admin-ui /password-resets queue (umbrella #111).
       MEDIA_UI_PASSWORD_RESET_FILE: /data/media-ui/password-resets.json
     ports:
@@ -804,6 +905,12 @@ services:
       auth-local:
         condition: service_started
       userdata-local:
+        condition: service_started
+      media-movies:
+        condition: service_started
+      media-tvshows:
+        condition: service_started
+      request-media:
         condition: service_started
 
   # Optional Jellyfin playback bridge — compose profile: jellyfin
@@ -897,3 +1004,16 @@ volumes:
   jellyfin-data:
   plex-data:
   emby-data:
+  secrets-file-data:
+  encryption-aesgcm-data:
+  admin-ui-data:
+  media-movies-data:
+  media-tvshows-data:
+  media-scanner-data:
+  media-automation-data:
+  request-media-data:
+  media-custom-formats-data:
+  media-rename-data:
+  media-ffprobe-data:
+  media-subtitles-data:
+  media-root-folders-data:
