@@ -76,20 +76,20 @@ func publicMaintainerCandidate(c *maintainv1.Candidate) map[string]any {
 		return map[string]any{}
 	}
 	return map[string]any{
-		"id":          c.GetId(),
-		"item_id":     c.GetItemId(),
-		"title":       c.GetTitle(),
-		"year":        c.GetYear(),
-		"tmdb_id":     c.GetTmdbId(),
-		"imdb_id":     c.GetImdbId(),
-		"scope":       mediaScopeLabel(c.GetScope()),
-		"status":      candidateStatusLabel(c.GetStatus()),
-		"arr_action":  arrActionLabel(c.GetArrAction()),
-		"size_bytes":  c.GetSizeBytes(),
-		"added_at":    c.GetAddedAt(),
-		"act_after":   c.GetActAfter(),
-		"error":       c.GetError(),
-		"collection":  c.GetCollectionId(),
+		"id":         c.GetId(),
+		"item_id":    c.GetItemId(),
+		"title":      c.GetTitle(),
+		"year":       c.GetYear(),
+		"tmdb_id":    c.GetTmdbId(),
+		"imdb_id":    c.GetImdbId(),
+		"scope":      mediaScopeLabel(c.GetScope()),
+		"status":     candidateStatusLabel(c.GetStatus()),
+		"arr_action": arrActionLabel(c.GetArrAction()),
+		"size_bytes": c.GetSizeBytes(),
+		"added_at":   c.GetAddedAt(),
+		"act_after":  c.GetActAfter(),
+		"error":      c.GetError(),
+		"collection": c.GetCollectionId(),
 	}
 }
 
@@ -98,16 +98,16 @@ func publicMaintainerRun(run *maintainv1.RunLog) map[string]any {
 		return map[string]any{}
 	}
 	return map[string]any{
-		"id":                run.GetId(),
-		"kind":              run.GetKind(),
-		"status":            run.GetStatus(),
-		"candidates_found":  run.GetCandidatesFound(),
-		"actions_taken":     run.GetActionsTaken(),
-		"actions_failed":    run.GetActionsFailed(),
-		"dry_run":           run.GetDryRun(),
-		"error":             run.GetError(),
-		"started_at":        run.GetStartedAt(),
-		"completed_at":      run.GetCompletedAt(),
+		"id":               run.GetId(),
+		"kind":             run.GetKind(),
+		"status":           run.GetStatus(),
+		"candidates_found": run.GetCandidatesFound(),
+		"actions_taken":    run.GetActionsTaken(),
+		"actions_failed":   run.GetActionsFailed(),
+		"dry_run":          run.GetDryRun(),
+		"error":            run.GetError(),
+		"started_at":       run.GetStartedAt(),
+		"completed_at":     run.GetCompletedAt(),
 	}
 }
 
@@ -131,17 +131,17 @@ func publicMaintainerRule(r *maintainv1.RuleGroup) map[string]any {
 		return map[string]any{}
 	}
 	return map[string]any{
-		"id":                   r.GetId(),
-		"name":                 r.GetName(),
-		"enabled":              r.GetEnabled(),
-		"scope":                mediaScopeLabel(r.GetScope()),
-		"outcome":              ruleOutcomeLabel(r.GetOutcome()),
-		"arr_action":           arrActionLabel(r.GetArrAction()),
-		"definition_json":      r.GetDefinitionJson(),
-		"auto_act_enabled":     r.GetAutoActEnabled(),
-		"auto_act_delay_days":  r.GetAutoActDelayDays(),
-		"max_actions_per_run":  r.GetMaxActionsPerRun(),
-		"collection_id":        r.GetCollectionId(),
+		"id":                  r.GetId(),
+		"name":                r.GetName(),
+		"enabled":             r.GetEnabled(),
+		"scope":               mediaScopeLabel(r.GetScope()),
+		"outcome":             ruleOutcomeLabel(r.GetOutcome()),
+		"arr_action":          arrActionLabel(r.GetArrAction()),
+		"definition_json":     r.GetDefinitionJson(),
+		"auto_act_enabled":    r.GetAutoActEnabled(),
+		"auto_act_delay_days": r.GetAutoActDelayDays(),
+		"max_actions_per_run": r.GetMaxActionsPerRun(),
+		"collection_id":       r.GetCollectionId(),
 	}
 }
 
@@ -173,15 +173,15 @@ func publicMaintainerExclusion(l *maintainv1.ExclusionList) map[string]any {
 		}
 	}
 	return map[string]any{
-		"id":           l.GetId(),
-		"name":         l.GetName(),
-		"type":         l.GetType(),
-		"list_url":     l.GetListUrl(),
-		"has_api_key":  strings.TrimSpace(l.GetApiKey()) != "",
-		"tmdb_ids":     ids,
-		"tmdb_count":   len(ids),
-		"last_synced":  l.GetLastSynced(),
-		"created_at":   l.GetCreatedAt(),
+		"id":          l.GetId(),
+		"name":        l.GetName(),
+		"type":        l.GetType(),
+		"list_url":    l.GetListUrl(),
+		"has_api_key": strings.TrimSpace(l.GetApiKey()) != "",
+		"tmdb_ids":    ids,
+		"tmdb_count":  len(ids),
+		"last_synced": l.GetLastSynced(),
+		"created_at":  l.GetCreatedAt(),
 	}
 }
 
@@ -306,12 +306,12 @@ func publicStorageMetric(m *maintainv1.StoragePathMetric) map[string]any {
 		return map[string]any{}
 	}
 	return map[string]any{
-		"path":           m.GetPath(),
-		"free_percent":   m.GetFreePercent(),
-		"free_bytes":     m.GetFreeBytes(),
-		"total_bytes":    m.GetTotalBytes(),
-		"library_bytes":  m.GetLibraryBytes(),
-		"item_count":     m.GetItemCount(),
+		"path":          m.GetPath(),
+		"free_percent":  m.GetFreePercent(),
+		"free_bytes":    m.GetFreeBytes(),
+		"total_bytes":   m.GetTotalBytes(),
+		"library_bytes": m.GetLibraryBytes(),
+		"item_count":    m.GetItemCount(),
 	}
 }
 

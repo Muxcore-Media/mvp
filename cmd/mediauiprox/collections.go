@@ -200,10 +200,10 @@ func (s *server) handleSyncCollection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{
-		"ok":               true,
-		"id":               idStr,
-		"added":            resp.GetAdded(),
-		"already_present":  resp.GetAlreadyPresent(),
+		"ok":                true,
+		"id":                idStr,
+		"added":             resp.GetAdded(),
+		"already_present":   resp.GetAlreadyPresent(),
 		"missing_on_source": resp.GetMissingOnSource(),
 	})
 }

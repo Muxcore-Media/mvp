@@ -73,8 +73,8 @@ func privilegedBackupRequest(t *testing.T, method, path string) (*server, *http.
 		t.Fatal(err)
 	}
 	s := &server{
-		backup:          backupv1.NewBackupServiceClient(conn),
-		sessions:        sessions,
+		backup:           backupv1.NewBackupServiceClient(conn),
+		sessions:         sessions,
 		backupRestoreDir: "/data/restore",
 	}
 	req := httptest.NewRequest(method, path, nil)
@@ -106,9 +106,9 @@ func TestHandleListBackupsUnavailable(t *testing.T) {
 		t.Fatalf("status %d", w.Code)
 	}
 	var body struct {
-		Available  bool  `json:"available"`
+		Available  bool   `json:"available"`
 		RestoreDir string `json:"restore_dir"`
-		Backups    []any `json:"backups"`
+		Backups    []any  `json:"backups"`
 	}
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
 		t.Fatal(err)

@@ -17,16 +17,16 @@ import (
 
 type fixtureSubtitleWanted struct {
 	subtv1.UnimplementedSubtitleServiceServer
-	wanted     []*subtv1.WantedItem
-	providers  []*subtv1.SubtitleProvider
-	history    []*subtv1.HistoryEntry
-	profiles   []*subtv1.LanguageProfile
-	created    string
-	deleted    string
-	searched   int32
-	searchIDs  []string
-	enabledID  string
-	enabledVal bool
+	wanted      []*subtv1.WantedItem
+	providers   []*subtv1.SubtitleProvider
+	history     []*subtv1.HistoryEntry
+	profiles    []*subtv1.LanguageProfile
+	created     string
+	deleted     string
+	searched    int32
+	searchIDs   []string
+	enabledID   string
+	enabledVal  bool
 	cleared     bool
 	profileName string
 	blacklist   []*subtv1.BlacklistEntry

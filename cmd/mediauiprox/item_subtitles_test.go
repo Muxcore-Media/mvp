@@ -19,11 +19,11 @@ import (
 
 type fixtureItemSubtitles struct {
 	subtv1.UnimplementedSubtitleServiceServer
-	listedID    string
-	deleted     string
-	uploaded    string
+	listedID     string
+	deleted      string
+	uploaded     string
 	uploadedLang string
-	media       []*subtv1.SubtitleMediaItem
+	media        []*subtv1.SubtitleMediaItem
 }
 
 func (f *fixtureItemSubtitles) ListSubtitles(_ context.Context, req *subtv1.ListSubtitlesRequest) (*subtv1.ListSubtitlesResponse, error) {
