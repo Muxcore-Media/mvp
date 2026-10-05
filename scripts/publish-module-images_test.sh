@@ -23,4 +23,16 @@ grep -q 'mvp/dockerfiles/media-ui.Dockerfile' "$ROOT/docker-compose.yml" \
 grep -q '_mvp/dockerfiles' "$ROOT/docker-compose.yml" \
   && fail "compose should not reference _mvp/dockerfiles paths"
 
+# ADR-0014 prebuilt mode: host-built binaries packaged without an in-image Go build.
+grep -q 'PREBUILT_DIR' "$ROOT/scripts/publish-module-images.sh" \
+  || fail "publish-module-images.sh should support PREBUILT_DIR"
+grep -q 'build-module-binaries.sh' "$ROOT/scripts/publish-module-images.sh" \
+  || fail "publish-module-images.sh should build missing binaries with build-module-binaries.sh"
+for df in module-prebuilt.Dockerfile media-ui-prebuilt.Dockerfile; do
+  [[ -f "$ROOT/dockerfiles/$df" ]] || fail "missing dockerfiles/$df"
+  grep -q '^FROM golang' "$ROOT/dockerfiles/$df" && fail "$df must not compile (prebuilt binaries only)"
+done
+grep -q -- '-trimpath -buildvcs=false -ldflags=-buildid=' "$ROOT/scripts/build-module-binaries.sh" \
+  || fail "build-module-binaries.sh should use the ADR-0012 build flags"
+
 echo "ok publish-module-images tests"

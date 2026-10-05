@@ -151,14 +151,21 @@ for f in json.load(sys.stdin).get("files") or []:
 }
 
 # ListFiles response + RELEASE + BEFORE_IDS (newline list) → path of a file that is
-# new since dispatch or carries the release name (empty when none).
+# new since dispatch or carries the release name (empty when none). The name match
+# is token-wise, ignoring case and punctuation, like cmd/acquirefixture
+# releaseMatches: media-rename turns "Fight.Club.1999.720p.WEB-DL" into
+# "Fight Club (1999) [720p.WEB-DL].mkv", and a re-run (or smoke after a restore)
+# re-imports onto the same file id, so the name is the only evidence there.
 acquisition_file_match() {
   python3 -c '
-import json, sys
-rel, before = sys.argv[1].lower(), set(sys.argv[2].split())
+import json, re, sys
+def toks(x):
+    return [t for t in re.split(r"[^a-z0-9]+", x.lower()) if t]
+want, before = toks(sys.argv[1]), set(sys.argv[2].split())
 for f in json.load(sys.stdin).get("files") or []:
     p = f.get("filePath", f.get("file_path", ""))
-    if f.get("id", "") not in before or rel in p.lower():
+    have = set(toks(p))
+    if f.get("id", "") not in before or (want and all(t in have for t in want)):
         print(p); break
 ' "$1" "$2"
 }
