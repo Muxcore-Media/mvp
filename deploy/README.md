@@ -7,7 +7,7 @@ These manifests mirror the **minimal platform** slice (core + api-rest + auth-lo
 ## Prerequisites
 
 - Images published to a **LAN OCI registry** (`MUXCORE_REGISTRY`, default `localhost:5000/muxcore`; see [`local-registry.sh`](../local-registry.sh)) or, once published, GHCR (`ghcr.io/muxcore-media`) — see [`docs/PUBLIC-INSTALL.md`](../docs/PUBLIC-INSTALL.md). Cluster nodes must be able to pull from that registry; override the prefix when `localhost:5000` is not reachable from the nodes.
-- `coreTag` / image strings in `helm/muxcore/values.yaml` track `household-manifest.yaml` `core_tag` (currently **v0.6.7**).
+- `coreTag` / image strings in `helm/muxcore/values.yaml` track `household-manifest.yaml` `core_tag` (currently **v0.6.13**).
 - Cluster with a default StorageClass for PVCs.
 - Secrets created out-of-band (do not commit credentials):
 

@@ -2,10 +2,10 @@
 # Build and push sidecar module images to an OCI registry (LAN default; GHCR optional).
 #
 # Usage:
-#   ./scripts/publish-module-images.sh v0.6.7
-#   MODULES="api-rest auth-local media-automation" ./scripts/publish-module-images.sh v0.6.7
-#   BUILD_ONLY=1 MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-module-images.sh v0.6.7
-#   MUXCORE_REGISTRY=ghcr.io/muxcore-media ./scripts/publish-module-images.sh v0.6.7   # needs write:packages
+#   ./scripts/publish-module-images.sh v0.6.13
+#   MODULES="api-rest auth-local media-automation" ./scripts/publish-module-images.sh v0.6.13
+#   BUILD_ONLY=1 MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-module-images.sh v0.6.13
+#   MUXCORE_REGISTRY=ghcr.io/muxcore-media ./scripts/publish-module-images.sh v0.6.13   # needs write:packages
 #
 # MUXCORE_REGISTRY defaults to localhost:5000/muxcore (see ../local-registry.sh).
 #
@@ -79,7 +79,7 @@ detect_runtime() {
 }
 
 if [[ -z "$TAG" ]]; then
-  die "usage: $0 <tag> (e.g. v0.6.7)"
+  die "usage: $0 <tag> (e.g. v0.6.13)"
 fi
 [[ -f "$DOCKERFILE" ]] || die "missing $DOCKERFILE"
 

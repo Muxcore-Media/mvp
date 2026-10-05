@@ -7,23 +7,23 @@
 #     token that has write:packages, e.g. `gh auth token | podman login ghcr.io -u <user> --password-stdin`)
 #
 # Usage:
-#   ./scripts/publish-muxcored-local.sh                 # tag from core HEAD / v0.6.7
-#   ./scripts/publish-muxcored-local.sh v0.6.7
-#   BUILD_ONLY=1 ./scripts/publish-muxcored-local.sh v0.6.7   # build+tag, skip push
-#   MUXCORE_REGISTRY=ghcr.io/muxcore-media ./scripts/publish-muxcored-local.sh v0.6.7
+#   ./scripts/publish-muxcored-local.sh                 # tag from core HEAD / v0.6.13
+#   ./scripts/publish-muxcored-local.sh v0.6.13
+#   BUILD_ONLY=1 ./scripts/publish-muxcored-local.sh v0.6.13   # build+tag, skip push
+#   MUXCORE_REGISTRY=ghcr.io/muxcore-media ./scripts/publish-muxcored-local.sh v0.6.13
 #
 # Defaults:
 #   MUXCORE_REGISTRY=localhost:5000/muxcore   (LAN registry; see ../local-registry.sh)
 #   GHCR (optional, needs write:packages): MUXCORE_REGISTRY=ghcr.io/muxcore-media
 #
 # Compose consumers pull via docker-compose.registry.yml:
-#   export MUXCORE_REGISTRY=… MUXCORE_IMAGE_TAG=v0.6.7
+#   export MUXCORE_REGISTRY=… MUXCORE_IMAGE_TAG=v0.6.13
 #   docker compose -f docker-compose.registry.yml up -d
 #
 # Docker equivalent (when podman is absent):
-#   docker build --build-arg VERSION=0.6.7 -t localhost/muxcored:v0.6.7 -f ../core/Dockerfile ../core
-#   docker tag localhost/muxcored:v0.6.7 ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/muxcored:v0.6.7
-#   docker push ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/muxcored:v0.6.7
+#   docker build --build-arg VERSION=0.6.13 -t localhost/muxcored:v0.6.13 -f ../core/Dockerfile ../core
+#   docker tag localhost/muxcored:v0.6.13 ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/muxcored:v0.6.13
+#   docker push ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/muxcored:v0.6.13
 set -euo pipefail
 
 TAG="${1:-}"
@@ -82,7 +82,7 @@ fi
 
 if [[ -z "$TAG" ]]; then
   TAG="$(git -C "$CORE_DIR" describe --tags --abbrev=0 2>/dev/null || true)"
-  TAG="${TAG:-v0.6.7}"
+  TAG="${TAG:-v0.6.13}"
 fi
 
 if ! RUNTIME="$(detect_runtime)"; then
