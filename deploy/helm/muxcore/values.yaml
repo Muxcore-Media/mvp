@@ -1,5 +1,6 @@
 # Default values for the MuxCore minimal platform chart.
-# Origin/household install uses Forgejo or LAN OCI (`docker-compose.registry.yml`).
+# Images come from the LAN OCI registry (`local-registry.sh`, `docker-compose.registry.yml`);
+# set `registry: ghcr.io/muxcore-media` once images are published to GHCR (ADR-0007).
 # Override `registry` + `coreTag`, or set full image strings under `images.*`.
 
 namespace: muxcore
@@ -7,21 +8,21 @@ createNamespace: true
 
 insecureDisableTLS: true
 
-registry: git.zem.systems/muxcore
+registry: localhost:5000/muxcore
 coreTag: v0.5.7
 
 images:
   pullPolicy: IfNotPresent
-  muxcored: git.zem.systems/muxcore/muxcored:v0.5.7
-  apiRest: git.zem.systems/muxcore/api-rest:v0.5.7
-  authLocal: git.zem.systems/muxcore/auth-local:v0.5.7
-  databaseSqlite: git.zem.systems/muxcore/database-sqlite:v0.5.7
-  secretsFile: git.zem.systems/muxcore/secrets-file:v0.5.7
-  encryptionAesgcm: git.zem.systems/muxcore/encryption-aesgcm:v0.5.7
-  callPolicy: git.zem.systems/muxcore/call-policy-default:v0.5.7
-  publishPolicy: git.zem.systems/muxcore/publish-policy-default:v0.5.7
-  healthMonitor: git.zem.systems/muxcore/health-monitor:v0.5.7
-  adminUi: git.zem.systems/muxcore/admin-ui:v0.5.7
+  muxcored: localhost:5000/muxcore/muxcored:v0.5.7
+  apiRest: localhost:5000/muxcore/api-rest:v0.5.7
+  authLocal: localhost:5000/muxcore/auth-local:v0.5.7
+  databaseSqlite: localhost:5000/muxcore/database-sqlite:v0.5.7
+  secretsFile: localhost:5000/muxcore/secrets-file:v0.5.7
+  encryptionAesgcm: localhost:5000/muxcore/encryption-aesgcm:v0.5.7
+  callPolicy: localhost:5000/muxcore/call-policy-default:v0.5.7
+  publishPolicy: localhost:5000/muxcore/publish-policy-default:v0.5.7
+  healthMonitor: localhost:5000/muxcore/health-monitor:v0.5.7
+  adminUi: localhost:5000/muxcore/admin-ui:v0.5.7
 
 persistence:
   coreSize: 5Gi
@@ -44,23 +45,23 @@ resources:
 media:
   enabled: false
   images:
-    metadataTmdb: git.zem.systems/muxcore/metadata-tmdb:v0.5.7
-    mediaMovies: git.zem.systems/muxcore/media-movies:v0.5.7
-    mediaTvshows: git.zem.systems/muxcore/media-tvshows:v0.5.7
-    requestMedia: git.zem.systems/muxcore/request-media:v0.5.7
-    mediaAutomation: git.zem.systems/muxcore/media-automation:v0.5.7
-    mediaScanner: git.zem.systems/muxcore/media-scanner:v0.5.7
-    mediaFfprobe: git.zem.systems/muxcore/media-ffprobe:v0.5.7
-    notificationDefault: git.zem.systems/muxcore/notification-default:v0.5.7
-    userdataLocal: git.zem.systems/muxcore/userdata-local:v0.5.7
-    mediaUi: git.zem.systems/muxcore/media-ui:v0.5.7
+    metadataTmdb: localhost:5000/muxcore/metadata-tmdb:v0.5.7
+    mediaMovies: localhost:5000/muxcore/media-movies:v0.5.7
+    mediaTvshows: localhost:5000/muxcore/media-tvshows:v0.5.7
+    requestMedia: localhost:5000/muxcore/request-media:v0.5.7
+    mediaAutomation: localhost:5000/muxcore/media-automation:v0.5.7
+    mediaScanner: localhost:5000/muxcore/media-scanner:v0.5.7
+    mediaFfprobe: localhost:5000/muxcore/media-ffprobe:v0.5.7
+    notificationDefault: localhost:5000/muxcore/notification-default:v0.5.7
+    userdataLocal: localhost:5000/muxcore/userdata-local:v0.5.7
+    mediaUi: localhost:5000/muxcore/media-ui:v0.5.7
   persistence:
     userdataSize: 2Gi
 
 acquisition:
   enabled: false
   images:
-    indexerTorznab: git.zem.systems/muxcore/indexer-torznab:v0.5.7
-    downloaderNativeTorrent: git.zem.systems/muxcore/downloader-native-torrent:v0.5.7
-    downloaderSabnzbd: git.zem.systems/muxcore/downloader-sabnzbd:v0.5.7
-    downloaderDebrid: git.zem.systems/muxcore/downloader-debrid:v0.5.7
+    indexerTorznab: localhost:5000/muxcore/indexer-torznab:v0.5.7
+    downloaderNativeTorrent: localhost:5000/muxcore/downloader-native-torrent:v0.5.7
+    downloaderSabnzbd: localhost:5000/muxcore/downloader-sabnzbd:v0.5.7
+    downloaderDebrid: localhost:5000/muxcore/downloader-debrid:v0.5.7

@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Build and push sidecar module images to Forgejo/LAN OCI registry (MASTER-ROADMAP P0).
+# Build and push sidecar module images to an OCI registry (LAN default; GHCR optional).
 #
 # Usage:
 #   ./scripts/publish-module-images.sh v0.5.7
 #   MODULES="api-rest auth-local media-automation" ./scripts/publish-module-images.sh v0.5.7
 #   BUILD_ONLY=1 MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-module-images.sh v0.5.7
+#   MUXCORE_REGISTRY=ghcr.io/muxcore-media ./scripts/publish-module-images.sh v0.5.7   # needs write:packages
+#
+# MUXCORE_REGISTRY defaults to localhost:5000/muxcore (see ../local-registry.sh).
 #
 # Defaults MODULES to the MVP registry compose set in docker-compose.registry.yml.
 set -euo pipefail
@@ -12,7 +15,7 @@ set -euo pipefail
 TAG="${1:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WS="$(cd "$ROOT/.." && pwd)"
-REGISTRY="${MUXCORE_REGISTRY:-git.zem.systems/muxcore}"
+REGISTRY="${MUXCORE_REGISTRY:-localhost:5000/muxcore}"
 BUILD_ONLY="${BUILD_ONLY:-0}"
 DOCKERFILE="$ROOT/dockerfiles/module.Dockerfile"
 

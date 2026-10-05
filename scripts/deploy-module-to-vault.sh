@@ -58,7 +58,7 @@ list_modules() {
   printf '  %-22s %s\n' "core / muxcored" "binary muxcored; service core"
   printf '  %-22s %s\n' "media-ui / mediauiprox" "binary mediauiprox; service media-ui"
   echo ""
-  echo "Origin-pinned (use install-origin-module.sh — push to Forgejo first):"
+  echo "Origin-pinned (use install-origin-module.sh — push to GitHub origin first):"
   for o in "${ORIGIN_PINNED[@]}"; do
     echo "  $o"
   done

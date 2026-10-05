@@ -6,7 +6,7 @@ These manifests mirror the **minimal platform** slice (core + api-rest + auth-lo
 
 ## Prerequisites
 
-- Images published to **Forgejo or LAN OCI** (`MUXCORE_REGISTRY`, default `git.zem.systems/muxcore`) — see [`docs/PUBLIC-INSTALL.md`](../docs/PUBLIC-INSTALL.md).
+- Images published to a **LAN OCI registry** (`MUXCORE_REGISTRY`, default `localhost:5000/muxcore`; see [`local-registry.sh`](../local-registry.sh)) or, once published, GHCR (`ghcr.io/muxcore-media`) — see [`docs/PUBLIC-INSTALL.md`](../docs/PUBLIC-INSTALL.md). Cluster nodes must be able to pull from that registry; override the prefix when `localhost:5000` is not reachable from the nodes.
 - `coreTag` / image strings in `helm/muxcore/values.yaml` track `household-manifest.yaml` `core_tag` (currently **v0.5.7**).
 - Cluster with a default StorageClass for PVCs.
 - Secrets created out-of-band (do not commit credentials):
@@ -18,7 +18,7 @@ kubectl -n muxcore create secret generic muxcore-auth \
 
 ## Kustomize
 
-Image strings use **Forgejo/LAN OCI** (`git.zem.systems/muxcore/*`) at `household-manifest.yaml` `core_tag` — same defaults as Helm `values.yaml`. GHCR is optional (`docker-compose.ghcr.yml`).
+Image strings use the **LAN OCI registry** (`localhost:5000/muxcore/*`) at `household-manifest.yaml` `core_tag` — same defaults as Helm `values.yaml`. For GHCR, override with a Kustomize `images:` entry pointing at `ghcr.io/muxcore-media/*`.
 
 ```bash
 # Dev (insecure TLS flag for mesh bring-up)
@@ -49,7 +49,7 @@ helm upgrade --install muxcore deploy/helm/muxcore \
 
 Override `registry`, `coreTag`, or individual `images.*` strings via `--set` or a values overlay.
 
-Public **GHCR** mirror (`docker-compose.ghcr.yml`) remains optional when `write:packages` exists — not the origin install path.
+**GHCR** (`registry=ghcr.io/muxcore-media`) is optional and blocked until images are published there (needs a `write:packages` token; [ADR-0007](https://github.com/Muxcore-Media/umbrella/blob/main/docs/adr/0007-install-paths-github-only.md)).
 
 ## Acquisition sidecars (Helm)
 

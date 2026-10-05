@@ -2,8 +2,8 @@
    kubectl -n {{ .Values.namespace }} create secret generic {{ .Values.auth.existingSecret }} \
      --from-literal={{ .Values.auth.passwordKey }}=CHANGE_ME
 
-2. Images default to git.zem.systems/muxcore/* (Forgejo/LAN OCI) — see docs/PUBLIC-INSTALL.md.
-   Override registry/coreTag via values; GHCR mirror is optional (docker-compose.ghcr.yml).
+2. Images default to localhost:5000/muxcore/* (LAN OCI registry) — see docs/PUBLIC-INSTALL.md.
+   Override registry/coreTag via values; set registry=ghcr.io/muxcore-media once images are on GHCR.
 
 3. Mesh address for sidecars is Service DNS muxcored:9090 in namespace {{ .Values.namespace }}.
 

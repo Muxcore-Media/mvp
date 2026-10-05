@@ -1,20 +1,22 @@
-# MuxCore MVP — pull prebuilt images from Forgejo or a LAN registry (no sibling Go builds).
-# Does not require GHCR write:packages. See scripts/publish-muxcored-local.sh and docs/PUBLIC-INSTALL.md.
+# MuxCore MVP — pull prebuilt images from an OCI registry (no sibling Go builds).
+# Default is a LAN registry (local-registry.sh); no GHCR write:packages required.
+# See scripts/publish-muxcored-local.sh and docs/PUBLIC-INSTALL.md (ADR-0007).
 #
 # Usage (from this directory):
-#   export MUXCORE_REGISTRY=localhost:5000/muxcore          # or git.zem.systems/muxcore
+#   export MUXCORE_REGISTRY=localhost:5000/muxcore          # or ghcr.io/muxcore-media once published
 #   export MUXCORE_IMAGE_TAG=v0.5.7
 #   export DOWNLOADER_ENGINE=fixture
 #   docker compose -f docker-compose.registry.yml pull
 #   docker compose -f docker-compose.registry.yml up -d
 #   ./scripts/smoke-registry.sh    # no host Go / sibling clones (or ./smoke.sh auto-detects)
 #
-# Publish muxcored (operator / origin host):
+# Publish muxcored (build host with sibling GitHub checkouts):
 #   MUXCORE_REGISTRY=… ./scripts/publish-muxcored-local.sh v0.5.7
 # Module images must be tagged under the same MUXCORE_REGISTRY prefix.
 #
 # Prefer ./run-host.sh when developing from sibling clones.
-# GHCR (docker-compose.ghcr.yml) remains a future public mirror when packages write exists.
+# GHCR: the same file with MUXCORE_REGISTRY=ghcr.io/muxcore-media once images are
+# published there (needs a write:packages token; not yet available).
 
 name: muxcore-mvp-registry
 

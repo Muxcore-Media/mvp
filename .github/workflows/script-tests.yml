@@ -1,0 +1,29 @@
+# Offline deploy/smoke script tests for the reference stack (ADR-0003).
+# ci.yml is generated from the umbrella template; this job is mvp-specific.
+name: Script tests
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
+  pull_request:
+    paths-ignore: ["**.md", "docs/**", "LICENSE"]
+  workflow_dispatch:
+
+concurrency:
+  group: script-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  script-tests:
+    name: Script tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      # Umbrella-only checks (proto drift) are skipped automatically when
+      # ../scripts is absent.
+      - run: bash scripts/run-script-tests.sh

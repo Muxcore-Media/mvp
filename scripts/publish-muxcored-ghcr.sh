@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Build muxcored and optionally push to GHCR (future public mirror).
+# Build muxcored and optionally push to GHCR (ghcr.io/muxcore-media; needs write:packages).
 #
-# Prefer Forgejo/LAN for day-1 installs (no write:packages):
+# Prefer the LAN registry for day-1 installs (no write:packages):
 #   ./scripts/publish-muxcored-local.sh
 #   docker compose -f docker-compose.registry.yml up -d
 #
@@ -89,7 +89,7 @@ echo "building $LOCAL from $BUILD_CTX (runtime=$RUNTIME dockerfile=$DOCKERFILE)"
 
 if [[ "$BUILD_ONLY" == "1" ]]; then
   echo "BUILD_ONLY=1 — skipping GHCR login/push; image ready as $LOCAL"
-  echo "Tip: Forgejo/LAN publish without write:packages → ./scripts/publish-muxcored-local.sh ${TAG}"
+  echo "Tip: LAN registry publish without write:packages → ./scripts/publish-muxcored-local.sh ${TAG}"
   exit 0
 fi
 
@@ -107,7 +107,7 @@ if ! "$RUNTIME" push "$IMAGE"; then
 Push denied. Current gh token likely lacks packages write scope.
 Re-auth with:  gh auth refresh -s write:packages,repo
 Or build only:  BUILD_ONLY=1 ./scripts/publish-muxcored-ghcr.sh <tag>
-Or use Forgejo/LAN (no GHCR): ./scripts/publish-muxcored-local.sh <tag>
+Or use the LAN registry (no GHCR): ./scripts/publish-muxcored-local.sh <tag>
 ERR
   exit 1
 fi

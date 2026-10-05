@@ -1,5 +1,7 @@
 # MuxCore (Muxcore-Media) Repository Status Report
 
+> **Historical (2026-08); superseded by the umbrella [`MASTER-ROADMAP.md`](https://github.com/Muxcore-Media/umbrella/blob/main/MASTER-ROADMAP.md).** Kept as a point-in-time record; do not plan from it. References to the CI and hosting setup of that period have been reworded neutrally.
+
 Generated: 2026-08-08 (Wave 30 update 2026-08-09)  
 Scope: all cloned org repos under `/home/user/Projects/MuxCore` (**62**), excluding `claude-working-directory`.
 
@@ -15,7 +17,7 @@ The acquire → library → admin/consumer UI path is closed on the host referen
 
 **Wave 30 (2026-08-09):** Live Apibay + anacrolix on VPN (**PASS** — search/dispatch/history completed; ~2.4 GiB Fight Club tree under `_mvp/data/downloads`); consumer `media-ui-app` session APIs **PASS**; `core@v0.5.0` release assets uploaded (linux/darwin amd64/arm64 + checksums). GHCR image push still blocked (no Docker here; token lacks `packages` scope). [media-automation#17](https://github.com/Muxcore-Media/media-automation/pull/17) / tag `v0.1.1` — non-blocking Dispatch during large ImportPath.
 
-**Remaining packaging:** org-wide core-only pin batch (~20 non-MVP modules still using `replace => ../core`); GHCR `muxcored` image public mirror when `write:packages` exists. **Origin CI:** Forgejo on vault (`_mvp/scripts/install-forgejo-ci.sh`, `_mvp/tls/FORGEJO-RUNNER.md`).
+**Remaining packaging:** org-wide core-only pin batch (~20 non-MVP modules still using `replace => ../core`); GHCR `muxcored` image public mirror when `write:packages` exists. **CI:** self-hosted runner setup of that period (since retired; see the umbrella ADR-0003).
 
 **Polluted dumps archived:** `cache-memory`, `custom-scripts`, `media-jellyfin`, `muxcorectl`, `media-ui` (canonical SPA is `media-ui-app`). Tracked ELF binaries in those dumps stay frozen under archive. `cache.memory` capability lives in `cache-local`. `spool` is a JSON tag catalog (no `go.mod`).
 
@@ -33,7 +35,7 @@ The acquire → library → admin/consumer UI path is closed on the host referen
 ### Org-wide critical themes (do these next)
 
 1. **Org-wide core-only pin** — drop `replace => ../core*` on remaining non-MVP modules (`backup-local`, `cache-*`, `logging-file`, `scheduler-cron`, …) using the Wave 25–29 HTTPS/`GOPRIVATE` pattern.
-2. **Forgejo origin CI** — `.forgejo/workflows/ci.yml` on every module; vault `gitea-runner-vault` (`runs-on: native`). GitHub `.github/workflows` are legacy mirrors only.
+2. **Origin CI** — per-module CI on a self-hosted runner (since retired; CI now runs on GitHub-hosted runners per the umbrella ADR-0003).
 3. **Stand up `database-postgres`** — empty remote today; required if Postgres is the intended production store.
 4. **Fix default port collisions** — e.g. historical overlaps on `:9480` / `:9460` (host stack already remaps; module defaults still diverge).
 5. **Release hygiene** — CHANGELOGs stuck on “Unreleased” / “initial scaffold” while features already shipped.
@@ -47,7 +49,7 @@ The acquire → library → admin/consumer UI path is closed on the host referen
 | P1 Contracts | Stable module APIs | `contracts-*`, `contracts-reconciler` |
 | P1 Data | Persistence & secrets | `database-sqlite` → `database-postgres`, `secrets-vault`, `encryption-aesgcm` |
 | P2 Observability | Ops readiness | `metrics-prometheus`, `tracing-otlp`, `health-monitor`, `logging-file` |
-| P3 Cleanup | Hygiene | empty/scaffold modules; org-wide pin; Forgejo mirror sync |
+| P3 Cleanup | Hygiene | empty/scaffold modules; org-wide pin; repository sync |
 
 ---
 
