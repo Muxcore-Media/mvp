@@ -43,7 +43,7 @@ command -v git >/dev/null 2>&1 || die "git required"
 command -v "$GO" >/dev/null 2>&1 || die "go required"
 
 # ADR-0012 §3: every muxcore.json contracts entry must already be required by
-# go.mod at >= the declared version.
+# go.mod (the module containing the declared path) at >= the declared version.
 check_contracts() {
   local dir="$1" label="$2" row crepo cver have lowest
   [[ -f "$dir/muxcore.json" ]] || return 0
@@ -51,7 +51,9 @@ check_contracts() {
     [[ -n "$row" ]] || continue
     crepo="$(jq -r '.repo' <<<"$row")"
     cver="$(jq -r '.version' <<<"$row")"
-    have="$(cd "$dir" && "$GO" mod edit -json | jq -r --arg m "$crepo" '.Require // [] | map(select(.Path == $m)) | .[0].Version // empty')"
+    # The declared repo may be a package path inside a required module
+    # (e.g. core/proto/gen/...): match the longest required module prefix.
+    have="$(cd "$dir" && "$GO" mod edit -json | jq -r --arg m "$crepo" '.Require // [] | map(select(. as $r | $m == $r.Path or ($m | startswith($r.Path + "/")))) | sort_by(.Path | length) | last | .Version // empty')"
     [[ -n "$have" ]] || die "$label: go.mod does not require $crepo (muxcore.json declares $cver)"
     lowest="$(printf '%s\n%s\n' "$cver" "$have" | sort -V | head -n1)"
     [[ "$lowest" == "$cver" ]] || die "$label: go.mod requires $crepo $have < muxcore.json contracts $cver"
