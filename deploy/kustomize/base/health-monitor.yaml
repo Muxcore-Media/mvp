@@ -30,7 +30,12 @@ spec:
             - name: HEALTH_MONITOR_GRPC_ADDR
               value: ":9202"
             - name: HEALTH_MONITOR_HTTP_ADDR
-              value: ":9203"
+              value: 0.0.0.0:9203
+            - name: HEALTH_MONITOR_HTTP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: health-monitor-token
+                  key: HEALTH_MONITOR_HTTP_TOKEN
           ports:
             - name: grpc
               containerPort: 9202

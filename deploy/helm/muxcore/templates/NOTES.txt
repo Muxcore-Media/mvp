@@ -9,3 +9,5 @@
 
 4. Prefer Kustomize overlays under deploy/kustomize/ when iterating on raw manifests;
    this chart tracks the same minimal platform slice.
+
+health-monitor bearer token: {{ include "muxcore.healthMonitorSecretName" . }} (key {{ include "muxcore.healthMonitorSecretKey" . }}) is injected into health-monitor (HEALTH_MONITOR_HTTP_TOKEN) and admin-ui (ADMIN_UI_HEALTH_MONITOR_TOKEN).

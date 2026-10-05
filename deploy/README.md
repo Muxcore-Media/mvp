@@ -16,6 +16,19 @@ kubectl -n muxcore create secret generic muxcore-auth \
   --from-literal=admin-password='change-me'
 ```
 
+- **health-monitor bearer token** (NFR-SEC-011). health-monitor (v0.1.7+) binds `0.0.0.0:9203` here and refuses to start on a non-loopback address without `HEALTH_MONITOR_HTTP_TOKEN`; admin-ui reads the same value as `ADMIN_UI_HEALTH_MONITOR_TOKEN`. Neither the chart nor the overlays ship a default, so a deploy without a token fails at render time:
+  - **Kustomize**: create the git-ignored env file next to the base before applying (`kubectl kustomize` fails with a missing-file error otherwise; the generated Secret is `health-monitor-token-<hash>`, refs are rewritten automatically):
+    ```bash
+    echo "HEALTH_MONITOR_HTTP_TOKEN=$(openssl rand -hex 32)" > deploy/kustomize/base/health-monitor.env
+    ```
+    See `health-monitor.env.example`.
+  - **Helm**: set exactly one of `healthMonitor.token` (the chart renders Secret `health-monitor-token`) or `healthMonitor.existingSecret` (a Secret you created; key `healthMonitor.secretKey`, default `token`). Rendering fails with `required` if both are empty.
+    ```bash
+    kubectl -n muxcore create secret generic health-monitor-token --from-literal=token="$(openssl rand -hex 32)"
+    helm upgrade --install muxcore deploy/helm/muxcore -n muxcore --set healthMonitor.existingSecret=health-monitor-token
+    ```
+  - No scheduler-cron module is deployed from this directory, so `SCHEDULER_HTTP_TOKEN` does not apply here.
+
 ## Kustomize
 
 Image strings use the **LAN OCI registry** (`localhost:5000/muxcore/*`) at `household-manifest.yaml` `core_tag` — same defaults as Helm `values.yaml`. For GHCR, override with a Kustomize `images:` entry pointing at `ghcr.io/muxcore-media/*`.

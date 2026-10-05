@@ -20,3 +20,10 @@ labels:
       app.kubernetes.io/managed-by: kustomize
       app.kubernetes.io/part-of: muxcore
     includeSelectors: false
+# health-monitor HTTP bearer (NFR-SEC-011). health-monitor refuses a non-loopback bind without it.
+# health-monitor.env is operator-created, git-ignored, and has no default: kustomize fails if it is missing.
+# Create it with: echo "HEALTH_MONITOR_HTTP_TOKEN=$(openssl rand -hex 32)" > health-monitor.env
+secretGenerator:
+  - name: health-monitor-token
+    envs:
+      - health-monitor.env
