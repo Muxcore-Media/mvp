@@ -3,9 +3,9 @@
 #
 # Usage:
 #   ./scripts/smoke-ghcr-build.sh
-#   ./scripts/smoke-ghcr-build.sh v0.6.13
+#   ./scripts/smoke-ghcr-build.sh v0.6.15
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TAG="${1:-v0.6.13}"
+TAG="${1:-v0.6.15}"
 BUILD_ONLY=1 "$ROOT/scripts/publish-muxcored-ghcr.sh" "$TAG"

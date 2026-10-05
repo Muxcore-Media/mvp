@@ -11,13 +11,13 @@
 #   - permission to push ghcr.io/muxcore-media/muxcored
 #
 # Usage:
-#   ./scripts/publish-muxcored-ghcr.sh            # tag = core HEAD describe / v0.6.13 fallback
-#   ./scripts/publish-muxcored-ghcr.sh v0.6.13
-#   BUILD_ONLY=1 ./scripts/publish-muxcored-ghcr.sh v0.6.13   # local image only (no GHCR login/push)
-#   MUXCORE_CORE_DIR=/path/to/core ./scripts/publish-muxcored-ghcr.sh v0.6.13
+#   ./scripts/publish-muxcored-ghcr.sh            # tag = core HEAD describe / v0.6.15 fallback
+#   ./scripts/publish-muxcored-ghcr.sh v0.6.15
+#   BUILD_ONLY=1 ./scripts/publish-muxcored-ghcr.sh v0.6.15   # local image only (no GHCR login/push)
+#   MUXCORE_CORE_DIR=/path/to/core ./scripts/publish-muxcored-ghcr.sh v0.6.15
 #
 # Docker equivalent when podman is absent:
-#   docker build --build-arg VERSION=0.6.13 -t localhost/muxcored:v0.6.13 -f ../core/Dockerfile ../core
+#   docker build --build-arg VERSION=0.6.15 -t localhost/muxcored:v0.6.15 -f ../core/Dockerfile ../core
 set -euo pipefail
 
 TAG="${1:-}"
@@ -51,7 +51,7 @@ fi
 
 if [[ -z "$TAG" ]]; then
   TAG="$(git -C "$CORE_DIR" describe --tags --abbrev=0 2>/dev/null || true)"
-  TAG="${TAG:-v0.6.13}"
+  TAG="${TAG:-v0.6.15}"
 fi
 
 IMAGE="ghcr.io/muxcore-media/muxcored:${TAG}"

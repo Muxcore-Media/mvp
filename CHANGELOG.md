@@ -31,7 +31,7 @@
 - `cmd/mediauiprox/routes_inventory_test.go` and a complete `BFF-API.md` "Route inventory" table: the test fails on any registered route missing from the doc or documented but not registered (T-M2-08, TDD section 7).
 
 ### Changed
-- Release train train-2026.10.2 (core v0.6.13)
+- Release train train-2026.10.3 (core v0.6.15)
 - mvp-smoke Go module: bump core v0.6.12, sdk/go/client v0.6.1 and all sibling module requires to their latest tags (T-M3-03f).
 - `run-host.sh` backup-local sources: `BACKUP_SOURCE_DIRS` now defaults to the backed-up `state:` host dirs from the manifest (needs yq v4 + jq). It used to be all of `data/`, which archived library media, downloads, the encryption key and backup-local's own archives, so each archive grew with the previous ones. If the list cannot be derived and `BACKUP_SOURCE_DIRS` is unset, backup-local is not started and a warning is printed.
 - admin-ui gets `ADMIN_UI_RESTORE_ROOT` equal to the BFF `BACKUP_RESTORE_DIR` (`run-host.sh`: `$DATA/restore`; compose: `/data/restore`), so the restore allow-list and the restore target agree (FR-BAK-003).

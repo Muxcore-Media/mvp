@@ -9,20 +9,20 @@ createNamespace: true
 insecureDisableTLS: true
 
 registry: localhost:5000/muxcore
-coreTag: v0.6.13
+coreTag: v0.6.15
 
 images:
   pullPolicy: IfNotPresent
-  muxcored: localhost:5000/muxcore/muxcored:v0.6.13
-  apiRest: localhost:5000/muxcore/api-rest:v0.6.13
-  authLocal: localhost:5000/muxcore/auth-local:v0.6.13
-  databaseSqlite: localhost:5000/muxcore/database-sqlite:v0.6.13
-  secretsFile: localhost:5000/muxcore/secrets-file:v0.6.13
-  encryptionAesgcm: localhost:5000/muxcore/encryption-aesgcm:v0.6.13
-  callPolicy: localhost:5000/muxcore/call-policy-default:v0.6.13
-  publishPolicy: localhost:5000/muxcore/publish-policy-default:v0.6.13
-  healthMonitor: localhost:5000/muxcore/health-monitor:v0.6.13
-  adminUi: localhost:5000/muxcore/admin-ui:v0.6.13
+  muxcored: localhost:5000/muxcore/muxcored:v0.6.15
+  apiRest: localhost:5000/muxcore/api-rest:v0.6.15
+  authLocal: localhost:5000/muxcore/auth-local:v0.6.15
+  databaseSqlite: localhost:5000/muxcore/database-sqlite:v0.6.15
+  secretsFile: localhost:5000/muxcore/secrets-file:v0.6.15
+  encryptionAesgcm: localhost:5000/muxcore/encryption-aesgcm:v0.6.15
+  callPolicy: localhost:5000/muxcore/call-policy-default:v0.6.15
+  publishPolicy: localhost:5000/muxcore/publish-policy-default:v0.6.15
+  healthMonitor: localhost:5000/muxcore/health-monitor:v0.6.15
+  adminUi: localhost:5000/muxcore/admin-ui:v0.6.15
 
 persistence:
   coreSize: 5Gi
@@ -45,26 +45,26 @@ resources:
 media:
   enabled: false
   images:
-    metadataTmdb: localhost:5000/muxcore/metadata-tmdb:v0.6.13
-    mediaMovies: localhost:5000/muxcore/media-movies:v0.6.13
-    mediaTvshows: localhost:5000/muxcore/media-tvshows:v0.6.13
-    requestMedia: localhost:5000/muxcore/request-media:v0.6.13
-    mediaAutomation: localhost:5000/muxcore/media-automation:v0.6.13
-    mediaScanner: localhost:5000/muxcore/media-scanner:v0.6.13
-    mediaFfprobe: localhost:5000/muxcore/media-ffprobe:v0.6.13
-    notificationDefault: localhost:5000/muxcore/notification-default:v0.6.13
-    userdataLocal: localhost:5000/muxcore/userdata-local:v0.6.13
-    mediaUi: localhost:5000/muxcore/media-ui:v0.6.13
+    metadataTmdb: localhost:5000/muxcore/metadata-tmdb:v0.6.15
+    mediaMovies: localhost:5000/muxcore/media-movies:v0.6.15
+    mediaTvshows: localhost:5000/muxcore/media-tvshows:v0.6.15
+    requestMedia: localhost:5000/muxcore/request-media:v0.6.15
+    mediaAutomation: localhost:5000/muxcore/media-automation:v0.6.15
+    mediaScanner: localhost:5000/muxcore/media-scanner:v0.6.15
+    mediaFfprobe: localhost:5000/muxcore/media-ffprobe:v0.6.15
+    notificationDefault: localhost:5000/muxcore/notification-default:v0.6.15
+    userdataLocal: localhost:5000/muxcore/userdata-local:v0.6.15
+    mediaUi: localhost:5000/muxcore/media-ui:v0.6.15
   persistence:
     userdataSize: 2Gi
 
 acquisition:
   enabled: false
   images:
-    indexerTorznab: localhost:5000/muxcore/indexer-torznab:v0.6.13
-    downloaderNativeTorrent: localhost:5000/muxcore/downloader-native-torrent:v0.6.13
-    downloaderSabnzbd: localhost:5000/muxcore/downloader-sabnzbd:v0.6.13
-    downloaderDebrid: localhost:5000/muxcore/downloader-debrid:v0.6.13
+    indexerTorznab: localhost:5000/muxcore/indexer-torznab:v0.6.15
+    downloaderNativeTorrent: localhost:5000/muxcore/downloader-native-torrent:v0.6.15
+    downloaderSabnzbd: localhost:5000/muxcore/downloader-sabnzbd:v0.6.15
+    downloaderDebrid: localhost:5000/muxcore/downloader-debrid:v0.6.15
 
 # health-monitor HTTP bearer (NFR-SEC-011). health-monitor v0.1.7+ refuses a non-loopback
 # HEALTH_MONITOR_HTTP_ADDR without a token; admin-ui reads the same value as

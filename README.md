@@ -4,7 +4,7 @@ Local reference compose for the media MVP path. Sibling clones under `/home/user
 
 **P0 Media MVP status: met** (Wave 21 stack + smoke; Wave 22 packaging freeze). Operator URLs after `./run-host.sh up`: [`run/VIEW-ME.txt`](run/VIEW-ME.txt).
 
-**Core pin:** published [`v0.6.13`](https://github.com/Muxcore-Media/core/releases/tag/v0.6.13) (release train `train-2026.10.2`; see umbrella `release-train.env`). Modules pinning without `replace` (`GOPRIVATE=github.com/Muxcore-Media/*`, `gh` HTTPS):
+**Core pin:** published [`v0.6.15`](https://github.com/Muxcore-Media/core/releases/tag/v0.6.15) (release train `train-2026.10.3`; see umbrella `release-train.env`). Modules pinning without `replace` (`GOPRIVATE=github.com/Muxcore-Media/*`, `gh` HTTPS):
 
 Historical wave pins (still accurate as of each wave; later patch tags supersede — see spool catalog **2.5.0**):
 - **Waves 25–26 (core-adjacent):** `auth-local`, `call-policy-default`, `publish-policy-default`, `secrets-file`, `encryption-aesgcm`, `api-rest`, `jellyfin@v0.2.1`, `media-root-folders@v0.1.1`, `health-monitor`, `metadata-tmdb@v0.1.1`, `database-sqlite`, `secrets-vault`
@@ -31,7 +31,7 @@ Operator references in this repo: [`PORTS.md`](PORTS.md) (default gRPC/HTTP port
 
 ```bash
 export MUXCORE_REGISTRY=localhost:5000/muxcore   # or ghcr.io/muxcore-media once published
-export MUXCORE_IMAGE_TAG=v0.6.13
+export MUXCORE_IMAGE_TAG=v0.6.15
 export DOWNLOADER_ENGINE=fixture
 ./scripts/gen-enrollment.sh   # household mesh enrollment secret + tokens into .env (ADR-0017)
 docker compose -f docker-compose.registry.yml pull
@@ -43,7 +43,7 @@ Publish `muxcored` (podman or docker):
 
 ```bash
 ./local-registry.sh start                   # LAN registry on localhost:5000
-./scripts/publish-muxcored-local.sh v0.6.13  # MUXCORE_REGISTRY defaults to localhost:5000/muxcore
+./scripts/publish-muxcored-local.sh v0.6.15  # MUXCORE_REGISTRY defaults to localhost:5000/muxcore
 ```
 
 Default compose (`docker compose up --build`) and `./run-host.sh` remain the developer paths. GHCR uses the same registry compose with `MUXCORE_REGISTRY=ghcr.io/muxcore-media`; publishing there (`publish-muxcored-ghcr.sh`) is blocked until a `write:packages` token exists.
@@ -58,7 +58,7 @@ kubectl apply -k deploy/kustomize/overlays/dev
 helm upgrade --install muxcore deploy/helm/muxcore -n muxcore --create-namespace
 ```
 
-Images default to the LAN registry `localhost:5000/muxcore/*` at `household-manifest.yaml` `core_tag` (currently **v0.6.13**), matching Helm. GHCR (`ghcr.io/muxcore-media`) is optional once published. Host `./run-host.sh` remains the verified operator path.
+Images default to the LAN registry `localhost:5000/muxcore/*` at `household-manifest.yaml` `core_tag` (currently **v0.6.15**), matching Helm. GHCR (`ghcr.io/muxcore-media`) is optional once published. Host `./run-host.sh` remains the verified operator path.
 
 ## Quick start
 

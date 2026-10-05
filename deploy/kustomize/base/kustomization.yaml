@@ -1,6 +1,6 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# Image pins use the LAN registry localhost:5000/muxcore/* and track household-manifest.yaml core_tag (v0.6.13).
+# Image pins use the LAN registry localhost:5000/muxcore/* and track household-manifest.yaml core_tag (v0.6.15).
 # GHCR (ghcr.io/muxcore-media/*) is optional once images are published there — override with `images:`.
 namespace: muxcore
 resources:
