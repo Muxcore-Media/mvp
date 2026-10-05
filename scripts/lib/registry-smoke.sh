@@ -17,9 +17,18 @@ registry_smoke_cli() {
   ${MUXCORE_CONTAINER_CLI:-docker} "$@"
 }
 
+# MUXCORE_COMPOSE_EXTRA_FILES: space-separated override files (relative to this
+# repo or absolute) layered on the registry compose, e.g. docker-compose.dev.yml
+# for the insecure dev loop; the restore drill must see the same services.
 registry_smoke_compose() {
+  local -a files=(-f "${registry_smoke_root}/${REGISTRY_SMOKE_COMPOSE_FILE}")
+  local f
+  for f in ${MUXCORE_COMPOSE_EXTRA_FILES:-}; do
+    [[ "$f" == /* ]] || f="${registry_smoke_root}/$f"
+    files+=(-f "$f")
+  done
   # shellcheck disable=SC2086 # MUXCORE_COMPOSE is a command line ("docker compose")
-  ${MUXCORE_COMPOSE:-docker compose} -f "${registry_smoke_root}/${REGISTRY_SMOKE_COMPOSE_FILE}" "$@"
+  ${MUXCORE_COMPOSE:-docker compose} "${files[@]}" "$@"
 }
 
 registry_smoke_compose_project() {
@@ -83,16 +92,136 @@ registry_smoke_enable() {
 # modules' Go packages; scripts/check-smoke-protoset_test.sh keeps it in sync).
 REGISTRY_SMOKE_PROTOSET="smoke.protoset"
 
+# ---- mesh TLS (household profile, ADR-0016/0017) ----
+# In household every gRPC hop is TLS against core's CA and modules expect a
+# client certificate, so the smoke enrolls a client identity of its own
+# (MUXCORE_SMOKE_CLIENT_ID, default mvp-smoke) with a single-use token derived
+# from MUXCORE_ENROLL_SECRET (scripts/gen-enrollment.sh --print-token), and
+# keeps it in MUXCORE_SMOKE_ID_DIR (default run/smoke-id; reused while it
+# verifies against the stack's CA). The public CA comes from the mesh-ca volume.
+# MUXCORE_SMOKE_TLS=1|0 forces TLS on/off; default: read the running core's
+# profile (dev + insecure flag = plaintext, docker-compose.dev.yml).
+REGISTRY_SMOKE_CLIENT_ID="${MUXCORE_SMOKE_CLIENT_ID:-mvp-smoke}"
+registry_smoke_tls_state=""
+
+registry_smoke_id_dir() {
+  printf '%s' "${MUXCORE_SMOKE_ID_DIR:-${registry_smoke_root}/run/smoke-id}"
+}
+
+# registry_smoke_tls_enabled — 0 (true) when the stack runs mesh TLS.
+registry_smoke_tls_enabled() {
+  if [[ -z "$registry_smoke_tls_state" ]]; then
+    case "${MUXCORE_SMOKE_TLS:-auto}" in
+      1|true|yes) registry_smoke_tls_state=1 ;;
+      0|false|no) registry_smoke_tls_state=0 ;;
+      *)
+        local id env_lines=""
+        id="$(registry_smoke_compose ps -q core 2>/dev/null | head -1 || true)"
+        if [[ -n "$id" ]]; then
+          env_lines="$(registry_smoke_cli inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$id" 2>/dev/null || true)"
+        fi
+        if grep -Eqx 'MUXCORE_INSECURE_DISABLE_TLS=(true|1)' <<<"$env_lines"; then
+          registry_smoke_tls_state=0
+        else
+          registry_smoke_tls_state=1  # household is the default (ADR-0016)
+        fi
+        ;;
+    esac
+  fi
+  [[ "$registry_smoke_tls_state" == 1 ]]
+}
+
+# registry_smoke_ca_file — host path of the stack's public CA (copied out of the
+# mesh-ca volume; refreshed on every call so a recreated stack is picked up).
+registry_smoke_ca_file() {
+  local dir ca
+  dir="$(registry_smoke_id_dir)"
+  ca="$dir/ca.crt"
+  (umask 077 && mkdir -p "$dir")
+  if registry_smoke_cli run --rm -v "$(registry_smoke_volume mesh-ca):/m:ro"       "$REGISTRY_SMOKE_ALPINE_IMAGE" cat /m/ca.crt >"$ca.new" 2>/dev/null && [[ -s "$ca.new" ]]; then
+    mv -f "$ca.new" "$ca"
+  else
+    rm -f "$ca.new"
+    [[ -s "$ca" ]] || { echo "FAIL: no core CA in volume $(registry_smoke_volume mesh-ca) (core not started?)" >&2; return 1; }
+  fi
+  printf '%s' "$ca"
+}
+
+# registry_smoke_core_url — core HTTP base URL from the host (HTTPS in household).
+registry_smoke_core_url() {
+  if registry_smoke_tls_enabled; then printf 'https://127.0.0.1:%s' "${MUXCORE_HTTP_PORT:-8080}"
+  else printf 'http://127.0.0.1:%s' "${MUXCORE_HTTP_PORT:-8080}"; fi
+}
+
+registry_smoke_enroll_token() {
+  if [[ -n "${MUXCORE_SMOKE_ENROLL_TOKEN:-}" ]]; then
+    printf '%s' "$MUXCORE_SMOKE_ENROLL_TOKEN"
+    return
+  fi
+  "${registry_smoke_root}/scripts/gen-enrollment.sh" --print-token "$REGISTRY_SMOKE_CLIENT_ID"
+}
+
+# registry_smoke_ensure_identity — the smoke's client certificate (household).
+registry_smoke_ensure_identity() {
+  local dir ca key crt csr token payload resp signed
+  dir="$(registry_smoke_id_dir)"
+  ca="$(registry_smoke_ca_file)" || return 1
+  key="$dir/module.key" crt="$dir/module.crt" csr="$dir/module.csr"
+  if [[ -s "$key" && -s "$crt" ]] && openssl verify -CAfile "$ca" "$crt" >/dev/null 2>&1; then
+    return 0
+  fi
+  command -v openssl >/dev/null 2>&1 || { echo "FAIL: openssl is required for the household smoke identity" >&2; return 1; }
+  echo "==> smoke client: enrolling mesh identity ${REGISTRY_SMOKE_CLIENT_ID} (ADR-0017)"
+  rm -f "$key" "$crt" "$csr"
+  (umask 077 && openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out "$key") || return 1
+  openssl req -new -key "$key" -subj "/CN=${REGISTRY_SMOKE_CLIENT_ID}" -out "$csr" 2>/dev/null || return 1
+  token="$(registry_smoke_enroll_token)" || return 1
+  payload="$(jq -cn --arg t "$token" --arg id "$REGISTRY_SMOKE_CLIENT_ID" --rawfile csr "$csr"     '{token: $t, module_id: $id, csr_pem: $csr}')"
+  # Server-verified TLS without a client certificate: the token is the credential.
+  resp="$(REGISTRY_SMOKE_GRPCURL_NO_CERT=1 registry_smoke_grpcurl "${MUXCORE_MESH_ADDR:-core:9090}"     -d "$payload" muxcore.module.v1.ModuleRegistration/BootstrapRegister)" || return 1
+  signed="$(jq -r '.signedCert // .signed_cert // empty' <<<"$resp")"
+  if [[ "$(jq -r '.accepted // false' <<<"$resp")" != true || -z "$signed" ]]; then
+    echo "FAIL: smoke client enrollment rejected: $(jq -c 'del(.signedCert, .caCert)' <<<"$resp" 2>/dev/null || echo "$resp")" >&2
+    echo "      (token already used? ${MUXCORE_COMPOSE:-docker compose} exec core ./muxcored enroll reset ${REGISTRY_SMOKE_CLIENT_ID})" >&2
+    return 1
+  fi
+  printf '%s\n' "$signed" >"$crt"
+  rm -f "$csr"
+  openssl verify -CAfile "$ca" "$crt" >/dev/null || { echo "FAIL: enrolled smoke certificate does not verify" >&2; return 1; }
+  echo "OK smoke client identity enrolled ($crt)"
+}
+
+# Container args + grpcurl flags for the transport: -plaintext (dev), else TLS
+# with core's CA and (unless REGISTRY_SMOKE_GRPCURL_NO_CERT=1) the smoke
+# identity. The grpcurl image runs as a non-root user that cannot read the 0600
+# key, so it runs as root (= the invoking user under rootless podman).
+registry_smoke_grpcurl_transport() {
+  registry_smoke_grpcurl_run_args=()
+  registry_smoke_grpcurl_tls_flags=()
+  if ! registry_smoke_tls_enabled; then
+    registry_smoke_grpcurl_tls_flags=(-plaintext)
+    return 0
+  fi
+  registry_smoke_grpcurl_run_args=(-v "$(registry_smoke_volume mesh-ca):/mesh-ca:ro")
+  registry_smoke_grpcurl_tls_flags=(-cacert /mesh-ca/ca.crt)
+  if [[ "${REGISTRY_SMOKE_GRPCURL_NO_CERT:-}" != 1 ]]; then
+    registry_smoke_ensure_identity || return 1
+    registry_smoke_grpcurl_run_args+=(--user 0:0 -v "$(registry_smoke_id_dir):/smoke-id:ro")
+    registry_smoke_grpcurl_tls_flags+=(-cert /smoke-id/module.crt -key /smoke-id/module.key)
+  fi
+}
+
 # registry_smoke_grpcurl_on <network> <addr> [grpcurl flags...] <method>
 registry_smoke_grpcurl_on() {
   local net="$1" addr="$2"
   shift 2
   local method="${*: -1}"
   local -a flags=("${@:1:$#-1}")
+  registry_smoke_grpcurl_transport || return 1
   registry_smoke_cli run --rm --network "$net" \
-    -v "${registry_smoke_root}/proto:/proto:ro" \
+    -v "${registry_smoke_root}/proto:/proto:ro" "${registry_smoke_grpcurl_run_args[@]}" \
     "$REGISTRY_SMOKE_GRPCURL_IMAGE" \
-    -plaintext -protoset "/proto/${REGISTRY_SMOKE_PROTOSET}" "${flags[@]}" "$addr" "$method"
+    "${registry_smoke_grpcurl_tls_flags[@]}" -protoset "/proto/${REGISTRY_SMOKE_PROTOSET}" "${flags[@]}" "$addr" "$method"
 }
 
 # registry_smoke_grpcurl <addr> [flags...] <method> — on the compose network.
@@ -422,10 +551,11 @@ registry_smoke_cmd_backupctl() {
   spec="$(registry_smoke_backupctl_args "$@")" || return $?
   method="${spec%%$'\t'*}"
   data="${spec#*$'\t'}"
+  registry_smoke_grpcurl_transport || return 1
   registry_smoke_cli run --rm --network "$(registry_smoke_network)" \
-    -v "${registry_smoke_root}/proto:/proto:ro" \
+    -v "${registry_smoke_root}/proto:/proto:ro" "${registry_smoke_grpcurl_run_args[@]}" \
     "$REGISTRY_SMOKE_GRPCURL_IMAGE" \
-    -plaintext -max-time 600 -import-path /proto -proto muxcore/backup/v1/backup.proto \
+    "${registry_smoke_grpcurl_tls_flags[@]}" -max-time 600 -import-path /proto -proto muxcore/backup/v1/backup.proto \
     -d "$data" "$addr" "muxcore.backup.v1.BackupService/${method}"
 }
 

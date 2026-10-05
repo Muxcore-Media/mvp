@@ -39,8 +39,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 # uid and pre-create the mount point owned by it: an empty named volume inherits
 # the image directory's owner on first mount, whichever container mounts it first.
 RUN useradd -u 1000 -U -M -d /data app \
-  && mkdir -p /data/media-ui /data/restore \
-  && chown -R app:app /data
+  && mkdir -p /data/media-ui /data/restore /data/mesh-id /data/mesh-ca \
+  && chown -R app:app /data && chmod 700 /data/mesh-id
 COPY --from=ui /ui/dist-app /app/dist-app
 COPY --from=bff /mediauiprox /usr/local/bin/mediauiprox
 ENV MEDIA_UI_DIST=/app/dist-app \

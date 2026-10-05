@@ -2,10 +2,17 @@
 # Default is a LAN registry (local-registry.sh); no GHCR write:packages required.
 # See scripts/publish-muxcored-local.sh and docs/PUBLIC-INSTALL.md (ADR-0007).
 #
+# Security profile: household (ADR-0016) — TLS on every gRPC hop, core's CA
+# created automatically, every module enrolls for its own certificate
+# (ADR-0017). Generate the enrollment secret and per-module tokens first:
+#   ./scripts/gen-enrollment.sh          # writes MUXCORE_ENROLL_* into .env (0600)
+# Insecure dev loop: add -f docker-compose.dev.yml (dev profile, plaintext mesh).
+#
 # Usage (from this directory):
 #   export MUXCORE_REGISTRY=localhost:5000/muxcore          # or ghcr.io/muxcore-media once published
 #   export MUXCORE_IMAGE_TAG=v0.6.13
 #   export DOWNLOADER_ENGINE=fixture
+#   ./scripts/gen-enrollment.sh
 #   docker compose -f docker-compose.registry.yml pull
 #   docker compose -f docker-compose.registry.yml up -d
 #   ./scripts/smoke-registry.sh    # no host Go / sibling clones (or ./smoke.sh auto-detects)
@@ -21,16 +28,29 @@
 name: muxcore-mvp-registry
 
 # Module gRPC listen addresses are "<service>:<port>", never ":<port>": in the
-# insecure dev profile the modules rewrite a host-less bind to 127.0.0.1, and the
-# address a module listens on is also the one it advertises to core, so core and
-# peers in other containers could not reach it (scripts/check-compose-grpc-binds_test.sh).
+# insecure dev profile (docker-compose.dev.yml) the modules rewrite a host-less
+# bind to 127.0.0.1, and the address a module listens on is also the one it
+# advertises to core (scripts/check-compose-grpc-binds_test.sh).
+#
+# Mesh identity (ADR-0017): every module service gets
+#   - MUXCORE_BOOTSTRAP_TOKEN from .env (scripts/gen-enrollment.sh; single use),
+#   - its own `<service>-id` volume at /data/mesh-id (MUXCORE_TLS_DIR: the key,
+#     certificate and CA it enrolled with; reused on every restart),
+#   - core's public CA read-only at /data/mesh-ca (MUXCORE_TLS_CA),
+#   - MUXCORE_ENROLL_DNS_NAMES=<service>, so peers dialling "<service>:<port>"
+#     can verify it (the module ID is always a SAN; other names need core's
+#     MUXCORE_ENROLL_SAN_ALLOW).
+# Lost an identity volume? `docker compose exec core ./muxcored enroll reset <id>`
+# and restart the module (docs/PUBLIC-INSTALL.md).
 x-image: &image
   image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/${MUXCORE_SERVICE:-muxcored}:${MUXCORE_IMAGE_TAG:-v0.6.13}
   restart: unless-stopped
   networks: [muxcore]
   environment: &module_env
     MUXCORE_GRPC_ADDR: core:9090
-    MUXCORE_INSECURE_DISABLE_TLS: "true"
+    MUXCORE_PROFILE: ${MUXCORE_PROFILE:-household}
+    MUXCORE_TLS_DIR: /data/mesh-id
+    MUXCORE_TLS_CA: /data/mesh-ca/ca.crt
     MUXCORE_LOG_LEVEL: ${MUXCORE_LOG_LEVEL:-info}
 
 services:
@@ -39,69 +59,84 @@ services:
     environment:
       MUXCORE_CONFIG: /app/muxcore.json
       MUXCORE_SERVER_ADDR: ":8080"
-      MUXCORE_INSECURE_DISABLE_TLS: "true"
+      # household (ADR-0016): TLS on gRPC and HTTP with an automatic core CA;
+      # the insecure flag is fatal. Dev loop: docker-compose.dev.yml.
+      MUXCORE_PROFILE: ${MUXCORE_PROFILE:-household}
       MUXCORE_LOG_LEVEL: ${MUXCORE_LOG_LEVEL:-info}
       MUXCORE_STORAGE_DIR: /app/data/storage
+      # The CA (key, enrollment ledger, core's server certificate) is install key
+      # material on its own volume, not in core-data: it is never in a backup
+      # archive (ADR-0013), so a restore keeps every module's identity valid.
+      # The core image (>= v0.6.15) pre-creates /app/ca and /app/mesh-ca owned by
+      # its user, so the fresh named volumes inherit that ownership.
+      MUXCORE_GRPC_CA_CERT_DIR: /app/ca
+      # Public ca.crt for the modules (mounted read-only at /data/mesh-ca).
+      MUXCORE_CA_EXPORT_DIR: /app/mesh-ca
+      # Modules dial "core:9090"; the name must be in core's certificate.
+      MUXCORE_TLS_SERVER_SANS: core
+      # Enrollment (ADR-0017): tokens are HMAC(secret, module ID), single use.
+      MUXCORE_ENROLL_SECRET: ${MUXCORE_ENROLL_SECRET:?run scripts/gen-enrollment.sh (mesh enrollment secret + tokens in .env)}
+      # Extra DNS SANs modules may request: service names that differ from the
+      # module ID (the ID itself is always allowed).
+      MUXCORE_ENROLL_SAN_ALLOW: jellyfin-bridge,plex-bridge,emby-bridge
     ports:
       - "${MUXCORE_HTTP_PORT:-8080}:8080"
       - "${MUXCORE_GRPC_PORT:-9090}:9090"
-      # auth-local runs in this network namespace (see the note there), so its
-      # ports are published here.
-      - "${AUTH_LOCAL_PORT:-9403}:9403"
-      - "${AUTH_HTTP_PORT:-9401}:9401"
     volumes:
       - core-data:/app/data
+      - core-ca:/app/ca
+      - mesh-ca:/app/mesh-ca
       - ./muxcore.json:/app/muxcore.json:ro
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health || exit 1"]
+      # HTTP is TLS too in household (core's certificate has a 127.0.0.1 SAN).
+      test: ["CMD-SHELL", "curl -sf --cacert /app/mesh-ca/ca.crt https://127.0.0.1:8080/health || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 20
       start_period: 10s
     restart: unless-stopped
-    networks:
-      muxcore:
-        # Security sidecars that share core's network namespace keep their
-        # service names on the compose network.
-        aliases: [auth-local, call-policy-default, publish-policy-default]
+    networks: [muxcore]
 
-  # Security sidecars (auth-local, call-policy-default, publish-policy-default)
-  # share core's network namespace: in the dev profile (plaintext mesh,
-  # MUXCORE_INSECURE_DISABLE_TLS) core dials sidecar providers only on loopback
-  # (core >= v0.6.10, T-M3-02b), so they must be reachable on core's 127.0.0.1.
-  # Their gRPC addresses stay host-less (":port") so they advertise a loopback
-  # address to core; peers reach them by service name through core's aliases.
-  # Remove when compose moves to the household profile with mesh TLS (T-M3-02g).
-  # If core is recreated, recreate these too (`up -d --force-recreate`).
   api-rest:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/api-rest:${MUXCORE_IMAGE_TAG:-v0.6.13}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: api-rest
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_API_REST:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: api-rest
       API_REST_HTTP_ADDR: ":8080"
       API_REST_GRPC_ADDR: api-rest:9400
     ports:
       - "${API_REST_HTTP_PORT:-18080}:8080"
       - "${API_REST_GRPC_PORT:-9400}:9400"
+    volumes:
+      - api-rest-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
 
   auth-local:
+    <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/auth-local:${MUXCORE_IMAGE_TAG:-v0.6.13}
-    restart: unless-stopped
-    network_mode: "service:core"   # see the note above api-rest; ports published on core
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: auth-local
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_AUTH_LOCAL:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: auth-local
       AUTH_DB_PATH: /data/auth.db
-      AUTH_GRPC_ADDR: ":9403"
+      AUTH_GRPC_ADDR: auth-local:9403
       AUTH_HTTP_ADDR: ":9401"
       AUTH_BOOTSTRAP_USER: ${MVP_ADMIN_USER:-admin}
       AUTH_BOOTSTRAP_PASSWORD: ${MVP_ADMIN_PASSWORD:?set MVP_ADMIN_PASSWORD in .env (openssl rand -hex 16)}
+    ports:
+      - "${AUTH_LOCAL_PORT:-9403}:9403"
+      - "${AUTH_HTTP_PORT:-9401}:9401"
     volumes:
       - auth-data:/data
+      - auth-local-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -117,6 +152,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: auth-oidc
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_AUTH_OIDC:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: auth-oidc
       AUTH_OIDC_GRPC_ADDR: auth-oidc:9410
       AUTH_OIDC_HTTP_ADDR: ":9412"
       AUTH_OIDC_DB_PATH: /data/auth-oidc/auth.db
@@ -137,6 +174,8 @@ services:
       - "${AUTH_OIDC_HTTP_PORT:-9412}:9412"
     volumes:
       - auth-oidc-data:/data
+      - auth-oidc-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -152,9 +191,14 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: cache-local
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_CACHE_LOCAL:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: cache-local
       CACHE_LOCAL_GRPC_ADDR: cache-local:9602
     ports:
       - "${CACHE_LOCAL_GRPC_PORT:-9602}:9602"
+    volumes:
+      - cache-local-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -166,12 +210,16 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: database-sqlite
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_DATABASE_SQLITE:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: database-sqlite
       SQLITE_DB_PATH: /data/muxcore.db
-      # Insecure dev mode rewrites ":port" binds to loopback; bind the service
-      # name so core and peers can reach gRPC across containers.
+      # Bind the service name: the dev override's insecure mode rewrites ":port"
+      # binds to loopback (see the note above x-image).
       DATABASE_GRPC_ADDR: database-sqlite:9700
     volumes:
       - sqlite-data:/data
+      - database-sqlite-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -182,9 +230,11 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: secrets-file
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_SECRETS_FILE:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: secrets-file
       SECRETS_STORE: /data/secrets.json
-      # Insecure dev mode rewrites ":port" binds to loopback; bind the service
-      # name so core and peers can reach gRPC across containers.
+      # Bind the service name: the dev override's insecure mode rewrites ":port"
+      # binds to loopback (see the note above x-image).
       SECRETS_GRPC_ADDR: secrets-file:9550
       # Required (64 hex chars, e.g. `openssl rand -hex 32`). Keep it OUTSIDE the
       # backup archive (operator .env / password manager): a restored secrets.json
@@ -192,6 +242,8 @@ services:
       SECRETS_MASTER_KEY: ${SECRETS_MASTER_KEY:-}
     volumes:
       - secrets-file-data:/data
+      - secrets-file-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -207,6 +259,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: secrets-vault
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_SECRETS_VAULT:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: secrets-vault
       SECRETS_GRPC_ADDR: secrets-vault:9551
       SECRETS_BACKEND: ${SECRETS_BACKEND:-}
       SECRETS_PREFIX: ${SECRETS_PREFIX:-muxcore/}
@@ -227,6 +281,9 @@ services:
       AZURE_KEY_VAULT_URL: ${AZURE_KEY_VAULT_URL:-}
     ports:
       - "${SECRETS_VAULT_GRPC_PORT:-9551}:9551"
+    volumes:
+      - secrets-vault-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -238,41 +295,53 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: encryption-aesgcm
-      # Insecure dev mode rewrites ":port" binds to loopback; bind the service
-      # name so core and peers can reach gRPC across containers.
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_ENCRYPTION_AESGCM:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: encryption-aesgcm
+      # Bind the service name: the dev override's insecure mode rewrites ":port"
+      # binds to loopback (see the note above x-image).
       ENCRYPTION_GRPC_ADDR: encryption-aesgcm:9601
       # Keyring is generated on first start. Key material: not in the backup
       # archive (household-manifest excluded_volumes); export it separately.
       ENCRYPTION_KEY_FILE: /data/master.key
     volumes:
       - encryption-aesgcm-data:/data
+      - encryption-aesgcm-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
 
   call-policy-default:
+    <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/call-policy-default:${MUXCORE_IMAGE_TAG:-v0.6.13}
-    restart: unless-stopped
-    network_mode: "service:core"   # see the note above api-rest
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: call-policy-default
-      CALL_POLICY_GRPC_ADDR: ":9101"
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_CALL_POLICY_DEFAULT:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: call-policy-default
+      CALL_POLICY_GRPC_ADDR: call-policy-default:9101
       # Shipped next to the binary (module images copy policies.yaml into /app).
       CALL_POLICY_FILE: /app/policies.yaml
+    volumes:
+      - call-policy-default-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
 
   publish-policy-default:
+    <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/publish-policy-default:${MUXCORE_IMAGE_TAG:-v0.6.13}
-    restart: unless-stopped
-    network_mode: "service:core"   # see the note above api-rest
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: publish-policy-default
-      PUBLISH_POLICY_GRPC_ADDR: ":9102"
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_PUBLISH_POLICY_DEFAULT:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: publish-policy-default
+      PUBLISH_POLICY_GRPC_ADDR: publish-policy-default:9102
       PUBLISH_POLICY_FILE: /app/policies.yaml
+    volumes:
+      - publish-policy-default-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -283,12 +352,17 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: health-monitor
-      # Insecure dev mode rewrites ":port" binds to loopback; bind the service
-      # name so core and peers can reach gRPC across containers.
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_HEALTH_MONITOR:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: health-monitor
+      # Bind the service name: the dev override's insecure mode rewrites ":port"
+      # binds to loopback (see the note above x-image).
       HEALTH_MONITOR_GRPC_ADDR: health-monitor:9202
       # Off-loopback HTTP needs a bearer token (NFR-SEC-011); admin-ui sends it.
       HEALTH_MONITOR_HTTP_ADDR: "0.0.0.0:9203"
       HEALTH_MONITOR_HTTP_TOKEN: ${HEALTH_MONITOR_HTTP_TOKEN:?set HEALTH_MONITOR_HTTP_TOKEN in .env (openssl rand -hex 32)}
+    volumes:
+      - health-monitor-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -299,10 +373,11 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: admin-ui
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_ADMIN_UI:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: admin-ui
       ADMIN_UI_ADDR: ":8082"
       # admin-ui reads its own core address (not MUXCORE_GRPC_ADDR).
       ADMIN_UI_CORE_ADDR: core:9090
-      ADMIN_UI_INSECURE: "true"
       # Browser-facing login URL (published auth-local HTTP port) vs the
       # in-network URL admin-ui uses server-side.
       ADMIN_UI_AUTH_ADDR: ${ADMIN_UI_AUTH_ADDR:-http://localhost:9401}
@@ -320,6 +395,8 @@ services:
     volumes:
       - admin-ui-data:/data
       - media-ui-data:/data/media-ui
+      - admin-ui-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -332,16 +409,19 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-movies
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_MOVIES:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-movies
       MOVIES_DB_PATH: /data/movies.db
       MOVIES_IMAGE_DIR: /data/images
-      # Insecure dev mode rewrites ":port" binds to loopback; bind the service
-      # name so the media-ui BFF can reach gRPC across containers.
+      # Bind the service name so the media-ui BFF can reach gRPC across containers.
       MOVIES_GRPC_ADDR: media-movies:9420
       MOVIES_HTTP_ADDR: ":9430"
     volumes:
       - media-movies-data:/data
       # Library (scanner import target) read-only for /stream.
       - movies:/data/movies:ro
+      - media-movies-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -352,6 +432,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-tvshows
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_TVSHOWS:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-tvshows
       TVSHOWS_DB_PATH: /data/tvshows.db
       TVSHOWS_IMAGE_DIR: /data/images
       TVSHOWS_GRPC_ADDR: media-tvshows:9440
@@ -360,6 +442,8 @@ services:
       - media-tvshows-data:/data
       # Library (scanner import target) read-only for /stream/tv.
       - shows:/data/shows:ro
+      - media-tvshows-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -370,6 +454,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-automation
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_AUTOMATION:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-automation
       AUTOMATION_GRPC_ADDR: media-automation:9460
       DOWNLOADER_ENGINE: ${DOWNLOADER_ENGINE:-fixture}
       AUTOMATION_DB_PATH: /data/automation.db
@@ -378,6 +464,8 @@ services:
     volumes:
       - media-automation-data:/data
       - downloads:/data/downloads
+      - media-automation-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -391,6 +479,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: downloader-native-torrent
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_DOWNLOADER_NATIVE_TORRENT:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: downloader-native-torrent
       DOWNLOADER_GRPC_ADDR: downloader-native-torrent:9461
       DOWNLOADER_ENGINE: ${DOWNLOADER_ENGINE:-fixture}
       DOWNLOAD_DIR: /data/downloads
@@ -408,6 +498,8 @@ services:
       - "${DOWNLOADER_TORRENT_HTTP_PORT:-9464}:9464"
     volumes:
       - downloads:/data/downloads
+      - downloader-native-torrent-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -419,6 +511,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: downloader-qbittorrent
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_DOWNLOADER_QBITTORRENT:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: downloader-qbittorrent
       QBIT_GRPC_ADDR: downloader-qbittorrent:9462
       QBIT_HTTP_ADDR: ":9463"
       DOWNLOADER_ENGINE: ${DOWNLOADER_ENGINE:-fixture}
@@ -429,6 +523,9 @@ services:
     ports:
       - "${DOWNLOADER_QBIT_GRPC_PORT:-9462}:9462"
       - "${DOWNLOADER_QBIT_HTTP_PORT:-9463}:9463"
+    volumes:
+      - downloader-qbittorrent-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -440,6 +537,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: downloader-native-usenet
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_DOWNLOADER_NATIVE_USENET:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: downloader-native-usenet
       USENET_GRPC_ADDR: downloader-native-usenet:9622
       MUXCORE_HTTP_ADDR: ":9623"
       USENET_ENGINE: ${USENET_ENGINE:-fixture}
@@ -459,6 +558,8 @@ services:
       - "${DOWNLOADER_USENET_HTTP_PORT:-9623}:9623"
     volumes:
       - downloads:/data/downloads
+      - downloader-native-usenet-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -470,6 +571,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: downloader-sabnzbd
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_DOWNLOADER_SABNZBD:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: downloader-sabnzbd
       MUXCORE_GRPC_ADDR_OVERRIDE: ":9620"
       MUXCORE_HTTP_ADDR: ":9621"
       SABNZBD_URL: ${SABNZBD_URL:-}
@@ -481,6 +584,9 @@ services:
     ports:
       - "${DOWNLOADER_SABNZBD_GRPC_PORT:-9620}:9620"
       - "${DOWNLOADER_SABNZBD_HTTP_PORT:-9621}:9621"
+    volumes:
+      - downloader-sabnzbd-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -494,6 +600,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: downloader-debrid
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_DOWNLOADER_DEBRID:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: downloader-debrid
       DEBRID_PROVIDER: ${DEBRID_PROVIDER:-}
       DEBRID_TOKEN: ${DEBRID_TOKEN:-}
       REAL_DEBRID_TOKEN: ${REAL_DEBRID_TOKEN:-}
@@ -501,6 +609,9 @@ services:
       DEBRID_HTTP_TOKEN: ${DEBRID_HTTP_TOKEN:-}
     ports:
       - "${DOWNLOADER_DEBRID_GRPC_PORT:-9630}:9630"
+    volumes:
+      - downloader-debrid-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -515,6 +626,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: indexer-piratebay
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_INDEXER_PIRATEBAY:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: indexer-piratebay
       PIRATEBAY_GRPC_ADDR: indexer-piratebay:9485
       PIRATEBAY_HTTP_ADDR: ":9487"
       INDEXER_FIXTURE: ${INDEXER_FIXTURE:-1}
@@ -525,6 +638,9 @@ services:
     ports:
       - "${INDEXER_PIRATEBAY_GRPC_PORT:-9485}:9485"
       - "${INDEXER_PIRATEBAY_HTTP_PORT:-9487}:9487"
+    volumes:
+      - indexer-piratebay-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -536,6 +652,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: indexer-torznab
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_INDEXER_TORZNAB:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: indexer-torznab
       TORZNAB_GRPC_ADDR: indexer-torznab:9486
       TORZNAB_URL: ${TORZNAB_URL:-}
       TORZNAB_API_KEY: ${TORZNAB_API_KEY:-}
@@ -546,6 +664,9 @@ services:
       WG_KILL_SWITCH: ${WG_KILL_SWITCH:-false}
     ports:
       - "${INDEXER_TORZNAB_GRPC_PORT:-9486}:9486"
+    volumes:
+      - indexer-torznab-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -557,6 +678,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-scanner
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_SCANNER:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-scanner
       SCANNER_GRPC_ADDR: media-scanner:9470
       SCANNER_DB_PATH: /data/scanner.db
       SCANNER_LIBRARY_ROOT: /data/movies
@@ -571,6 +694,8 @@ services:
       - downloads:/data/downloads
       - movies:/data/movies
       - shows:/data/shows
+      - media-scanner-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -581,14 +706,18 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: request-media
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_REQUEST_MEDIA:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: request-media
       # HTTP on all container interfaces (not published) so the media-ui BFF can
-      # reach it; gRPC binds the service name (insecure mode rewrites ":port").
+      # reach it; gRPC binds the service name (see the note above x-image).
       REQUEST_HTTP_ADDR: ":9380"
       REQUEST_GRPC_ADDR: request-media:9481
       REQUEST_DATA_DIR: /data
       REQUEST_REQUIRE_APPROVAL: ${REQUEST_REQUIRE_APPROVAL:-false}
     volumes:
       - request-media-data:/data
+      - request-media-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -599,8 +728,13 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: metadata-tmdb
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_METADATA_TMDB:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: metadata-tmdb
       METADATA_GRPC_ADDR: metadata-tmdb:9411
       TMDB_API_KEY: ${TMDB_API_KEY:-}
+    volumes:
+      - metadata-tmdb-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -611,6 +745,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-custom-formats
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_CUSTOM_FORMATS:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-custom-formats
       FORMATS_GRPC_ADDR: media-custom-formats:9490
       FORMATS_DB_PATH: /data/formats.db
       FORMATS_SEED_DEFAULTS: "true"
@@ -620,6 +756,8 @@ services:
       FORMATS_TRASH_SERVICES: "${FORMATS_TRASH_SERVICES:-radarr,sonarr}"
     volumes:
       - media-custom-formats-data:/data
+      - media-custom-formats-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -630,10 +768,14 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-rename
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_RENAME:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-rename
       RENAME_DB_PATH: /data/rename.db
       RENAME_GRPC_ADDR: media-rename:9510
     volumes:
       - media-rename-data:/data
+      - media-rename-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -644,10 +786,14 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-ffprobe
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_FFPROBE:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-ffprobe
       FFPROBE_GRPC_ADDR: media-ffprobe:9480
       FFPROBE_DB_PATH: /data/cache.db
     volumes:
       - media-ffprobe-data:/data
+      - media-ffprobe-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -658,11 +804,15 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-subtitles
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_SUBTITLES:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-subtitles
       SUBS_GRPC_ADDR: media-subtitles:9520
       SUBS_DB_PATH: /data/subtitles.db
       SUBS_DIR: /data/files
     volumes:
       - media-subtitles-data:/data
+      - media-subtitles-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -673,6 +823,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-root-folders
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_ROOT_FOLDERS:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-root-folders
       ROOTS_GRPC_ADDR: media-root-folders:9540
       ROOTS_DB_PATH: /data/roots.db
     volumes:
@@ -681,6 +833,8 @@ services:
       # libraries it registers must exist in this container (read-only is enough).
       - movies:/data/movies:ro
       - shows:/data/shows:ro
+      - media-root-folders-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -691,10 +845,14 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: notification-default
-      # Insecure dev mode rewrites ":port" binds to loopback; bind the service
-      # name so the media-ui BFF (NOTIFY_GRPC_CLIENT_ADDR) can reach gRPC.
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_NOTIFICATION_DEFAULT:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: notification-default
+      # Bind the service name so the media-ui BFF (NOTIFY_GRPC_CLIENT_ADDR) can reach gRPC.
       NOTIFY_GRPC_ADDR: notification-default:9441
       WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-http://127.0.0.1:9/muxcore-notify-sink}
+    volumes:
+      - notification-default-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -706,6 +864,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: userdata-local
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_USERDATA_LOCAL:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: userdata-local
       USERDATA_LOCAL_HTTP_ADDR: ":9672"
       USERDATA_LOCAL_GRPC_ADDR: userdata-local:9673
       USERDATA_LOCAL_DB_PATH: /data/userdata.db
@@ -713,6 +873,8 @@ services:
       - "${USERDATA_LOCAL_PORT:-9672}:9672"
     volumes:
       - userdata-data:/data
+      - userdata-local-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -730,6 +892,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: backup-local
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_BACKUP_LOCAL:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: backup-local
       BACKUP_DIR: /data/backups
       BACKUP_GRPC_ADDR: backup-local:9302
       BACKUP_GRPC_BIND_ALL: "true"
@@ -767,6 +931,8 @@ services:
       - jellyfin-data:/source/jellyfin:ro
       - plex-data:/source/plex:ro
       - emby-data:/source/emby:ro
+      - backup-local-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -787,6 +953,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-dlna
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_DLNA:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-dlna
       DLNA_GRPC_ADDR: media-dlna:9751
       DLNA_HEALTH_HTTP_ADDR: ":8751"
       DLNA_HTTP_ADDR: ":9750"
@@ -801,6 +969,8 @@ services:
       - dlna-data:/data/dlna
       - movies:/data/movies:ro
       - shows:/data/shows:ro
+      - media-dlna-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -815,6 +985,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-tagging
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_TAGGING:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-tagging
       TAGGING_DATA_DIR: /data/tagging
       TAGGING_GRPC_ADDR: media-tagging:9740
       MUXCORE_HTTP_ADDR: ":9741"
@@ -823,6 +995,8 @@ services:
       - "${MEDIA_TAGGING_HTTP_PORT:-9741}:9741"
     volumes:
       - tagging-data:/data/tagging
+      - media-tagging-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -837,6 +1011,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-intro-outro
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_INTRO_OUTRO:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-intro-outro
       INTRO_OUTRO_DATA_DIR: /data/intro-outro
       MUXCORE_HTTP_ADDR: ":9711"
       INTRO_MAX_SECONDS: ${INTRO_MAX_SECONDS:-180}
@@ -846,6 +1022,8 @@ services:
       - "${MEDIA_INTRO_OUTRO_HTTP_PORT:-9711}:9711"
     volumes:
       - intro-outro-data:/data/intro-outro
+      - media-intro-outro-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -860,12 +1038,16 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: playback-guard
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_PLAYBACK_GUARD:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: playback-guard
       PLAYBACK_GUARD_GRPC_ADDR: playback-guard:9561
       PLAYBACK_GUARD_DB_PATH: /data/playback-guard/guard.db
     ports:
       - "${PLAYBACK_GUARD_GRPC_PORT:-9561}:9561"
     volumes:
       - playback-guard-data:/data/playback-guard
+      - playback-guard-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -880,6 +1062,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: playback-monitor
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_PLAYBACK_MONITOR:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: playback-monitor
       PLAYBACK_MONITOR_GRPC_ADDR: playback-monitor:9560
       PLAYBACK_MONITOR_HTTP_ADDR: ":8560"
       PLAYBACK_MONITOR_DB_PATH: /data/playback-monitor/monitor.db
@@ -889,6 +1073,8 @@ services:
       - "${PLAYBACK_MONITOR_HTTP_PORT:-8560}:8560"
     volumes:
       - playback-monitor-data:/data/playback-monitor
+      - playback-monitor-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -904,6 +1090,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-transcoder-pool
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_TRANSCODER_POOL:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-transcoder-pool
       POOL_DB_PATH: /data/transcoder-pool/pool.db
       MUXCORE_HTTP_ADDR: ":9721"
       POOL_STALE_AFTER_SEC: ${POOL_STALE_AFTER_SEC:-60}
@@ -914,6 +1102,8 @@ services:
       - "${TRANSCODER_POOL_HTTP_PORT:-9721}:9721"
     volumes:
       - transcoder-pool-data:/data/transcoder-pool
+      - media-transcoder-pool-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -925,6 +1115,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-ui
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_UI:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-ui
       MEDIA_UI_LISTEN: ":5173"
       MEDIA_UI_REQUIRE_AUTH: "1"
       AUTH_HTTP_INTERNAL_URL: http://auth-local:9401
@@ -967,6 +1159,8 @@ services:
       - "${MEDIA_UI_PORT:-5173}:5173"
     volumes:
       - media-ui-data:/data/media-ui
+      - media-ui-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -987,10 +1181,16 @@ services:
   # Soft-empty without JELLYFIN_BASE_URL + JELLYFIN_API_KEY; standalone NixOS Jellyfin is separate.
   jellyfin-bridge:
     <<: *image
+    networks:
+      muxcore:
+        # Module ID as a name too (core and peers may dial the ID).
+        aliases: [jellyfin]
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/jellyfin:${MUXCORE_IMAGE_TAG:-v0.6.13}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: jellyfin
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_JELLYFIN:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: jellyfin-bridge
       JELLYFIN_DATA_DIR: /data/jellyfin
       JELLYFIN_BASE_URL: ${JELLYFIN_BASE_URL:-}
       JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
@@ -1001,6 +1201,8 @@ services:
       USERDATA_PUSH_TO_JELLYFIN: ${USERDATA_PUSH_TO_JELLYFIN:-0}
     volumes:
       - jellyfin-data:/data
+      - jellyfin-bridge-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -1012,16 +1214,24 @@ services:
   # Soft-empty without PLEX_URL + PLEX_TOKEN; sync-lists returns 401 without PLEX_HTTP_SECRET.
   plex-bridge:
     <<: *image
+    networks:
+      muxcore:
+        # Module ID as a name too (core and peers may dial the ID).
+        aliases: [plex]
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/plex:${MUXCORE_IMAGE_TAG:-v0.6.13}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: plex
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_PLEX:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: plex-bridge
       PLEX_DATA_DIR: /data/plex
       PLEX_URL: ${PLEX_URL:-}
       PLEX_TOKEN: ${PLEX_TOKEN:-}
       PLEX_HTTP_SECRET: ${PLEX_HTTP_SECRET:-}
     volumes:
       - plex-data:/data
+      - plex-bridge-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -1033,16 +1243,24 @@ services:
   # Soft-empty without EMBY_URL + EMBY_TOKEN; SSE/catalog paths fail closed without EMBY_SSE_SECRET.
   emby-bridge:
     <<: *image
+    networks:
+      muxcore:
+        # Module ID as a name too (core and peers may dial the ID).
+        aliases: [emby]
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/emby:${MUXCORE_IMAGE_TAG:-v0.6.13}
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: emby
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_EMBY:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: emby-bridge
       EMBY_DATA_DIR: /data/emby
       EMBY_URL: ${EMBY_URL:-}
       EMBY_TOKEN: ${EMBY_TOKEN:-}
       EMBY_SSE_SECRET: ${EMBY_SSE_SECRET:-}
     volumes:
       - emby-data:/data
+      - emby-bridge-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
     depends_on:
       core:
         condition: service_healthy
@@ -1085,3 +1303,50 @@ volumes:
   media-ffprobe-data:
   media-subtitles-data:
   media-root-folders-data:
+  # Core CA (key, ledger) and its public export (ADR-0016/0017).
+  core-ca:
+  mesh-ca:
+  # Per-service mesh identities (ADR-0017): key material, never archived.
+  api-rest-id:
+  auth-local-id:
+  auth-oidc-id:
+  cache-local-id:
+  database-sqlite-id:
+  secrets-file-id:
+  secrets-vault-id:
+  encryption-aesgcm-id:
+  call-policy-default-id:
+  publish-policy-default-id:
+  health-monitor-id:
+  admin-ui-id:
+  media-movies-id:
+  media-tvshows-id:
+  media-automation-id:
+  downloader-native-torrent-id:
+  downloader-qbittorrent-id:
+  downloader-native-usenet-id:
+  downloader-sabnzbd-id:
+  downloader-debrid-id:
+  indexer-piratebay-id:
+  indexer-torznab-id:
+  media-scanner-id:
+  request-media-id:
+  metadata-tmdb-id:
+  media-custom-formats-id:
+  media-rename-id:
+  media-ffprobe-id:
+  media-subtitles-id:
+  media-root-folders-id:
+  notification-default-id:
+  userdata-local-id:
+  backup-local-id:
+  media-dlna-id:
+  media-tagging-id:
+  media-intro-outro-id:
+  playback-guard-id:
+  playback-monitor-id:
+  media-transcoder-pool-id:
+  media-ui-id:
+  jellyfin-bridge-id:
+  plex-bridge-id:
+  emby-bridge-id:

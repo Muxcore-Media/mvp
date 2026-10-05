@@ -13,7 +13,11 @@ import (
 )
 
 func meshInsecureAllowed() bool {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv("MUXCORE_INSECURE_DISABLE_TLS")))
+	return meshInsecureAllowedFrom(os.Getenv)
+}
+
+func meshInsecureAllowedFrom(getenv func(string) string) bool {
+	v := strings.ToLower(strings.TrimSpace(getenv("MUXCORE_INSECURE_DISABLE_TLS")))
 	return v == "true" || v == "1"
 }
 

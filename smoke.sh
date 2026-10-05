@@ -14,6 +14,13 @@ if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
 fi
 
 CORE_URL="${SMOKE_CORE_URL:-http://127.0.0.1:8080}"
+# Household registry stacks serve core's HTTP over TLS too (ADR-0016): verify it
+# against the core CA from the mesh-ca volume.
+core_curl=(curl)
+if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" && -z "${SMOKE_CORE_URL:-}" ]] && registry_smoke_tls_enabled; then
+  CORE_URL="$(registry_smoke_core_url)"
+  core_curl+=(--cacert "$(registry_smoke_id_dir)/ca.crt")
+fi
 API_URL="${SMOKE_API_URL:-http://127.0.0.1:18080}"
 MESH="${MUXCORE_MESH_ADDR:-127.0.0.1:9090}"
 MOVIES_ADDR="${MOVIES_GRPC_ADDR:-127.0.0.1:9420}"
@@ -23,7 +30,8 @@ TIMEOUT="${SMOKE_TIMEOUT_SEC:-180}"
 
 echo "==> waiting for core ${CORE_URL}/health (timeout ${TIMEOUT}s)"
 deadline=$((SECONDS + TIMEOUT))
-until code=$(curl -s -o /tmp/muxcore-core-health.json -w '%{http_code}' "${CORE_URL}/health" || echo 000); \
+until code=$( { [[ "${#core_curl[@]}" -eq 1 ]] || registry_smoke_ca_file >/dev/null 2>&1; } && \
+    "${core_curl[@]}" -s -o /tmp/muxcore-core-health.json -w '%{http_code}' "${CORE_URL}/health" || echo 000); \
   [[ "$code" == "200" ]]; do
   if (( SECONDS >= deadline )); then
     echo "FAIL: core health not HTTP 200 (last $code)" >&2

@@ -195,6 +195,21 @@ case_4() {
   registry_smoke_root="$TMP/root"
   registry_smoke_network() { printf 'proj_muxcore'; }
   registry_smoke_cli() { printf '%s\n' "$@" >"$TMP/cli-args.txt"; echo '{"backup":{"id":"backup_1"}}'; }
+  # dev profile: plaintext grpcurl
+  export MUXCORE_SMOKE_TLS=0
+  out="$(registry_smoke_cmd_backupctl create -source /source/x)"
+  grep -qx -- '-plaintext' "$TMP/cli-args.txt" || { echo "dev: -plaintext missing"; cat "$TMP/cli-args.txt"; exit 1; }
+  # household: mesh TLS with the CA volume and the smoke identity
+  export MUXCORE_SMOKE_TLS=1 MUXCORE_SMOKE_ID_DIR="$TMP/smoke-id"
+  registry_smoke_tls_state=""
+  registry_smoke_volume() { printf 'proj_%s' "$1"; }
+  registry_smoke_ensure_identity() { :; }
+  registry_smoke_cmd_backupctl list >/dev/null
+  for want in -cacert /mesh-ca/ca.crt -cert /smoke-id/module.crt -key /smoke-id/module.key \
+      proj_mesh-ca:/mesh-ca:ro "$TMP/smoke-id:/smoke-id:ro" 0:0; do
+    grep -qx -- "$want" "$TMP/cli-args.txt" || { echo "household: $want missing"; cat "$TMP/cli-args.txt"; exit 1; }
+  done
+  if grep -qx -- '-plaintext' "$TMP/cli-args.txt"; then echo "household: -plaintext set"; exit 1; fi
   out="$(registry_smoke_cmd_backupctl create -source /source/x)"
   [[ "$(jq -r .backup.id <<<"$out")" == backup_1 ]] || { echo "create output: $out"; exit 1; }
   grep -qx -- "$TMP/root/proto:/proto:ro" "$TMP/cli-args.txt" || { echo "proto not mounted"; cat "$TMP/cli-args.txt"; exit 1; }

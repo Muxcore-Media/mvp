@@ -26,6 +26,7 @@ import (
 	_ "github.com/Muxcore-Media/core/proto/gen/muxcore/auth/v1"
 	_ "github.com/Muxcore-Media/core/proto/gen/muxcore/discovery/v1"
 	_ "github.com/Muxcore-Media/core/proto/gen/muxcore/healthmonitor/v1"
+	_ "github.com/Muxcore-Media/core/proto/gen/muxcore/module/v1"
 	_ "github.com/Muxcore-Media/jellyfin/proto/jellyfinv1"
 	_ "github.com/Muxcore-Media/media-movies/proto/mgmntv1"
 	_ "github.com/Muxcore-Media/media-root-folders/proto/rootsv1"
@@ -35,6 +36,9 @@ import (
 // Services the registry smoke calls (registry-smoke.sh, acquisition-smoke.sh).
 var services = []protoreflect.FullName{
 	"muxcore.discovery.v1.DiscoveryService",
+	// BootstrapRegister: the smoke client enrolls for its mesh identity in the
+	// household profile (ADR-0017).
+	"muxcore.module.v1.ModuleRegistration",
 	"muxcore.auth.v1.AuthService",
 	"muxcore.healthmonitor.v1.HealthMonitorService",
 	"muxcore.media.movies.v1.MovieManagementService",

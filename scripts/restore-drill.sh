@@ -434,7 +434,11 @@ compose_backupctl() { registry_smoke_cmd_backupctl "$@"; }
 compose_up() {
   log "compose: up -d (project $PROJECT, profile backup-local)"
   free_core_netns
-  dc up -d
+  # --no-recreate: the stack under test is already up; recreating every container
+  # (compose sees a config change when it was started from the umbrella root file)
+  # hangs rootless podman 4.x in container create while the old containers still
+  # hold the shared volumes (mesh-ca, downloads, …).
+  dc up -d --no-recreate
   wait_stack_http
 }
 

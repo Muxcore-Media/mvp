@@ -29,7 +29,8 @@ cd _mvp
 # Registry install (see docs/PUBLIC-INSTALL.md)
 ./local-registry.sh start
 export MUXCORE_REGISTRY=localhost:5000/muxcore MUXCORE_IMAGE_TAG=v0.6.13
-docker compose -f docker-compose.registry.yml up -d
+./scripts/gen-enrollment.sh            # household profile: mesh enrollment tokens into .env
+docker compose -f docker-compose.registry.yml up -d   # insecure dev loop: add -f docker-compose.dev.yml
 
 # Vault deploy (from workspace root)
 ../_mvp/scripts/deploy-module-to-vault.sh admin-ui --verify-all

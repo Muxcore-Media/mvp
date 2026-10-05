@@ -1,0 +1,219 @@
+# Insecure DEV override for the registry compose (ADR-0016 phase 1): the dev
+# security profile with a plaintext mesh, for local debugging only — never for a
+# household install. The base file is the household profile.
+#
+#   ./scripts/gen-enrollment.sh   # still required: the base file interpolates the
+#                                 # enrollment variables (unused in dev)
+#   docker compose -f docker-compose.registry.yml -f docker-compose.dev.yml up -d
+#   MUXCORE_SMOKE_TLS=0 ./scripts/smoke-registry.sh   # (auto-detected as well)
+#
+# This is the only compose file that may set MUXCORE_INSECURE_DISABLE_TLS
+# (scripts/check-compose-security_test.sh). run-host.sh stays dev by default.
+#
+# Dev-profile topology (roadmap conflict C-18): core dials its security sidecars
+# (auth, call policy, publish policy) in plaintext only on loopback, so here
+# auth-local, call-policy-default and publish-policy-default share core's network
+# namespace again (ports published on core, names kept as aliases on core) and
+# bind host-less addresses so they advertise a loopback address to core. If you
+# recreate core, recreate them too (`up -d --force-recreate`).
+
+x-dev-env: &dev_env
+  MUXCORE_PROFILE: dev
+  MUXCORE_INSECURE_DISABLE_TLS: "true"
+
+services:
+  core:
+    environment:
+      <<: *dev_env
+    ports:
+      - "${AUTH_LOCAL_PORT:-9403}:9403"
+      - "${AUTH_HTTP_PORT:-9401}:9401"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8080/health || exit 1"]
+    networks: !override
+      muxcore:
+        aliases: [auth-local, call-policy-default, publish-policy-default]
+
+  api-rest:
+    environment:
+      <<: *dev_env
+
+  auth-local:
+    network_mode: "service:core"
+    networks: !reset null
+    ports: !reset []
+    environment:
+      <<: *dev_env
+      AUTH_GRPC_ADDR: ":9403"
+
+  auth-oidc:
+    environment:
+      <<: *dev_env
+
+  cache-local:
+    environment:
+      <<: *dev_env
+
+  database-sqlite:
+    environment:
+      <<: *dev_env
+
+  secrets-file:
+    environment:
+      <<: *dev_env
+
+  secrets-vault:
+    environment:
+      <<: *dev_env
+
+  encryption-aesgcm:
+    environment:
+      <<: *dev_env
+
+  call-policy-default:
+    network_mode: "service:core"
+    networks: !reset null
+    environment:
+      <<: *dev_env
+      CALL_POLICY_GRPC_ADDR: ":9101"
+
+  publish-policy-default:
+    network_mode: "service:core"
+    networks: !reset null
+    environment:
+      <<: *dev_env
+      PUBLISH_POLICY_GRPC_ADDR: ":9102"
+
+  health-monitor:
+    environment:
+      <<: *dev_env
+
+  admin-ui:
+    environment:
+      <<: *dev_env
+      # Plain-HTTP session cookies (admin-ui marks them Secure otherwise).
+      ADMIN_UI_INSECURE: "true"
+
+  media-movies:
+    environment:
+      <<: *dev_env
+
+  media-tvshows:
+    environment:
+      <<: *dev_env
+
+  media-automation:
+    environment:
+      <<: *dev_env
+
+  downloader-native-torrent:
+    environment:
+      <<: *dev_env
+
+  downloader-qbittorrent:
+    environment:
+      <<: *dev_env
+
+  downloader-native-usenet:
+    environment:
+      <<: *dev_env
+
+  downloader-sabnzbd:
+    environment:
+      <<: *dev_env
+
+  downloader-debrid:
+    environment:
+      <<: *dev_env
+
+  indexer-piratebay:
+    environment:
+      <<: *dev_env
+
+  indexer-torznab:
+    environment:
+      <<: *dev_env
+
+  media-scanner:
+    environment:
+      <<: *dev_env
+
+  request-media:
+    environment:
+      <<: *dev_env
+
+  metadata-tmdb:
+    environment:
+      <<: *dev_env
+
+  media-custom-formats:
+    environment:
+      <<: *dev_env
+
+  media-rename:
+    environment:
+      <<: *dev_env
+
+  media-ffprobe:
+    environment:
+      <<: *dev_env
+
+  media-subtitles:
+    environment:
+      <<: *dev_env
+
+  media-root-folders:
+    environment:
+      <<: *dev_env
+
+  notification-default:
+    environment:
+      <<: *dev_env
+
+  userdata-local:
+    environment:
+      <<: *dev_env
+
+  backup-local:
+    environment:
+      <<: *dev_env
+
+  media-dlna:
+    environment:
+      <<: *dev_env
+
+  media-tagging:
+    environment:
+      <<: *dev_env
+
+  media-intro-outro:
+    environment:
+      <<: *dev_env
+
+  playback-guard:
+    environment:
+      <<: *dev_env
+
+  playback-monitor:
+    environment:
+      <<: *dev_env
+
+  media-transcoder-pool:
+    environment:
+      <<: *dev_env
+
+  media-ui:
+    environment:
+      <<: *dev_env
+
+  jellyfin-bridge:
+    environment:
+      <<: *dev_env
+
+  plex-bridge:
+    environment:
+      <<: *dev_env
+
+  emby-bridge:
+    environment:
+      <<: *dev_env

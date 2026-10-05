@@ -34,7 +34,8 @@ RUN apk add --no-cache ca-certificates curl ${APK_EXTRA} \
   && mkdir -p /data/downloads /data/movies /data/shows /data/media-ui \
      /data/backups /data/restore /data/dlna /data/tagging /data/intro-outro \
      /data/playback-guard /data/playback-monitor /data/transcoder-pool \
-  && chown -R app:app /data
+     /data/mesh-id /data/mesh-ca \
+  && chown -R app:app /data && chmod 700 /data/mesh-id
 USER app
 WORKDIR /app
 COPY --from=builder /module ./module
