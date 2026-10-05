@@ -41,7 +41,9 @@ DEFAULT_MODULES=(
   downloader-native-torrent downloader-native-usenet downloader-qbittorrent
   downloader-sabnzbd emby indexer-piratebay indexer-torznab media-dlna
   media-intro-outro media-tagging media-transcoder-pool playback-guard
-  playback-monitor plex secrets-vault
+  playback-monitor plex secrets-vault media-music media-books media-comics
+  media-audiobooks media-transcoder media-list-sync media-library-maintainer
+  media-graph
 )
 
 if [[ -n "${MODULES:-}" ]]; then
@@ -121,7 +123,7 @@ fi
 # Extra alpine packages a module needs at runtime (module Dockerfiles' APK_EXTRA).
 module_apk_extra() {
   case "$1" in
-    media-ffprobe | media-intro-outro | media-transcoder-pool) echo ffmpeg ;;
+    media-ffprobe | media-intro-outro | media-transcoder-pool | media-transcoder) echo ffmpeg ;;
     downloader-native-torrent | indexer-piratebay | indexer-torznab) echo "wireguard-tools iptables iproute2" ;;
     *) echo "" ;;
   esac

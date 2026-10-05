@@ -34,6 +34,9 @@ RUN apk add --no-cache ca-certificates curl ${APK_EXTRA} \
   && mkdir -p /data/downloads /data/movies /data/shows /data/media-ui \
      /data/backups /data/restore /data/dlna /data/tagging /data/intro-outro \
      /data/playback-guard /data/playback-monitor /data/transcoder-pool \
+     /data/music /data/books /data/comics /data/audiobooks /data/library \
+     /data/transcoder /data/transcoder-cache /data/listsync /data/maintainer \
+     /data/graph /data/userdata \
      /data/mesh-id /data/mesh-ca \
   && chown -R app:app /data && chmod 700 /data/mesh-id
 USER app

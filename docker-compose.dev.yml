@@ -202,6 +202,38 @@ services:
     environment:
       <<: *dev_env
 
+  media-music:
+    environment:
+      <<: *dev_env
+
+  media-books:
+    environment:
+      <<: *dev_env
+
+  media-comics:
+    environment:
+      <<: *dev_env
+
+  media-audiobooks:
+    environment:
+      <<: *dev_env
+
+  media-transcoder:
+    environment:
+      <<: *dev_env
+
+  media-list-sync:
+    environment:
+      <<: *dev_env
+
+  media-library-maintainer:
+    environment:
+      <<: *dev_env
+
+  media-graph:
+    environment:
+      <<: *dev_env
+
   media-ui:
     environment:
       <<: *dev_env

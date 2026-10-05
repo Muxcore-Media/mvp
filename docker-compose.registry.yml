@@ -897,7 +897,7 @@ services:
       BACKUP_DIR: /data/backups
       BACKUP_GRPC_ADDR: backup-local:9302
       BACKUP_GRPC_BIND_ALL: "true"
-      BACKUP_SOURCE_DIRS: ${BACKUP_SOURCE_DIRS:-/source/core,/source/auth-local,/source/database-sqlite,/source/secrets-file,/source/admin-ui,/source/media-movies,/source/media-tvshows,/source/media-scanner,/source/media-automation,/source/request-media,/source/userdata-local,/source/media-ui,/source/media-custom-formats,/source/media-rename,/source/media-ffprobe,/source/media-subtitles,/source/media-root-folders,/source/auth-oidc,/source/playback-guard,/source/playback-monitor,/source/media-dlna,/source/media-tagging,/source/media-intro-outro,/source/media-transcoder-pool,/source/jellyfin,/source/plex,/source/emby}
+      BACKUP_SOURCE_DIRS: ${BACKUP_SOURCE_DIRS:-/source/core,/source/auth-local,/source/database-sqlite,/source/secrets-file,/source/admin-ui,/source/media-movies,/source/media-tvshows,/source/media-scanner,/source/media-automation,/source/request-media,/source/userdata-local,/source/media-ui,/source/media-custom-formats,/source/media-rename,/source/media-ffprobe,/source/media-subtitles,/source/media-root-folders,/source/auth-oidc,/source/playback-guard,/source/playback-monitor,/source/media-dlna,/source/media-tagging,/source/media-intro-outro,/source/media-transcoder-pool,/source/media-music,/source/media-books,/source/media-comics,/source/media-audiobooks,/source/media-transcoder,/source/media-list-sync,/source/media-library-maintainer,/source/media-graph,/source/jellyfin,/source/plex,/source/emby}
       BACKUP_SCHEDULE_CRON: ${BACKUP_SCHEDULE_CRON:-}
       BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-10}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-0}
@@ -928,6 +928,14 @@ services:
       - tagging-data:/source/media-tagging:ro
       - intro-outro-data:/source/media-intro-outro:ro
       - transcoder-pool-data:/source/media-transcoder-pool:ro
+      - music-data:/source/media-music:ro
+      - books-data:/source/media-books:ro
+      - comics-data:/source/media-comics:ro
+      - audiobooks-data:/source/media-audiobooks:ro
+      - transcoder-data:/source/media-transcoder:ro
+      - listsync-data:/source/media-list-sync:ro
+      - maintainer-data:/source/media-library-maintainer:ro
+      - graph-data:/source/media-graph:ro
       - jellyfin-data:/source/jellyfin:ro
       - plex-data:/source/plex:ro
       - emby-data:/source/emby:ro
@@ -1109,6 +1117,231 @@ services:
         condition: service_healthy
     profiles: ["transcoder-pool"]
 
+  # Optional Lidarr-class music manager — compose profile: music
+  #   docker compose -f docker-compose.registry.yml --profile music up -d
+  # run-host equivalent: run-host starts it by default
+  # State volume music-data (ADR-0013); the music library itself is library-data (excluded, user content).
+  media-music:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-music:${MUXCORE_IMAGE_TAG:-v0.6.15}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-music
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_MUSIC:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-music
+      MUSIC_DATA_DIR: /data/music
+      MUSIC_LIBRARY_DIR: /data/library/music
+      MUSIC_GRPC_ADDR: "media-music:9640"
+      MUXCORE_HTTP_ADDR: ":9641"
+    ports:
+      - "${MEDIA_MUSIC_GRPC_PORT:-9640}:9640"
+      - "${MEDIA_MUSIC_HTTP_PORT:-9641}:9641"
+    volumes:
+      - music-data:/data/music
+      - library-data:/data/library
+      - media-music-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["music"]
+
+  # Optional book manager — compose profile: books
+  #   docker compose -f docker-compose.registry.yml --profile books up -d
+  # run-host equivalent: MVP_ENABLE_MEDIA_BOOKS=1
+  # State volume books-data (ADR-0013); library files live in library-data (excluded).
+  media-books:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-books:${MUXCORE_IMAGE_TAG:-v0.6.15}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-books
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_BOOKS:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-books
+      BOOKS_DATA_DIR: /data/books
+      BOOKS_LIBRARY_DIR: /data/library/books
+      MUXCORE_HTTP_ADDR: ":9651"
+    ports:
+      - "${MEDIA_BOOKS_HTTP_PORT:-9651}:9651"
+    volumes:
+      - books-data:/data/books
+      - library-data:/data/library
+      - media-books-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["books"]
+
+  # Optional comic/manga manager — compose profile: comics
+  #   docker compose -f docker-compose.registry.yml --profile comics up -d
+  # run-host equivalent: MVP_ENABLE_MEDIA_COMICS=1
+  # State volume comics-data (ADR-0013); library files live in library-data (excluded).
+  media-comics:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-comics:${MUXCORE_IMAGE_TAG:-v0.6.15}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-comics
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_COMICS:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-comics
+      COMICS_DATA_DIR: /data/comics
+      COMICS_LIBRARY_DIR: /data/library/comics
+      MUXCORE_HTTP_ADDR: ":9661"
+    ports:
+      - "${MEDIA_COMICS_HTTP_PORT:-9661}:9661"
+    volumes:
+      - comics-data:/data/comics
+      - library-data:/data/library
+      - media-comics-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["comics"]
+
+  # Optional audiobook manager — compose profile: audiobooks
+  #   docker compose -f docker-compose.registry.yml --profile audiobooks up -d
+  # run-host equivalent: MVP_ENABLE_MEDIA_AUDIOBOOKS=1
+  # State volume audiobooks-data (ADR-0013); library files live in library-data (excluded).
+  media-audiobooks:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-audiobooks:${MUXCORE_IMAGE_TAG:-v0.6.15}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-audiobooks
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_AUDIOBOOKS:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-audiobooks
+      AUDIOBOOKS_DATA_DIR: /data/audiobooks
+      AUDIOBOOKS_LIBRARY_DIR: /data/library/audiobooks
+      MUXCORE_HTTP_ADDR: ":9671"
+    ports:
+      - "${MEDIA_AUDIOBOOKS_HTTP_PORT:-9671}:9671"
+    volumes:
+      - audiobooks-data:/data/audiobooks
+      - library-data:/data/library
+      - media-audiobooks-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["audiobooks"]
+
+  # Optional FFmpeg transcoder — compose profile: transcoder
+  #   docker compose -f docker-compose.registry.yml --profile transcoder up -d
+  # run-host equivalent: MVP_ENABLE_MEDIA_TRANSCODER=1 (run-host starts it with media UI)
+  # State volume transcoder-data holds the job DB; HLS segments and trickplay sprites are
+  # rebuildable caches on transcoder-cache (excluded from the backup).
+  media-transcoder:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-transcoder:${MUXCORE_IMAGE_TAG:-v0.6.15}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-transcoder
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_TRANSCODER:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-transcoder
+      TRANSCODER_DB_PATH: /data/transcoder/transcoder.db
+      TRANSCODER_HLS_CACHE: /data/transcoder-cache/hls
+      TRANSCODER_TRICKPLAY_DIR: /data/transcoder-cache/trickplay
+      TRANSCODER_GRPC_ADDR: "media-transcoder:9525"
+      TRANSCODER_HTTP_ADDR: ":9526"
+      TRANSCODER_MAX_CONCURRENT: ${TRANSCODER_MAX_CONCURRENT:-2}
+      TRANSCODER_MAX_PLAYBACK: ${TRANSCODER_MAX_PLAYBACK:-4}
+    ports:
+      - "${TRANSCODER_GRPC_PORT:-9525}:9525"
+      - "${TRANSCODER_HTTP_PORT:-9526}:9526"
+    volumes:
+      - transcoder-data:/data/transcoder
+      - transcoder-cache:/data/transcoder-cache
+      - movies:/data/movies:ro
+      - shows:/data/shows:ro
+      - media-transcoder-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["transcoder"]
+
+  # Optional import-list sync (Trakt/IMDb/Plex/Jellyfin/Radarr/Sonarr) — compose profile: list-sync
+  #   docker compose -f docker-compose.registry.yml --profile list-sync up -d
+  # run-host equivalent: MVP_ENABLE_MEDIA_LIST_SYNC=1
+  media-list-sync:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-list-sync:${MUXCORE_IMAGE_TAG:-v0.6.15}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-list-sync
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_LIST_SYNC:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-list-sync
+      LISTSYNC_DB_PATH: /data/listsync/listsync.db
+      LISTSYNC_GRPC_ADDR: "media-list-sync:9530"
+    ports:
+      - "${LISTSYNC_GRPC_PORT:-9530}:9530"
+    volumes:
+      - listsync-data:/data/listsync
+      - media-list-sync-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["list-sync"]
+
+  # Optional library maintenance (Maintainerr-class) — compose profile: library-maintainer
+  #   docker compose -f docker-compose.registry.yml --profile library-maintainer up -d
+  # run-host equivalent: MVP_ENABLE_MEDIA_LIBRARY_MAINTAINER=1
+  # userdata-data is the userdata-local state volume, mounted read-only for MAINTAINER_USERDATA_DIR (owned by userdata-local).
+  media-library-maintainer:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-library-maintainer:${MUXCORE_IMAGE_TAG:-v0.6.15}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-library-maintainer
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_LIBRARY_MAINTAINER:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-library-maintainer
+      MAINTAINER_DB_PATH: /data/maintainer/maintainer.db
+      MAINTAINER_GRPC_ADDR: "media-library-maintainer:9545"
+      MAINTAINER_USERDATA_DIR: /data/userdata
+    ports:
+      - "${MAINTAINER_GRPC_PORT:-9545}:9545"
+    volumes:
+      - maintainer-data:/data/maintainer
+      - userdata-data:/data/userdata:ro
+      - media-library-maintainer-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["library-maintainer"]
+
+  # Optional unified media graph — compose profile: graph
+  #   docker compose -f docker-compose.registry.yml --profile graph up -d
+  # run-host equivalent: MVP_ENABLE_MEDIA_GRAPH=1
+  media-graph:
+    <<: *image
+    image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-graph:${MUXCORE_IMAGE_TAG:-v0.6.15}
+    environment:
+      <<: *module_env
+      MUXCORE_MODULE_ID: media-graph
+      MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_GRAPH:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
+      MUXCORE_ENROLL_DNS_NAMES: media-graph
+      GRAPH_DB_PATH: /data/graph/graph.db
+      GRAPH_GRPC_ADDR: "media-graph:9730"
+      MUXCORE_HTTP_ADDR: ":9731"
+      GRAPH_AUTO_LINK: ${GRAPH_AUTO_LINK:-true}
+      GRAPH_INGEST_ENABLED: ${GRAPH_INGEST_ENABLED:-true}
+      GRAPH_INGEST_INTERVAL: ${GRAPH_INGEST_INTERVAL:-15m}
+    ports:
+      - "${MEDIA_GRAPH_GRPC_PORT:-9730}:9730"
+      - "${MEDIA_GRAPH_HTTP_PORT:-9731}:9731"
+    volumes:
+      - graph-data:/data/graph
+      - media-graph-id:/data/mesh-id
+      - mesh-ca:/data/mesh-ca:ro
+    depends_on:
+      core:
+        condition: service_healthy
+    profiles: ["graph"]
+
   media-ui:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-ui:${MUXCORE_IMAGE_TAG:-v0.6.15}
@@ -1286,6 +1519,16 @@ volumes:
   playback-guard-data:
   playback-monitor-data:
   transcoder-pool-data:
+  music-data:
+  books-data:
+  comics-data:
+  audiobooks-data:
+  transcoder-data:
+  transcoder-cache:
+  listsync-data:
+  maintainer-data:
+  graph-data:
+  library-data:
   media-ui-data:
   jellyfin-data:
   plex-data:
@@ -1346,6 +1589,14 @@ volumes:
   playback-guard-id:
   playback-monitor-id:
   media-transcoder-pool-id:
+  media-music-id:
+  media-books-id:
+  media-comics-id:
+  media-audiobooks-id:
+  media-transcoder-id:
+  media-list-sync-id:
+  media-library-maintainer-id:
+  media-graph-id:
   media-ui-id:
   jellyfin-bridge-id:
   plex-bridge-id:
