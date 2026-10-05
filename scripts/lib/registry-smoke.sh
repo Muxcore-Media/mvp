@@ -3,11 +3,23 @@
 set -euo pipefail
 
 REGISTRY_SMOKE_COMPOSE_FILE="${MUXCORE_COMPOSE_FILE:-docker-compose.registry.yml}"
-REGISTRY_SMOKE_GRPCURL_IMAGE="${MUXCORE_GRPCURL_IMAGE:-fullstorydev/grpcurl:latest}"
+# Pinned (not :latest) so the gate is reproducible; override with MUXCORE_GRPCURL_IMAGE.
+REGISTRY_SMOKE_GRPCURL_IMAGE="${MUXCORE_GRPCURL_IMAGE:-docker.io/fullstorydev/grpcurl:v1.9.3}"
+REGISTRY_SMOKE_CURL_IMAGE="${MUXCORE_CURL_IMAGE:-docker.io/curlimages/curl:8.5.0}"
+REGISTRY_SMOKE_ALPINE_IMAGE="${MUXCORE_ALPINE_IMAGE:-docker.io/library/alpine:3.21}"
 
 registry_smoke_root="${REGISTRY_SMOKE_ROOT:-${ROOT:-}}"
+
+# Container runtime / compose indirection: MUXCORE_CONTAINER_CLI=podman,
+# MUXCORE_COMPOSE="podman compose" (or "podman-compose") for docker-less hosts.
+registry_smoke_cli() {
+  # shellcheck disable=SC2086 # MUXCORE_CONTAINER_CLI may carry flags
+  ${MUXCORE_CONTAINER_CLI:-docker} "$@"
+}
+
 registry_smoke_compose() {
-  docker compose -f "${registry_smoke_root}/${REGISTRY_SMOKE_COMPOSE_FILE}" "$@"
+  # shellcheck disable=SC2086 # MUXCORE_COMPOSE is a command line ("docker compose")
+  ${MUXCORE_COMPOSE:-docker compose} -f "${registry_smoke_root}/${REGISTRY_SMOKE_COMPOSE_FILE}" "$@"
 }
 
 registry_smoke_compose_project() {
@@ -25,6 +37,11 @@ registry_smoke_stack_running() {
 
 registry_smoke_network() {
   printf '%s_muxcore' "$(registry_smoke_compose_project)"
+}
+
+# curl from inside the compose network (for ports that are not host-published).
+registry_smoke_curl() {
+  registry_smoke_cli run --rm --network "$(registry_smoke_network)" "$REGISTRY_SMOKE_CURL_IMAGE" "$@"
 }
 
 registry_smoke_volume() {
@@ -64,7 +81,7 @@ registry_smoke_enable() {
 registry_smoke_grpcurl() {
   local addr="$1"
   shift
-  docker run --rm --network "$(registry_smoke_network)" \
+  registry_smoke_cli run --rm --network "$(registry_smoke_network)" \
     "$REGISTRY_SMOKE_GRPCURL_IMAGE" \
     -plaintext "$@" "$addr"
 }
@@ -72,7 +89,7 @@ registry_smoke_grpcurl() {
 registry_smoke_grpcurl_host() {
   local addr="$1"
   shift
-  docker run --rm --network host \
+  registry_smoke_cli run --rm --network host \
     "$REGISTRY_SMOKE_GRPCURL_IMAGE" \
     -plaintext "$@" "$addr"
 }
@@ -90,7 +107,7 @@ registry_smoke_cmd_listmodules() {
   local need=(
     api-rest auth-local database-sqlite secrets-file encryption-aesgcm
     call-policy-default publish-policy-default metadata-tmdb media-movies
-    media-tvshows media-automation media-scanner media-root-folders jellyfin
+    media-tvshows media-automation media-scanner media-root-folders
     request-media notification-default
   )
   if [[ -n "${SMOKE_MODULES:-}" ]]; then
@@ -218,10 +235,10 @@ registry_smoke_cmd_importscan() {
   local vol_dl vol_mov
   vol_dl="$(registry_smoke_volume downloads)"
   vol_mov="$(registry_smoke_volume movies)"
-  docker run --rm \
+  registry_smoke_cli run --rm \
     -v "${vol_dl}:/data/downloads" \
     -v "${vol_mov}:/data/movies" \
-    alpine:3.21 sh -c 'mkdir -p "/data/downloads/Fight.Club.1999.1080p.BluRay.x264" && dd if=/dev/zero of="/data/downloads/Fight.Club.1999.1080p.BluRay.x264/Fight.Club.1999.1080p.BluRay.mkv" bs=1024 count=8 status=none'
+    "$REGISTRY_SMOKE_ALPINE_IMAGE" sh -c 'mkdir -p "/data/downloads/Fight.Club.1999.1080p.BluRay.x264" && dd if=/dev/zero of="/data/downloads/Fight.Club.1999.1080p.BluRay.x264/Fight.Club.1999.1080p.BluRay.mkv" bs=1024 count=8 status=none'
   registry_smoke_grpcurl "$addr" \
     -d "{\"path\":\"${watch}\",\"library_path\":\"${library}\",\"media_type\":\"movie\"}" \
     muxcore.scanner.v1.ScannerService/AddWatchDir >/dev/null 2>&1 || true
@@ -263,8 +280,7 @@ registry_smoke_cmd_healthreport() {
   registry_smoke_grpcurl "$addr" \
     -d '{"event_type":"health.smoke","module_id":"mvp-smoke","message":"health-monitor smoke"}' \
     muxcore.healthmonitor.v1.HealthMonitorService/PublishEvent
-  docker run --rm --network "$(registry_smoke_network)" curlimages/curl:8.5.0 \
-    -sf "$status_url" >/dev/null
+  registry_smoke_curl -sf "$status_url" >/dev/null
   echo "OK healthreport (registry grpcurl)"
 }
 
@@ -284,11 +300,11 @@ registry_smoke_cmd_jellyfinstatus() {
 }
 
 registry_smoke_cmd_jellyfinlink() {
-  local addr="$JELLYFIN_GRPC_CLIENT_ADDR" webhook=""
+  local addr="$JELLYFIN_GRPC_CLIENT_ADDR"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -addr) addr="$2"; shift 2 ;;
-      -webhook-url) webhook="$2"; shift 2 ;;
+      -webhook-url) shift 2 ;;
       *) shift ;;
     esac
   done
@@ -344,6 +360,7 @@ registry_smoke_cmd() {
     addtvshow) registry_smoke_cmd_addtvshow "$@" ;;
     importscan) registry_smoke_cmd_importscan "$@" ;;
     automationqueue) registry_smoke_cmd_automationqueue "$@" ;;
+    acquirefixture) registry_smoke_cmd_acquirefixture "$@" ;;  # scripts/lib/acquisition-smoke.sh
     healthreport) registry_smoke_cmd_healthreport "$@" ;;
     jellyfinstatus) registry_smoke_cmd_jellyfinstatus "$@" ;;
     jellyfinlink) registry_smoke_cmd_jellyfinlink "$@" ;;

@@ -338,6 +338,9 @@ services:
       MUXCORE_MODULE_ID: media-movies
       MOVIES_DB_PATH: /data/movies.db
       MOVIES_IMAGE_DIR: /data/images
+      # Insecure mode rewrites ":port" to loopback; bind the service name so the
+      # media-ui BFF can dial it across containers.
+      MOVIES_GRPC_ADDR: media-movies:9420
     ports:
       - "${MEDIA_MOVIES_HTTP_PORT:-9430}:9430"
     volumes:
@@ -785,7 +788,9 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: notification-default
-      NOTIFY_GRPC_ADDR: ":9441"
+      # Insecure mode rewrites ":port" to loopback; bind the service name so the
+      # media-ui BFF can dial it across containers.
+      NOTIFY_GRPC_ADDR: notification-default:9441
       WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-http://127.0.0.1:9/muxcore-notify-sink}
 
   # Optional Apprise notification peer — compose profile: apprise

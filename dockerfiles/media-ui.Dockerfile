@@ -34,6 +34,13 @@ RUN CGO_ENABLED=0 go build -o /mediauiprox ./cmd/mediauiprox
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
   && rm -rf /var/lib/apt/lists/*
+# media-ui-data is shared with admin-ui (uid 1000 `app` in module.Dockerfile) and
+# both sides write 0600 files (password-resets.json), so run the BFF as the same
+# uid and pre-create the mount point owned by it: an empty named volume inherits
+# the image directory's owner on first mount, whichever container mounts it first.
+RUN useradd -u 1000 -U -M -d /data app \
+  && mkdir -p /data/media-ui /data/restore \
+  && chown -R app:app /data
 COPY --from=ui /ui/dist-app /app/dist-app
 COPY --from=bff /mediauiprox /usr/local/bin/mediauiprox
 ENV MEDIA_UI_DIST=/app/dist-app \
@@ -43,4 +50,5 @@ ENV MEDIA_UI_DIST=/app/dist-app \
     MOVIES_HTTP_URL=http://media-movies:9430 \
     TVSHOWS_HTTP_URL=http://media-tvshows:9450
 EXPOSE 5173
+USER app
 CMD ["mediauiprox", "-listen", ":5173", "-dist", "/app/dist-app"]

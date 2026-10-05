@@ -7,6 +7,8 @@ smoke_cmd_root="${SMOKE_CMD_ROOT:-${ROOT:-}}"
 smoke_cmd_init() {
   # shellcheck disable=SC1091
   source "${smoke_cmd_root}/scripts/lib/registry-smoke.sh"
+  # shellcheck disable=SC1091
+  source "${smoke_cmd_root}/scripts/lib/acquisition-smoke.sh"
   registry_smoke_root="$smoke_cmd_root"
   if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
     registry_smoke_enable

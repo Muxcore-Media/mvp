@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Smoke-test the MVP stack: health, discovery, auth API, AddMovie, AddTVShow.
+# Smoke-test the MVP stack: health, discovery, auth API, AddMovie, AddTVShow,
+# fixture acquisition (when indexer + downloader are registered), scanner, BFF.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
-[[ -f "$ROOT/.env" ]] && source "$ROOT/.env" || true
+if [[ -f "$ROOT/.env" ]]; then source "$ROOT/.env"; fi
 # shellcheck disable=SC1091
 source "$ROOT/scripts/lib/smoke-cmd.sh"
 smoke_cmd_init
@@ -19,7 +20,6 @@ MOVIES_ADDR="${MOVIES_GRPC_ADDR:-127.0.0.1:9420}"
 TVSHOWS_ADDR="${TVSHOWS_GRPC_ADDR:-127.0.0.1:9440}"
 TOKEN_FILE="${MVP_TOKEN_FILE:-$ROOT/run/admin.token}"
 TIMEOUT="${SMOKE_TIMEOUT_SEC:-180}"
-BIN="$ROOT/bin"
 
 echo "==> waiting for core ${CORE_URL}/health (timeout ${TIMEOUT}s)"
 deadline=$((SECONDS + TIMEOUT))
@@ -49,10 +49,12 @@ listmods_env=(MUXCORE_GRPC_ADDR="$MESH")
 if [[ -f "${SMOKE_CATALOG:-$ROOT/../spool/catalog.json}" ]]; then
   listmods_env+=(SMOKE_CATALOG="${SMOKE_CATALOG:-$ROOT/../spool/catalog.json}")
 fi
+# smoke_cmd* are shell functions, so `env VAR=… fn` cannot run them; export in a subshell.
 if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
-  env "${listmods_env[@]}" smoke_cmd listmodules
+  (export "${listmods_env[@]}"; smoke_cmd listmodules)
 else
-  env "${listmods_env[@]}" smoke_cmd_listmodules
+  # shellcheck disable=SC2119 # no args by design
+  (export "${listmods_env[@]}"; smoke_cmd_listmodules)
 fi
 # Optional workflow engine (MVP_ENABLE_WORKFLOW_TAPESTRY=1)
 if SMOKE_MODULES=workflow-tapestry MUXCORE_GRPC_ADDR="$MESH" smoke_cmd listmodules >/dev/null 2>&1; then
@@ -165,9 +167,9 @@ jar=$(mktemp)
 trap 'rm -f "$jar"' EXIT
 redir_enc=$(printf '%s' "${ADMIN_URL}/auth/callback" | sed 's/:/%3A/g; s/\//%2F/g')
 curl -s -c "$jar" -b "$jar" "${AUTH_HTTP}/login?redirect=${redir_enc}" >/dev/null
-csrf=$(awk -F'\t' '$6=="csrf-token"{print $7}' "$jar" | tr -d '\r')
+csrf=$(awk -F'\t' '($6=="muxcore-auth-csrf" || $6=="csrf-token"){print $7}' "$jar" | tr -d '\r')
 if [[ -z "$csrf" ]]; then
-  echo "FAIL: no csrf-token cookie from auth login page" >&2
+  echo "FAIL: no CSRF cookie (muxcore-auth-csrf) from auth login page" >&2
   cat "$jar" >&2
   exit 1
 fi
@@ -372,6 +374,36 @@ else
   echo "==> jellyfin bridge not enabled (MVP_ENABLE_JELLYFIN=0); skipping healthz/gRPC smoke"
 fi
 
+AUTOMATION_ADDR="${AUTOMATION_GRPC_CLIENT_ADDR:-127.0.0.1:9460}"
+[[ "$AUTOMATION_ADDR" == :* ]] && AUTOMATION_ADDR="127.0.0.1${AUTOMATION_ADDR}"
+MEDIA_UI_URL="${SMOKE_MEDIA_UI_URL:-http://127.0.0.1:5173}"
+
+# Fixture acquisition (T-M2-03, ADR-0008/ADR-0014): indexer → automation → downloader
+# → scanner → media-movies → BFF stream. Runs when a fixture indexer + downloader are
+# registered; SMOKE_REQUIRE_ACQUISITION=1 makes their absence a failure. Runs before
+# the scanner ImportPath fixture so the imported file is attributable to the grab.
+echo "==> fixture acquisition (indexer + downloader → import → stream)"
+acq_label="acquisition:skipped"
+acquisition_smoke_detect
+acq_decision="$(acquisition_smoke_decide)"
+if [[ "$acq_decision" == "run" ]]; then
+  echo "acquisition peers: indexer=${ACQ_INDEXER} downloader=${ACQ_DOWNLOADER}"
+  acq_flags=(
+    -movies-addr "$MOVIES_ADDR" -automation-addr "$AUTOMATION_ADDR" -root "$movie_root"
+    -media-ui "$MEDIA_UI_URL" -auth-url "${AUTH_HTTP_URL:-http://127.0.0.1:9401}"
+  )
+  if [[ "${MUXCORE_SMOKE_REGISTRY:-}" != "1" ]]; then
+    acq_flags+=(
+      -history-timeout "${SMOKE_ACQUISITION_TIMEOUT_SEC:-120}s"
+      -file-timeout "${SMOKE_ACQUISITION_FILE_TIMEOUT_SEC:-60}s"
+    )
+  fi
+  smoke_cmd acquirefixture "${acq_flags[@]}"
+  acq_label="acquisition"
+else
+  echo "SKIP acquisition: fixture indexer/downloader not registered (MVP_ENABLE_ACQUISITION=1 to enable; SMOKE_REQUIRE_ACQUISITION=1 to require)"
+fi
+
 SCANNER_ADDR="${SCANNER_GRPC_CLIENT_ADDR:-127.0.0.1:9470}"
 [[ "$SCANNER_ADDR" == :* ]] && SCANNER_ADDR="127.0.0.1${SCANNER_ADDR}"
 
@@ -388,9 +420,6 @@ else
     -library "${MVP_LIBRARY_ROOT:-$ROOT/data/library}"
 fi
 
-AUTOMATION_ADDR="${AUTOMATION_GRPC_CLIENT_ADDR:-127.0.0.1:9460}"
-[[ "$AUTOMATION_ADDR" == :* ]] && AUTOMATION_ADDR="127.0.0.1${AUTOMATION_ADDR}"
-
 echo "==> automation queue soft"
 smoke_cmd automationqueue -addr "$AUTOMATION_ADDR"
 
@@ -401,8 +430,7 @@ HM_STATUS="${SMOKE_HEALTH_MONITOR_STATUS:-http://127.0.0.1:9203/status}"
 echo "==> health-monitor ReportHealth + /status"
 deadline_hm=$((SECONDS + 60))
 if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
-  until docker run --rm --network "$(registry_smoke_network)" curlimages/curl:8.5.0 \
-    -sf "http://health-monitor:9203/health" >/dev/null 2>&1; do
+  until registry_smoke_curl -sf "http://health-monitor:9203/health" >/dev/null 2>&1; do
     if (( SECONDS >= deadline_hm )); then
       echo "FAIL: health-monitor HTTP not ready (registry network)" >&2
       exit 1
@@ -440,7 +468,6 @@ grep -qi 'module.degraded' /tmp/muxcore-admin-events.html || {
 }
 echo "OK admin-ui events show module.degraded"
 
-MEDIA_UI_URL="${SMOKE_MEDIA_UI_URL:-http://127.0.0.1:5173}"
 if curl -sf "${MEDIA_UI_URL}/healthz" >/dev/null 2>&1; then
   echo "==> media-ui SPA ${MEDIA_UI_URL}"
   unauth=$(curl -s -o /dev/null -w '%{http_code}' "${MEDIA_UI_URL}/api/movies?page=1")
@@ -453,8 +480,8 @@ if curl -sf "${MEDIA_UI_URL}/healthz" >/dev/null 2>&1; then
   media_hdr=$(mktemp)
   media_redir_enc=$(printf '%s' "${MEDIA_UI_URL}/auth/callback" | sed 's/:/%3A/g; s/\//%2F/g')
   curl -s -c "$media_cj" -b "$media_cj" "${AUTH_HTTP}/login?redirect=${media_redir_enc}" >/dev/null
-  media_csrf=$(awk -F'\t' '$6=="csrf-token"{print $7}' "$media_cj" | tr -d '\r')
-  [[ -n "$media_csrf" ]] || { echo "FAIL: no csrf-token for media-ui login" >&2; exit 1; }
+  media_csrf=$(awk -F'\t' '($6=="muxcore-auth-csrf" || $6=="csrf-token"){print $7}' "$media_cj" | tr -d '\r')
+  [[ -n "$media_csrf" ]] || { echo "FAIL: no CSRF cookie for media-ui login" >&2; exit 1; }
   media_code=$(curl -s -c "$media_cj" -b "$media_cj" -D "$media_hdr" -o /dev/null -w '%{http_code}' \
     -X POST "${AUTH_HTTP}/login/password" \
     -H "Content-Type: application/x-www-form-urlencoded" \
@@ -529,10 +556,13 @@ for it in d.get("items") or []:
   # Soft Jellyfin play deep-link (404 unlinked / not configured; 200 when URL available)
   jf_play_code=$(curl -s -c "$media_cj" -b "$media_cj" -o /tmp/muxcore-jellyfin-play.json -w '%{http_code}' \
     "${MEDIA_UI_URL}/api/jellyfin/play?mux_id=mv_smoke_550")
-  case "$jf_play_code" in
-    200|404) echo "OK /api/jellyfin/play (HTTP $jf_play_code)" ;;
+  # 503 = bridge not running; only acceptable when it is not enabled/registered.
+  jf_play_ok=" 200 404 "
+  [[ "$jellyfin_required" == "1" ]] || jf_play_ok+="503 "
+  case "$jf_play_ok" in
+    *" $jf_play_code "*) echo "OK /api/jellyfin/play (HTTP $jf_play_code)" ;;
     *)
-      echo "FAIL: /api/jellyfin/play HTTP $jf_play_code (expected 200 or 404)" >&2
+      echo "FAIL: /api/jellyfin/play HTTP $jf_play_code (expected one of:${jf_play_ok})" >&2
       head -c 200 /tmp/muxcore-jellyfin-play.json >&2 || true
       echo >&2
       exit 1
@@ -582,4 +612,4 @@ else
   echo "==> media-ui not running (set MVP_ENABLE_MEDIA_UI=1 / build dist-app); skipping"
 fi
 
-echo "PASS: MVP smoke (auth + movies + tv + admin-ui + jellyfin + scanner + automation + health-monitor + media-ui + request-media)"
+echo "PASS: MVP smoke (auth + movies + tv + admin-ui + jellyfin + ${acq_label} + scanner + automation + health-monitor + media-ui + request-media)"
