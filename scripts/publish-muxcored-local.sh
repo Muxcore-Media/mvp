@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# Build muxcored and tag/push to a Forgejo or LAN OCI registry (no GHCR write:packages).
+# Build muxcored and tag/push to an OCI registry (LAN registry by default; GHCR optional).
 #
 # Prerequisites:
 #   - podman or docker on PATH (CONTAINER_RUNTIME overrides)
-#   - For push: login to the registry (Forgejo package token, or insecure local registry)
+#   - For push: a reachable registry (LAN: ../local-registry.sh start; GHCR: login with a
+#     token that has write:packages, e.g. `gh auth token | podman login ghcr.io -u <user> --password-stdin`)
 #
 # Usage:
 #   ./scripts/publish-muxcored-local.sh                 # tag from core HEAD / v0.5.7
 #   ./scripts/publish-muxcored-local.sh v0.5.7
 #   BUILD_ONLY=1 ./scripts/publish-muxcored-local.sh v0.5.7   # build+tag, skip push
-#   MUXCORE_REGISTRY=git.zem.systems/muxcore ./scripts/publish-muxcored-local.sh v0.5.7
-#   MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-muxcored-local.sh v0.5.7
+#   MUXCORE_REGISTRY=ghcr.io/muxcore-media ./scripts/publish-muxcored-local.sh v0.5.7
 #
 # Defaults:
-#   MUXCORE_REGISTRY=git.zem.systems/muxcore   (Forgejo org packages)
-#   LAN registry: set MUXCORE_REGISTRY=localhost:5000/muxcore (see ../local-registry.sh)
+#   MUXCORE_REGISTRY=localhost:5000/muxcore   (LAN registry; see ../local-registry.sh)
+#   GHCR (optional, needs write:packages): MUXCORE_REGISTRY=ghcr.io/muxcore-media
 #
 # Compose consumers pull via docker-compose.registry.yml:
 #   export MUXCORE_REGISTRY=… MUXCORE_IMAGE_TAG=v0.5.7
@@ -22,16 +22,16 @@
 #
 # Docker equivalent (when podman is absent):
 #   docker build --build-arg VERSION=0.5.7 -t localhost/muxcored:v0.5.7 -f ../core/Dockerfile ../core
-#   docker tag localhost/muxcored:v0.5.7 ${MUXCORE_REGISTRY:-git.zem.systems/muxcore}/muxcored:v0.5.7
-#   docker push ${MUXCORE_REGISTRY:-git.zem.systems/muxcore}/muxcored:v0.5.7
+#   docker tag localhost/muxcored:v0.5.7 ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/muxcored:v0.5.7
+#   docker push ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/muxcored:v0.5.7
 set -euo pipefail
 
 TAG="${1:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CORE_DIR="${MUXCORE_CORE_DIR:-$ROOT/../core}"
 BUILD_ONLY="${BUILD_ONLY:-0}"
-# Forgejo org packages by default; override for LAN (localhost:5000/muxcore).
-REGISTRY="${MUXCORE_REGISTRY:-git.zem.systems/muxcore}"
+# LAN registry by default; set MUXCORE_REGISTRY=ghcr.io/muxcore-media for GHCR.
+REGISTRY="${MUXCORE_REGISTRY:-localhost:5000/muxcore}"
 
 die() {
   echo "FAIL: $*" >&2
@@ -114,12 +114,13 @@ if ! "$RUNTIME" push "$REMOTE"; then
 
 Push failed for $REMOTE.
 
-Forgejo: create a package/write token for org muxcore, then:
-  echo \$TOKEN | $RUNTIME login git.zem.systems -u <user> --password-stdin
-
 LAN: start a local registry and retry with MUXCORE_REGISTRY=localhost:5000/muxcore
   ${ROOT}/local-registry.sh start
   MUXCORE_REGISTRY=localhost:5000/muxcore $0 ${TAG}
+
+GHCR: needs a token with write:packages (gh auth refresh -s write:packages), then:
+  gh auth token | $RUNTIME login ghcr.io -u <user> --password-stdin
+  MUXCORE_REGISTRY=ghcr.io/muxcore-media $0 ${TAG}
 
 Or build/tag only:
   BUILD_ONLY=1 MUXCORE_REGISTRY=${REGISTRY} $0 ${TAG}

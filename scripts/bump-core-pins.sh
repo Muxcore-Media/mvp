@@ -60,7 +60,6 @@ fi
 
 sync_tag_files=(
   "$ROOT/docker-compose.registry.yml"
-  "$ROOT/docker-compose.ghcr.yml"
   "$ROOT/README.md"
   "$ROOT/docs/PUBLIC-INSTALL.md"
   "$ROOT/scripts/publish-module-images.sh"

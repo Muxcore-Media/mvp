@@ -7,12 +7,19 @@
 #
 # Requires: go, git, jq. Builds each module at the pinned version and writes
 # "checksum": "sha256:..." into the tag JSON (in place).
+#
+# Modules not checked out in the workspace are cloned from
+# https://github.com/Muxcore-Media/<repo>. The repos are private: run
+# `gh auth setup-git` once (uses your gh login or GH_TOKEN) so git and go can
+# fetch over HTTPS. Never embed tokens in URLs or this script.
 set -euo pipefail
 
 TAG_FILE="${1:-}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ALL_MODULES="${ALL_MODULES:-0}"
 GO="${GO:-go}"
+# Fail fast instead of prompting for credentials on private repos.
+export GIT_TERMINAL_PROMPT="${GIT_TERMINAL_PROMPT:-0}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -46,8 +53,6 @@ build_checksum() {
   local target bin sum
   bin="$TMP/${name}-$$"
 
-  git config --global url."https://git.zem.systems/muxcore/".insteadOf "https://github.com/Muxcore-Media/" >/dev/null 2>&1 || true
-
   try_build() {
     local dir="$1"
     target="$(module_build_target "$dir")"
@@ -74,7 +79,7 @@ build_checksum() {
     (cd "$dir" && "$GO" mod edit "${args[@]}") >/dev/null 2>&1 || true
   }
 
-  local origin="https://git.zem.systems/muxcore/${name}.git"
+  local origin="https://github.com/Muxcore-Media/${name}.git"
   local cloned=0
   local clone_label=""
 
@@ -91,14 +96,14 @@ build_checksum() {
 
   if [[ ! -f "$bin" ]]; then
     if [[ "$version" =~ ^[0-9a-fA-F]{40}$ ]]; then
-      if git -c credential.helper= clone --depth 1 "$origin" "$build_dir" >/dev/null 2>&1 \
+      if git clone --depth 1 "$origin" "$build_dir" >/dev/null 2>&1 \
         && git -C "$build_dir" fetch --depth 1 origin "$version" >/dev/null 2>&1 \
         && git -C "$build_dir" checkout "$version" >/dev/null 2>&1; then
         cloned=1
         clone_label="$version"
       fi
-    elif git -c credential.helper= clone --depth 1 --branch "$version" "$origin" "$build_dir" >/dev/null 2>&1 \
-      || git -c credential.helper= clone --depth 1 --branch "${version#v}" "$origin" "$build_dir" >/dev/null 2>&1; then
+    elif git clone --depth 1 --branch "$version" "$origin" "$build_dir" >/dev/null 2>&1 \
+      || git clone --depth 1 --branch "${version#v}" "$origin" "$build_dir" >/dev/null 2>&1; then
       cloned=1
       clone_label="$version"
     fi

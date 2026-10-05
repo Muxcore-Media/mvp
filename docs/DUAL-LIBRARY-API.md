@@ -48,4 +48,4 @@ Until that lands, **do not** assume one proto replaces the other — both are pr
 ## Related
 
 - [`MASTER-ROADMAP.md`](../MASTER-ROADMAP.md) §1 platform engineering
-- [`AGENT-MODULE-AUDIT-2026-08-21.md`](../AGENT-MODULE-AUDIT-2026-08-21.md) — audit item #17
+- [Agent/module audit 2026-08-21](https://github.com/Muxcore-Media/umbrella/blob/main/docs/history/AGENT-MODULE-AUDIT-2026-08-21.md) (historical, umbrella) — audit item #17

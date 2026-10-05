@@ -1,4 +1,4 @@
-# Release builds (Forgejo CI / registry images)
+# Release builds (GitHub Actions CI / registry images)
 
 Monorepo development uses `replace => ../sibling` in `_mvp/go.mod` and many module `go.mod` files. **Release branches and OCI images must not.**
 
@@ -18,12 +18,12 @@ Monorepo development uses `replace => ../sibling` in `_mvp/go.mod` and many modu
 4. `./scripts/publish-module-images.sh vX.Y.Z` — module list from `household-manifest.yaml`.
 5. `./scripts/check-household-manifest.sh` — registry compose ↔ manifest parity.
 
-## Forgejo runner without monorepo layout
+## GitHub Actions without monorepo layout
 
-CI jobs that build a **single module repo** must:
+CI jobs (GitHub-hosted `ubuntu-latest`) that build a **single module repo** must:
 
 - `go mod download` against tagged deps (no sibling paths).
-- Use `GOPRIVATE=github.com/Muxcore-Media/*` and Forgejo token for private modules.
+- Use `GOPRIVATE=github.com/Muxcore-Media/*` and the `MUXCORE_CI_TOKEN` repo secret (applied as a `url.insteadOf` rewrite in the job) for private modules. Locally use `gh auth setup-git` / `GH_TOKEN`; never embed tokens.
 - For contract stubs: `require github.com/Muxcore-Media/contracts-scanner v0.1.0` (not implementer module paths).
 
 ## Anti-patterns

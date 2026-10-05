@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
         - name: metadata-tmdb
-          image: git.zem.systems/muxcore/metadata-tmdb:v0.5.7
+          image: localhost:5000/muxcore/metadata-tmdb:v0.5.7
           env:
             - { name: MUXCORE_GRPC_ADDR, value: muxcored:9090 }
             - { name: MUXCORE_MODULE_ID, value: metadata-tmdb }
@@ -61,7 +61,7 @@ spec:
     spec:
       containers:
         - name: media-movies
-          image: git.zem.systems/muxcore/media-movies:v0.5.7
+          image: localhost:5000/muxcore/media-movies:v0.5.7
           env:
             - { name: MUXCORE_GRPC_ADDR, value: muxcored:9090 }
             - { name: MUXCORE_MODULE_ID, value: media-movies }
@@ -100,7 +100,7 @@ spec:
     spec:
       containers:
         - name: media-tvshows
-          image: git.zem.systems/muxcore/media-tvshows:v0.5.7
+          image: localhost:5000/muxcore/media-tvshows:v0.5.7
           env:
             - { name: MUXCORE_GRPC_ADDR, value: muxcored:9090 }
             - { name: MUXCORE_MODULE_ID, value: media-tvshows }
@@ -139,7 +139,7 @@ spec:
     spec:
       containers:
         - name: request-media
-          image: git.zem.systems/muxcore/request-media:v0.5.7
+          image: localhost:5000/muxcore/request-media:v0.5.7
           env:
             - { name: MUXCORE_GRPC_ADDR, value: muxcored:9090 }
             - { name: MUXCORE_MODULE_ID, value: request-media }
@@ -178,7 +178,7 @@ spec:
     spec:
       containers:
         - name: media-automation
-          image: git.zem.systems/muxcore/media-automation:v0.5.7
+          image: localhost:5000/muxcore/media-automation:v0.5.7
           env:
             - { name: MUXCORE_GRPC_ADDR, value: muxcored:9090 }
             - { name: MUXCORE_MODULE_ID, value: media-automation }
@@ -215,7 +215,7 @@ spec:
     spec:
       containers:
         - name: media-scanner
-          image: git.zem.systems/muxcore/media-scanner:v0.5.7
+          image: localhost:5000/muxcore/media-scanner:v0.5.7
           env:
             - { name: MUXCORE_GRPC_ADDR, value: muxcored:9090 }
             - { name: MUXCORE_MODULE_ID, value: media-scanner }
@@ -252,7 +252,7 @@ spec:
     spec:
       containers:
         - name: media-ui
-          image: git.zem.systems/muxcore/media-ui:v0.5.7
+          image: localhost:5000/muxcore/media-ui:v0.5.7
           env:
             - { name: MUXCORE_INSECURE_DISABLE_TLS, value: "true" }
             - { name: AUTH_HTTP_URL, value: "http://auth-local:9401" }

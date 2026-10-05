@@ -215,7 +215,7 @@ Then `./run-host.sh restart indexer-piratebay downloader-native-torrent`.
 
 ## Vault soak (desk → vault)
 
-Origin-pinned acquisition modules on the homelab vault MVP use Forgejo `main` pins — do not scp ad-hoc binaries.
+Origin-pinned acquisition modules on the homelab vault MVP use GitHub `main` pins (`install-origin-module.sh`) — do not scp ad-hoc binaries.
 
 ```bash
 # From umbrella workspace (desk/thin)

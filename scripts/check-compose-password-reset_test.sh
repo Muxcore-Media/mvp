@@ -8,7 +8,6 @@ reset_path='/data/media-ui/password-resets.json'
 compose_files=(
   docker-compose.yml
   docker-compose.registry.yml
-  docker-compose.ghcr.yml
 )
 
 for file in "${compose_files[@]}"; do

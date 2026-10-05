@@ -7,7 +7,7 @@ MuxCore **MVP household stack** — local `run-host.sh`, registry compose, smoke
 | Artifact | Role |
 |----------|------|
 | `run-host.sh` | Primary dev/soak launcher (sibling module binaries under `bin/`) |
-| `docker-compose.registry.yml` | Origin/household install from Forgejo or LAN OCI registry |
+| `docker-compose.registry.yml` | Household install from an OCI registry (`MUXCORE_REGISTRY`, default LAN `localhost:5000/muxcore`; GHCR `ghcr.io/muxcore-media` once published) |
 | `docker-compose.yml` | Reference compose over sibling clones (dev) |
 | `household-manifest.yaml` | Canonical required/recommended module set + `core_tag` pin |
 | `smoke.sh` | Fixture acquisition gate — must PASS before “deployable” claims |
@@ -26,8 +26,9 @@ cd _mvp
 ./smoke.sh                # fixture gate (DOWNLOADER_ENGINE=fixture)
 ./scripts/check-household-manifest.sh
 
-# Origin install (see docs/PUBLIC-INSTALL.md)
-export MUXCORE_REGISTRY=git.zem.systems/muxcore MUXCORE_IMAGE_TAG=v0.5.7
+# Registry install (see docs/PUBLIC-INSTALL.md)
+./local-registry.sh start
+export MUXCORE_REGISTRY=localhost:5000/muxcore MUXCORE_IMAGE_TAG=v0.5.7
 docker compose -f docker-compose.registry.yml up -d
 
 # Vault deploy (from workspace root)
@@ -47,6 +48,8 @@ docker compose -f docker-compose.registry.yml up -d
 
 ```bash
 cd _mvp
-nix-shell -p go --run 'go test ./...'
+nix-shell -p go --run 'go test ./...'   # or plain `go test ./...` with mise
 ./scripts/run-script-tests.sh
 ```
+
+Source, issues, and CI live on GitHub (`github.com/Muxcore-Media/mvp`). CI runs on GitHub-hosted runners: `.github/workflows/ci.yml` (generated from the umbrella template by `scripts/sync-ci.sh`) and `.github/workflows/script-tests.yml`. Private modules: `gh auth setup-git` locally; `MUXCORE_CI_TOKEN` in CI.

@@ -25,12 +25,12 @@ Operator references in this repo: [`PORTS.md`](PORTS.md) (default gRPC/HTTP port
 - Org repos cloned as siblings (same layout as this workspace)
 - Dev default: `MUXCORE_INSECURE_DISABLE_TLS=true` via `./run-host.sh`. Staging mTLS: `./run-host-staging.sh` (see [`tls/MTLS-STAGING.md`](tls/MTLS-STAGING.md)).
 
-## Non-developer install (Forgejo / LAN registry)
+## Non-developer install (registry compose)
 
-**Primary non-dev path:** [`docker-compose.registry.yml`](docker-compose.registry.yml) pulls prebuilt images from `${MUXCORE_REGISTRY}` (default `localhost:5000/muxcore`, or `git.zem.systems/muxcore`). No sibling Go builds; no GHCR `write:packages`. Step-by-step: [`docs/PUBLIC-INSTALL.md`](docs/PUBLIC-INSTALL.md).
+**Primary non-dev path:** [`docker-compose.registry.yml`](docker-compose.registry.yml) pulls prebuilt images from `${MUXCORE_REGISTRY}` (default LAN registry `localhost:5000/muxcore`; `ghcr.io/muxcore-media` once images are published there). No sibling Go builds; no GHCR `write:packages`. Step-by-step: [`docs/PUBLIC-INSTALL.md`](docs/PUBLIC-INSTALL.md).
 
 ```bash
-export MUXCORE_REGISTRY=localhost:5000/muxcore   # or git.zem.systems/muxcore
+export MUXCORE_REGISTRY=localhost:5000/muxcore   # or ghcr.io/muxcore-media once published
 export MUXCORE_IMAGE_TAG=v0.5.7
 export DOWNLOADER_ENGINE=fixture
 docker compose -f docker-compose.registry.yml pull
@@ -41,12 +41,11 @@ docker compose -f docker-compose.registry.yml up -d
 Publish `muxcored` (podman or docker):
 
 ```bash
-./scripts/publish-muxcored-local.sh v0.5.7
-# or: MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-muxcored-local.sh v0.5.7
-# LAN helper: ./local-registry.sh start
+./local-registry.sh start                   # LAN registry on localhost:5000
+./scripts/publish-muxcored-local.sh v0.5.7  # MUXCORE_REGISTRY defaults to localhost:5000/muxcore
 ```
 
-Default compose (`docker compose up --build`) and `./run-host.sh` remain the developer paths. [`docker-compose.ghcr.yml`](docker-compose.ghcr.yml) / `publish-muxcored-ghcr.sh` are a **future public GHCR mirror** when packages write exists.
+Default compose (`docker compose up --build`) and `./run-host.sh` remain the developer paths. GHCR uses the same registry compose with `MUXCORE_REGISTRY=ghcr.io/muxcore-media`; publishing there (`publish-muxcored-ghcr.sh`) is blocked until a `write:packages` token exists.
 
 ## Kubernetes (Phase 3 scaffold)
 
@@ -58,7 +57,7 @@ kubectl apply -k deploy/kustomize/overlays/dev
 helm upgrade --install muxcore deploy/helm/muxcore -n muxcore --create-namespace
 ```
 
-Images default to `git.zem.systems/muxcore/*` at `household-manifest.yaml` `core_tag` (currently **v0.5.7**), matching Helm. GHCR (`docker-compose.ghcr.yml`) is optional. Host `./run-host.sh` remains the verified operator path.
+Images default to the LAN registry `localhost:5000/muxcore/*` at `household-manifest.yaml` `core_tag` (currently **v0.5.7**), matching Helm. GHCR (`ghcr.io/muxcore-media`) is optional once published. Host `./run-host.sh` remains the verified operator path.
 
 ## Quick start
 
