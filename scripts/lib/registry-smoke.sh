@@ -362,6 +362,59 @@ registry_smoke_cmd_mediarequest() {
   echo "OK request-media via media-ui (registry curl)"
 }
 
+# registry_smoke_backupctl_args <cmd> [flags] — translate cmd/backupctl flags into
+# "<Method>\t<json>" for BackupService (no reflection: grpcurl uses the vendored
+# proto/muxcore/backup/v1/backup.proto, a copy of backup-local's).
+registry_smoke_backupctl_args() {
+  local cmd="${1:-}"
+  shift || true
+  local id="" target="" restore_test=false
+  local -a sources=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -id) id="${2:-}"; shift 2 ;;
+      -target) target="${2:-}"; shift 2 ;;
+      -restore-test) restore_test=true; shift ;;
+      -source) sources+=("${2:-}"); shift 2 ;;
+      *) echo "backupctl: unknown flag $1" >&2; return 2 ;;
+    esac
+  done
+  case "$cmd" in
+    create) printf 'CreateBackup\t%s\n' "$(jq -cn '{source_paths: $ARGS.positional}' --args "${sources[@]}")" ;;
+    verify)
+      [[ -n "$id" ]] || { echo "backupctl: verify: -id is required" >&2; return 2; }
+      printf 'VerifyBackup\t%s\n' "$(jq -cn --arg id "$id" --argjson rt "$restore_test" '{backup_id: $id, restore_test: $rt}')" ;;
+    restore)
+      [[ -n "$id" && -n "$target" ]] || { echo "backupctl: restore: -id and -target are required" >&2; return 2; }
+      printf 'RestoreBackup\t%s\n' "$(jq -cn --arg id "$id" --arg t "$target" '{backup_id: $id, target_path: $t}')" ;;
+    list) printf 'ListBackups\t{}\n' ;;
+    *) echo "backupctl: unknown command ${cmd:-<none>}" >&2; return 2 ;;
+  esac
+}
+
+# registry_smoke_cmd_backupctl [-addr host:port] <create|verify|restore|list> [flags]
+# Same CLI and JSON output shape as cmd/backupctl, via containerized grpcurl on
+# the compose network (backup-local:9302 by default).
+registry_smoke_cmd_backupctl() {
+  local addr="${BACKUP_GRPC_CLIENT_ADDR:-backup-local:9302}"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -addr) addr="$2"; shift 2 ;;
+      -timeout) shift 2 ;;
+      *) break ;;
+    esac
+  done
+  local spec method data
+  spec="$(registry_smoke_backupctl_args "$@")" || return $?
+  method="${spec%%$'\t'*}"
+  data="${spec#*$'\t'}"
+  registry_smoke_cli run --rm --network "$(registry_smoke_network)" \
+    -v "${registry_smoke_root}/proto:/proto:ro" \
+    "$REGISTRY_SMOKE_GRPCURL_IMAGE" \
+    -plaintext -max-time 600 -import-path /proto -proto muxcore/backup/v1/backup.proto \
+    -d "$data" "$addr" "muxcore.backup.v1.BackupService/${method}"
+}
+
 registry_smoke_cmd() {
   local cmd="$1"
   shift
@@ -378,6 +431,7 @@ registry_smoke_cmd() {
     jellyfinlink) registry_smoke_cmd_jellyfinlink "$@" ;;
     jellyfinlive) registry_smoke_cmd_jellyfinlive "$@" ;;
     mediarequest) registry_smoke_cmd_mediarequest "$@" ;;
+    backupctl) registry_smoke_cmd_backupctl "$@" ;;
     authctl)
       echo "OK authctl skipped (AUTH_BOOTSTRAP_* in registry compose)"
       ;;

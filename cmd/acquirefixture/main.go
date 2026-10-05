@@ -438,7 +438,6 @@ func (a *acquirer) findHistory(ctx context.Context, downloadID, guid string) (*a
 // is either new since before the dispatch or carries the release name.
 func (a *acquirer) waitHasFile(ctx context.Context, movieID, release string, before map[string]bool) (string, error) {
 	deadline := time.Now().Add(a.cfg.fileTimeout)
-	want := strings.ToLower(release)
 	last := ""
 	for {
 		cctx, cancel := a.rpcCtx(ctx)
@@ -460,7 +459,7 @@ func (a *acquirer) waitHasFile(ctx context.Context, movieID, release string, bef
 			paths := make([]string, 0, len(files.GetFiles()))
 			for _, f := range files.GetFiles() {
 				p := f.GetFilePath()
-				if !before[f.GetId()] || strings.Contains(strings.ToLower(p), want) {
+				if !before[f.GetId()] || releaseMatches(p, release) {
 					return p, nil
 				}
 				paths = append(paths, p)
@@ -474,6 +473,34 @@ func (a *acquirer) waitHasFile(ctx context.Context, movieID, release string, bef
 			return "", err
 		}
 	}
+}
+
+// releaseMatches reports whether path names the release, ignoring case and
+// punctuation: media-rename turns "Fight.Club.1999.720p.WEB-DL" into
+// "Fight Club (1999) [720p.WEB-DL].mkv". Re-importing a release whose file is
+// already in the library (a re-run, or smoke after a restore) keeps the same
+// file id, so the name is the only evidence there.
+func releaseMatches(path, release string) bool {
+	want := releaseTokens(release)
+	if len(want) == 0 {
+		return false
+	}
+	have := map[string]bool{}
+	for _, t := range releaseTokens(path) {
+		have[t] = true
+	}
+	for _, t := range want {
+		if !have[t] {
+			return false
+		}
+	}
+	return true
+}
+
+func releaseTokens(s string) []string {
+	return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	})
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {

@@ -43,7 +43,7 @@ sudo setfacl -R -m g:mediacontent:rwx,d:g:mediacontent:rwx /mnt/mass-storage/med
 
 Prefer backing up MuxCore state under `mvp/data/` (sqlite / module DBs) and finished library trees (`movies`, `shows`) only. If you must snapshot torrents, stage a filtered copy first or pass narrow `source_paths` that omit `.incomplete` and `*.parts`.
 
-**Enable in MVP:** `MVP_ENABLE_BACKUP_LOCAL=1` in `.env` for `run-host.sh`, or `docker compose --profile backup-local up -d` (registry: `docker compose -f docker-compose.registry.yml --profile backup-local up -d`). Point `BACKUP_SOURCE_DIRS` at household state only — defaults in `.env.example` cover `auth-local`, `database-sqlite`, and `userdata-local` data paths; see excludes above before widening.
+**Enable in MVP:** `MVP_ENABLE_BACKUP_LOCAL=1` in `.env` for `run-host.sh`, or `docker compose --profile backup-local up -d` (registry: `docker compose -f docker-compose.registry.yml --profile backup-local up -d`). `run-host.sh` defaults `BACKUP_SOURCE_DIRS` to the backed-up `state:` host dirs from `household-manifest.yaml` (household state only: no library media, downloads or key material); compose mounts the same state volumes under `/source/<module-id>`. See excludes above before widening, and [`RESTORE.md`](RESTORE.md) for restore.
 
 Scanner already ignores non-video extensions (so `*.parts` / `.incomplete` are not imported as media).
 
