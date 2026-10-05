@@ -382,7 +382,7 @@ Household browsers save a title via Cache API (`media-ui-app` `/offline`). Playb
 
 ## Request policy (Seerr-style quotas)
 
-Proxied to request-media `GET|PUT /api/request-policy`. The BFF forwards `X-Caller-Id` (session user id) and `X-MuxCore-User`. `PUT` requires an approve role. HTTP 429 `{ "code": "request.quota" }` when a household member exceeds pending or weekly limits.
+Proxied to request-media `GET|PUT /api/request-policy`. The BFF forwards the signed-in user's auth-local bearer and `X-Caller-Id` (session user id; compatibility, one release). Client identity headers are stripped (ADR-0019). `PUT` requires an approve role. HTTP 429 `{ "code": "request.quota" }` when a household member exceeds pending or weekly limits.
 
 ## Watchlist & collections
 
@@ -521,10 +521,20 @@ All `/api/playback/*` routes return JSON errors `{ "error", "code" }` on upstrea
 
 - `GET /login` — redirect to `AUTH_HTTP_URL/login?redirect=…`
 - `GET /auth/callback?code=` — exchange OAuth-style code for `session` cookie
-- `GET /logout` — clear session
+- `GET /logout` — confirm page only; it does **not** end the session (a cross-site link cannot log users out)
+- `POST /logout` — revoke the session (cookie and/or bearer), clear the cookie, `303` to `/login` (`{"logged_out":true}` with `Accept: application/json`)
 - `GET /api/session` · `GET /api/me` — current household identity (`user_id`, `username`, `roles`, optional `tenant_id`). Session required. Also sets `X-MuxCore-User-Id`. Used by media-ui `refreshCurrentUserId` for PIN salt.
 
 Set `MEDIA_UI_PUBLIC_URL` and `MEDIA_UI_TRUSTED_PROXIES` (dawn/dusk `/128` CIDRs) when behind edge nginx so Secure cookies and callback origins match `https://mux.zem.systems`.
+
+Sessions persist across BFF restarts (NFR-REL-003) in `MEDIA_UI_USERDATA_DIR/sessions.json` (0600). Entries are keyed by SHA-256 of the session token; the user's auth-local token is AES-256-GCM sealed with `MEDIA_UI_SESSION_KEY` or a generated `session.key` (0600) in the same dir. Without `MEDIA_UI_USERDATA_DIR`, sessions are memory-only.
+
+### Browser security (NFR-SEC-004, NFR-SEC-006)
+
+- **CSRF:** `POST`/`PUT`/`PATCH`/`DELETE` must send an `Origin` (fallback `Referer`) equal to `MEDIA_UI_PUBLIC_URL` or an entry of `MEDIA_UI_ALLOWED_ORIGINS` (comma-separated); when neither is set, the request's own origin (Host, or `X-Forwarded-Host` from a trusted proxy) is used. A cookie-authenticated request with neither header is rejected. Non-browser clients that authenticate with `Authorization: Bearer <session>` (or `X-MuxCore-Session`) and send **no** `session` cookie are exempt. Rejections are `403 {"code":"csrf.rejected"}`. The `session` cookie is `HttpOnly`, `SameSite=Lax`, and `Secure` on https origins.
+- **Headers:** every response sets `Content-Security-Policy` (`script-src 'self'`; TMDB/remote https images, YouTube trailer frames, same-origin reader iframes; override with `MEDIA_UI_CSP`), `X-Frame-Options: SAMEORIGIN` (the book/comic readers iframe `/stream/`), `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`.
+- **Timeouts:** `ReadHeaderTimeout` 10s, `ReadTimeout`/`WriteTimeout` 2m, `IdleTimeout` 2m. `/stream/*`, `/api/sessions/events` and `/api/debrid/stream` clear the read/write deadlines per request.
+- **Identity to modules (ADR-0019):** proxied requests never carry the client's `Cookie`, `Authorization`, `X-Caller-Id`, `X-MuxCore-*`, `X-Tenant-ID`, `X-Auth-Claims-Tenant`, `X-User-ID` or `X-Auth-Token`. request-media gets `Authorization: Bearer <auth-local token>` and, for one release, `X-Caller-Id=<user id>`; userdata-local and the Jellyfin push get the bearer plus `X-MuxCore-User-Id`.
 
 ## Route inventory
 
@@ -544,7 +554,8 @@ Every route registered by `registerRoutes` in `cmd/mediauiprox/main.go` (plus `r
 | `ANY /images/music/` | Reverse proxy to music images |
 | `ANY /images/tv/` | Reverse proxy to TV images (media-tvshows) |
 | `ANY /login` | Start login (redirect to auth-local) |
-| `ANY /logout` | End session |
+| `GET /logout` | Sign-out confirm page (form that POSTs to `/logout`) |
+| `POST /logout` | End session (CSRF-checked) |
 | `GET /stream/audiobooks/` | Audiobook stream |
 | `GET /stream/books/` | Book stream |
 | `GET /stream/comics/` | Comic issue stream |

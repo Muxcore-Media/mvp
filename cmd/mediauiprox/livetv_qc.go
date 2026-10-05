@@ -322,24 +322,6 @@ func (q *quickConnectStore) save(m map[string]qcEntry) error {
 	return os.Rename(tmp, q.path)
 }
 
-func (s *sessionStore) Lookup(tok string) (userID, username string, ok bool) {
-	userID, username, _, ok = s.LookupTenant(tok)
-	return userID, username, ok
-}
-
-func (s *sessionStore) LookupTenant(tok string) (userID, username, tenantID string, ok bool) {
-	if tok == "" {
-		return "", "", "", false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	e, ok := s.byID[tok]
-	if !ok || time.Now().After(e.expiry) {
-		return "", "", "", false
-	}
-	return e.userID, e.username, e.tenantID, true
-}
-
 func (s *server) handleQuickConnect(w http.ResponseWriter, r *http.Request) {
 	if s.quickconnect == nil {
 		writeAPIError(w, http.StatusServiceUnavailable, "quick connect disabled", "quickconnect.disabled")

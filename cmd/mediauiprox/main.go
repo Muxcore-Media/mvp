@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -18,7 +16,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	backupv1 "github.com/Muxcore-Media/backup-local/muxcore/backup/v1"
@@ -386,10 +383,12 @@ func main() {
 		authHTTP:             authPublic,
 		authInternal:         authInt,
 		publicURL:            strings.TrimRight(*publicURL, "/"),
+		allowedOrigins:       parseAllowedOrigins(*publicURL, os.Getenv("MEDIA_UI_ALLOWED_ORIGINS")),
+		csp:                  buildContentSecurityPolicy(authPublic),
 		trustedProxies:       trustedProxiesFromEnv(),
 		dist:                 *dist,
 		requireAuth:          *requireAuth,
-		sessions:             newSessionStore(24 * time.Hour),
+		sessions:             newSessionStoreForDir(*userdataDir, defaultSessionTTL),
 		userdata:             newServerUserdata(*userdataDir),
 		livetv:               newLiveTVStore(*livetvFile, *userdataDir),
 		libraryPaths:         newLibraryPathsStore(*libraryPathsFile, *userdataDir),
@@ -406,10 +405,11 @@ func main() {
 	if s.requireAuth {
 		handler = s.withAuth(mux)
 	}
+	handler = s.hardenHandler(handler)
 
 	log.Printf("media-ui proxy listening on %s (dist=%s auth=%v auth_http=%s auth_internal=%s public=%s)",
 		*listen, *dist, *requireAuth, s.authHTTP, s.authInternal, s.publicURL)
-	if err := http.ListenAndServe(*listen, handler); err != nil {
+	if err := newHTTPServer(*listen, handler).ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -430,7 +430,8 @@ func (s *server) registerRoutes(mux routeRegistrar) {
 	})
 	mux.HandleFunc("/login", s.handleLogin)
 	mux.HandleFunc("/auth/callback", s.handleAuthCallback)
-	mux.HandleFunc("/logout", s.handleLogout)
+	mux.HandleFunc("GET /logout", s.handleLogoutConfirm)
+	mux.HandleFunc("POST /logout", s.handleLogout)
 
 	mux.HandleFunc("GET /api/capabilities", s.handleCapabilities)
 	mux.HandleFunc("GET /api/roots", s.handleListRoots)
@@ -731,77 +732,6 @@ func (s *server) registerRoutes(mux routeRegistrar) {
 	mux.HandleFunc("/", s.spa)
 }
 
-type sessionStore struct {
-	mu   sync.Mutex
-	ttl  time.Duration
-	byID map[string]sessionEntry
-}
-
-type sessionEntry struct {
-	userID    string
-	username  string
-	tenantID  string
-	authToken string
-	roles     []string
-	expiry    time.Time
-}
-
-func newSessionStore(ttl time.Duration) *sessionStore {
-	return &sessionStore{ttl: ttl, byID: make(map[string]sessionEntry)}
-}
-
-func (s *sessionStore) Create(userID, username string) (string, error) {
-	return s.CreateWithRoles(userID, username, "", nil)
-}
-
-func (s *sessionStore) CreateWithTenant(userID, username, tenantID string) (string, error) {
-	return s.CreateWithRoles(userID, username, tenantID, nil)
-}
-
-func (s *sessionStore) CreateWithRoles(userID, username, tenantID string, roles []string) (string, error) {
-	return s.CreateWithAuth(userID, username, tenantID, roles, "")
-}
-
-func (s *sessionStore) CreateWithAuth(userID, username, tenantID string, roles []string, authToken string) (string, error) {
-	var b [32]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
-	}
-	tok := hex.EncodeToString(b[:])
-	s.mu.Lock()
-	s.byID[tok] = sessionEntry{
-		userID: userID, username: username, tenantID: strings.TrimSpace(tenantID),
-		authToken: strings.TrimSpace(authToken),
-		roles:     append([]string(nil), roles...),
-		expiry:    time.Now().Add(s.ttl),
-	}
-	s.mu.Unlock()
-	return tok, nil
-}
-
-func (s *sessionStore) Valid(tok string) bool {
-	if tok == "" {
-		return false
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	e, ok := s.byID[tok]
-	if !ok {
-		return false
-	}
-	if time.Now().After(e.expiry) {
-		delete(s.byID, tok)
-		return false
-	}
-	return true
-}
-
-func (s *sessionStore) Delete(tok string) {
-	s.mu.Lock()
-	delete(s.byID, tok)
-	s.mu.Unlock()
-}
-
 type server struct {
 	movies               mgmntv1.MovieManagementServiceClient
 	moviesAdmin          mediaadminv1.MediaAdminServiceClient
@@ -845,9 +775,11 @@ type server struct {
 	formats              formatsv1.FormatServiceClient
 	roots                rootsv1.RootFolderServiceClient
 	rename               renamev1.RenameServiceClient
-	authHTTP             string // browser redirects
-	authInternal         string // server-side code exchange
-	publicURL            string // optional fixed public origin
+	authHTTP             string   // browser redirects
+	authInternal         string   // server-side code exchange
+	publicURL            string   // optional fixed public origin
+	allowedOrigins       []string // CSRF allow-list (normalized); empty = request's own origin
+	csp                  string
 	trustedProxies       []net.IPNet
 	dist                 string
 	requireAuth          bool
@@ -954,17 +886,9 @@ func (s *server) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 		Secure:   strings.HasPrefix(origin, "https://"),
 		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int((24 * time.Hour).Seconds()),
+		MaxAge:   int(defaultSessionTTL.Seconds()),
 	})
 	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie("session"); err == nil {
-		s.sessions.Delete(c.Value)
-	}
-	http.SetCookie(w, &http.Cookie{Name: "session", Value: "", Path: "/", MaxAge: -1})
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
 func (s *server) publicOrigin(r *http.Request) string {
@@ -1332,6 +1256,13 @@ func reverseProxy(target *url.URL) http.Handler {
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
 			pr.Out.Host = target.Host
+			// ADR-0019: the BFF session cookie/bearer and client identity
+			// headers never reach modules.
+			for k := range pr.Out.Header {
+				if isClientIdentityHeader(k) {
+					pr.Out.Header.Del(k)
+				}
+			}
 		},
 	}
 	p.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {

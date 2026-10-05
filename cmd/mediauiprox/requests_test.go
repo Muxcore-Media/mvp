@@ -104,13 +104,13 @@ func TestProxyRequestMedia_ForwardsQueryAndPath(t *testing.T) {
 	}
 }
 
-func TestProxyRequestMedia_ForwardsApproveWithSessionRoles(t *testing.T) {
-	var gotPath, gotUser, gotRoles, gotMethod string
+func TestProxyRequestMedia_ForwardsApproveWithSessionBearer(t *testing.T) {
+	var gotPath, gotCaller, gotAuth, gotMethod string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotMethod = r.Method
-		gotUser = r.Header.Get("X-MuxCore-User")
-		gotRoles = r.Header.Get("X-MuxCore-Roles")
+		gotCaller = r.Header.Get("X-Caller-Id")
+		gotAuth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"requested"}`))
 	}))
@@ -121,7 +121,7 @@ func TestProxyRequestMedia_ForwardsApproveWithSessionRoles(t *testing.T) {
 		t.Fatal(err)
 	}
 	sessions := newSessionStore(time.Hour)
-	tok, err := sessions.CreateWithRoles("admin-1", "admin", "", []string{"admin"})
+	tok, err := sessions.CreateWithAuth("admin-1", "admin", "", []string{"admin"}, "auth-local-admin")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,8 +136,8 @@ func TestProxyRequestMedia_ForwardsApproveWithSessionRoles(t *testing.T) {
 	if gotMethod != http.MethodPost || gotPath != "/api/requests/req-1/approve" {
 		t.Fatalf("upstream %s %s", gotMethod, gotPath)
 	}
-	if gotUser != "admin" || gotRoles != "admin" {
-		t.Fatalf("user=%q roles=%q", gotUser, gotRoles)
+	if gotCaller != "admin-1" || gotAuth != "Bearer auth-local-admin" {
+		t.Fatalf("caller=%q auth=%q", gotCaller, gotAuth)
 	}
 }
 
@@ -171,7 +171,106 @@ func TestProxyRequestMedia_ForwardsCallerIDAndPolicyPath(t *testing.T) {
 	if gotPath != "/api/request-policy" {
 		t.Fatalf("path %q", gotPath)
 	}
-	if gotCaller != "alice-id" || gotUser != "alice" {
-		t.Fatalf("caller=%q user=%q", gotCaller, gotUser)
+	if gotCaller != "alice-id" || gotUser != "" {
+		t.Fatalf("caller=%q user=%q (X-MuxCore-* must not be forwarded)", gotCaller, gotUser)
+	}
+}
+
+// ADR-0019 / NFR-SEC-007: spoofed client identity and credential headers never
+// reach request-media; the signed-in user's auth-local bearer does.
+func TestProxyRequestMedia_StripsSpoofedIdentityHeaders(t *testing.T) {
+	var got http.Header
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(upstream.Close)
+	u, _ := url.Parse(upstream.URL)
+	sessions := newSessionStore(time.Hour)
+	tok, err := sessions.CreateWithAuth("alice-id", "alice", "home", []string{"member"}, "alice-auth-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{requestHTTP: u, sessions: sessions}
+
+	spoof := func(req *http.Request) {
+		req.Header.Set("X-Caller-Id", "admin")
+		req.Header.Set("X-MuxCore-User", "admin")
+		req.Header.Set("X-MuxCore-Roles", "admin")
+		req.Header.Set("X-MuxCore-User-Id", "admin")
+		req.Header.Set("X-Tenant-ID", "other-tenant")
+		req.Header.Set("X-Auth-Claims-Tenant", "other-tenant")
+		req.Header.Set("X-User-ID", "admin")
+		req.Header.Set("X-Auth-Token", "stolen")
+		req.Header.Set("X-Request-Trace", "keep-me")
+	}
+
+	// Signed-in user: identity comes from the session only.
+	req := httptest.NewRequest(http.MethodPost, "/api/request", strings.NewReader("{}"))
+	req.AddCookie(&http.Cookie{Name: "session", Value: tok})
+	spoof(req)
+	s.proxyRequestMedia(httptest.NewRecorder(), req)
+	if got.Get("X-Caller-Id") != "alice-id" {
+		t.Fatalf("X-Caller-Id=%q", got.Get("X-Caller-Id"))
+	}
+	if got.Get("Authorization") != "Bearer alice-auth-token" {
+		t.Fatalf("Authorization=%q", got.Get("Authorization"))
+	}
+	if got.Get("Cookie") != "" {
+		t.Fatalf("cookie forwarded: %q", got.Get("Cookie"))
+	}
+	for _, h := range []string{"X-MuxCore-User", "X-MuxCore-Roles", "X-MuxCore-User-Id", "X-Tenant-ID", "X-Auth-Claims-Tenant", "X-User-ID", "X-Auth-Token"} {
+		if v := got.Get(h); v != "" {
+			t.Fatalf("%s forwarded: %q", h, v)
+		}
+	}
+	if got.Get("X-Request-Trace") != "keep-me" {
+		t.Fatal("ordinary client headers should still pass")
+	}
+
+	// Bearer-authenticated client (BFF session token): the BFF token itself is
+	// replaced by the auth-local token.
+	req = httptest.NewRequest(http.MethodGet, "/api/requests", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	spoof(req)
+	s.proxyRequestMedia(httptest.NewRecorder(), req)
+	if got.Get("Authorization") != "Bearer alice-auth-token" || got.Get("X-Caller-Id") != "alice-id" {
+		t.Fatalf("bearer client: auth=%q caller=%q", got.Get("Authorization"), got.Get("X-Caller-Id"))
+	}
+
+	// No session: nothing identifying is forwarded at all.
+	req = httptest.NewRequest(http.MethodGet, "/api/requests", nil)
+	req.Header.Set("Authorization", "Bearer not-a-session")
+	spoof(req)
+	s.proxyRequestMedia(httptest.NewRecorder(), req)
+	for _, h := range []string{"Authorization", "X-Caller-Id", "X-MuxCore-User", "X-Tenant-ID", "Cookie"} {
+		if v := got.Get(h); v != "" {
+			t.Fatalf("anonymous: %s forwarded: %q", h, v)
+		}
+	}
+}
+
+func TestReverseProxy_StripsClientIdentityHeaders(t *testing.T) {
+	var got http.Header
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+	}))
+	t.Cleanup(upstream.Close)
+	u, _ := url.Parse(upstream.URL)
+	req := httptest.NewRequest(http.MethodGet, "/stream/movies/1", nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: "bff-session"})
+	req.Header.Set("Authorization", "Bearer bff-session")
+	req.Header.Set("X-Caller-Id", "admin")
+	req.Header.Set("X-Tenant-ID", "t2")
+	req.Header.Set("Range", "bytes=0-1")
+	reverseProxy(u).ServeHTTP(httptest.NewRecorder(), req)
+	for _, h := range []string{"Cookie", "Authorization", "X-Caller-Id", "X-Tenant-ID"} {
+		if v := got.Get(h); v != "" {
+			t.Fatalf("%s forwarded: %q", h, v)
+		}
+	}
+	if got.Get("Range") != "bytes=0-1" {
+		t.Fatal("Range must pass through")
 	}
 }

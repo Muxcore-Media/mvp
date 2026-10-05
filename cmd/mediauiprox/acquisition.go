@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -105,15 +106,24 @@ type liveGrabPolicyResult struct {
 	vpnConfPresent bool
 }
 
+// downloaderEngineMode mirrors downloader-native-torrent's strict
+// DOWNLOADER_ENGINE set (ADR-0008): unset/fixture/fake → fixture; live (or the
+// deprecated alias anacrolix) → live. Unknown values make the downloader
+// refuse to start, so they are reported as fixture with a warning.
+func downloaderEngineMode(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "fixture", "fake":
+		return "fixture"
+	case "live", "anacrolix":
+		return "live"
+	default:
+		log.Printf("warn: unknown DOWNLOADER_ENGINE %q (want unset/fixture or live); reporting fixture", v)
+		return "fixture"
+	}
+}
+
 func liveGrabPolicy() liveGrabPolicyResult {
-	engine := strings.ToLower(strings.TrimSpace(os.Getenv("DOWNLOADER_ENGINE")))
-	if engine == "" {
-		engine = "fixture"
-	}
-	downloaderMode := "live"
-	if engine == "fixture" || engine == "fake" {
-		downloaderMode = "fixture"
-	}
+	downloaderMode := downloaderEngineMode(os.Getenv("DOWNLOADER_ENGINE"))
 	indexerMode := "live"
 	if downloaderMode == "fixture" && strings.TrimSpace(os.Getenv("PROWLARR_URL")) == "" && strings.TrimSpace(os.Getenv("TORZNAB_URL")) == "" {
 		indexerMode = "fixture"

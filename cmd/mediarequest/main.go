@@ -37,7 +37,13 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	// Authenticate as a non-browser API client: send the BFF session as a
+	// bearer and no cookies, so the BFF CSRF Origin check (NFR-SEC-004) does
+	// not apply to this POST.
 	client := &http.Client{Timeout: 20 * time.Second, Jar: jar}
+	if tok := sessionFromJar(jar, *base); tok != "" {
+		client = &http.Client{Timeout: 20 * time.Second, Transport: bearerTransport{token: tok}}
+	}
 
 	// Search: soft when TMDB key missing (empty results / error JSON); hard when -require-search.
 	searchURL := fmt.Sprintf("%s/api/search?q=%s", strings.TrimRight(*base, "/"), strings.ReplaceAll(*title, " ", "+"))
@@ -179,4 +185,26 @@ func loadNetscapeJar(jar http.CookieJar, path string) error {
 		jar.SetCookies(u, cookies)
 	}
 	return nil
+}
+
+// sessionFromJar returns the BFF "session" cookie value for base, if any.
+func sessionFromJar(jar http.CookieJar, base string) string {
+	u, err := url.Parse(strings.TrimRight(base, "/") + "/")
+	if err != nil {
+		return ""
+	}
+	for _, c := range jar.Cookies(u) {
+		if c.Name == "session" && c.Value != "" {
+			return c.Value
+		}
+	}
+	return ""
+}
+
+type bearerTransport struct{ token string }
+
+func (b bearerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.Header.Set("Authorization", "Bearer "+b.token)
+	return http.DefaultTransport.RoundTrip(r)
 }

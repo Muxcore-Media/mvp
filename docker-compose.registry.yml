@@ -249,6 +249,9 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: health-monitor
+      # Off-loopback HTTP needs a bearer token (NFR-SEC-011); admin-ui sends it.
+      HEALTH_MONITOR_HTTP_ADDR: "0.0.0.0:9203"
+      HEALTH_MONITOR_HTTP_TOKEN: ${HEALTH_MONITOR_HTTP_TOKEN:?set HEALTH_MONITOR_HTTP_TOKEN in .env (openssl rand -hex 32)}
     depends_on:
       core:
         condition: service_healthy
@@ -264,6 +267,10 @@ services:
       ADMIN_UI_DATA_DIR: /data
       # Shared with media-ui consumer POST /api/password-reset (umbrella #111).
       ADMIN_UI_PASSWORD_RESET_FILE: /data/media-ui/password-resets.json
+      ADMIN_UI_HEALTH_MONITOR_URL: ${ADMIN_UI_HEALTH_MONITOR_URL:-http://health-monitor:9203}
+      ADMIN_UI_HEALTH_MONITOR_TOKEN: ${HEALTH_MONITOR_HTTP_TOKEN:?set HEALTH_MONITOR_HTTP_TOKEN in .env (openssl rand -hex 32)}
+      # Restore allow-list root; matches the BFF/backup-local BACKUP_RESTORE_DIR.
+      ADMIN_UI_RESTORE_ROOT: /data/restore
     ports:
       - "${ADMIN_UI_HTTP_PORT:-8082}:8082"
     volumes:
@@ -350,7 +357,6 @@ services:
       WG_CONF: ${WG_CONF:-}
       WG_USE_WG_QUICK: ${WG_USE_WG_QUICK:-0}
       WG_KILL_SWITCH: ${WG_KILL_SWITCH:-false}
-      DOWNLOADER_REQUIRE_VPN: ${DOWNLOADER_REQUIRE_VPN:-}
       NAT_PMP_PORT: ${NAT_PMP_PORT:-0}
     ports:
       - "${DOWNLOADER_TORRENT_GRPC_PORT:-9461}:9461"
@@ -403,7 +409,6 @@ services:
       WG_CONF: ${WG_CONF:-}
       WG_USE_WG_QUICK: ${WG_USE_WG_QUICK:-0}
       WG_KILL_SWITCH: ${WG_KILL_SWITCH:-false}
-      DOWNLOADER_REQUIRE_VPN: ${DOWNLOADER_REQUIRE_VPN:-}
     ports:
       - "${DOWNLOADER_USENET_GRPC_PORT:-9622}:9622"
       - "${DOWNLOADER_USENET_HTTP_PORT:-9623}:9623"
@@ -428,7 +433,6 @@ services:
       WG_CONF: ${WG_CONF:-}
       WG_USE_WG_QUICK: ${WG_USE_WG_QUICK:-0}
       WG_KILL_SWITCH: ${WG_KILL_SWITCH:-false}
-      DOWNLOADER_REQUIRE_VPN: ${DOWNLOADER_REQUIRE_VPN:-}
     ports:
       - "${DOWNLOADER_SABNZBD_GRPC_PORT:-9620}:9620"
       - "${DOWNLOADER_SABNZBD_HTTP_PORT:-9621}:9621"
@@ -473,7 +477,6 @@ services:
       WG_CONF: ${WG_CONF:-}
       WG_USE_WG_QUICK: ${WG_USE_WG_QUICK:-0}
       WG_KILL_SWITCH: ${WG_KILL_SWITCH:-false}
-      DOWNLOADER_REQUIRE_VPN: ${DOWNLOADER_REQUIRE_VPN:-}
     ports:
       - "${INDEXER_PIRATEBAY_GRPC_PORT:-9485}:9485"
       - "${INDEXER_PIRATEBAY_HTTP_PORT:-9487}:9487"
@@ -496,7 +499,6 @@ services:
       WG_CONF: ${WG_CONF:-}
       WG_USE_WG_QUICK: ${WG_USE_WG_QUICK:-0}
       WG_KILL_SWITCH: ${WG_KILL_SWITCH:-false}
-      DOWNLOADER_REQUIRE_VPN: ${DOWNLOADER_REQUIRE_VPN:-}
     ports:
       - "${INDEXER_TORZNAB_GRPC_PORT:-9486}:9486"
     depends_on:

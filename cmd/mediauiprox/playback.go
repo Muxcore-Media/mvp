@@ -103,7 +103,7 @@ func (s *server) handlePlaybackResolve(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.userdata != nil {
 		scope := s.userdata.scopeFromRequest(r, s.sessions, s.sessionHasPrivilegedRole(r))
-		blob := s.userdata.load(scope)
+		blob := s.userdata.load(scope, s.sessionAuthToken(r))
 		tags := strings.TrimSpace(r.URL.Query().Get("tags"))
 		rating := strings.TrimSpace(r.URL.Query().Get("parental_rating"))
 		unrated := r.URL.Query().Get("unrated") == "1" || strings.EqualFold(r.URL.Query().Get("unrated"), "true")

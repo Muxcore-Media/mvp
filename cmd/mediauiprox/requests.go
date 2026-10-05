@@ -3,7 +3,6 @@ package main
 import (
 	"io"
 	"net/http"
-	"strings"
 )
 
 // registerRequestMediaRoutes proxies search/request APIs to request-media.
@@ -32,29 +31,12 @@ func (s *server) proxyRequestMedia(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusInternalServerError, "proxy build failed", "request.proxy_failed")
 		return
 	}
-	for k, vals := range r.Header {
-		kl := strings.ToLower(k)
-		if strings.EqualFold(k, "Host") || kl == "x-muxcore-roles" || kl == "x-muxcore-user" {
-			continue
-		}
-		for _, v := range vals {
-			req.Header.Add(k, v)
-		}
-	}
-	if userID, username, _, roles, ok := s.sessionPrincipal(r); ok {
-		if username != "" {
-			req.Header.Set("X-MuxCore-User", username)
-		}
-		caller := strings.TrimSpace(userID)
-		if caller == "" {
-			caller = strings.TrimSpace(username)
-		}
-		if caller != "" {
-			req.Header.Set("X-Caller-Id", caller)
-		}
-		if len(roles) > 0 {
-			req.Header.Set("X-MuxCore-Roles", strings.Join(roles, ","))
-		}
+	// ADR-0019: never pass client identity/credential headers through; the
+	// module gets the signed-in user's auth-local bearer (+ X-Caller-Id for one
+	// release).
+	copyClientHeaders(req.Header, r.Header)
+	if id, ok := s.sessionUpstreamIdentity(r); ok {
+		id.apply(req.Header)
 	}
 	resp, err := upstreamClient.Do(req)
 	if err != nil {

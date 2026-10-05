@@ -426,6 +426,12 @@ smoke_cmd automationqueue -addr "$AUTOMATION_ADDR"
 HM_ADDR="${HEALTH_MONITOR_GRPC_CLIENT_ADDR:-127.0.0.1:9202}"
 [[ "$HM_ADDR" == :* ]] && HM_ADDR="127.0.0.1${HM_ADDR}"
 HM_STATUS="${SMOKE_HEALTH_MONITOR_STATUS:-http://127.0.0.1:9203/status}"
+# health-monitor /status needs its bearer (NFR-SEC-011). run-host.sh keeps a
+# generated token under data/ when HEALTH_MONITOR_HTTP_TOKEN is unset.
+if [[ -z "${HEALTH_MONITOR_HTTP_TOKEN:-}" && -r "$ROOT/data/health-monitor/http.token" ]]; then
+  HEALTH_MONITOR_HTTP_TOKEN="$(<"$ROOT/data/health-monitor/http.token")"
+fi
+export HEALTH_MONITOR_HTTP_TOKEN="${HEALTH_MONITOR_HTTP_TOKEN:-}"
 
 echo "==> health-monitor ReportHealth + /status"
 deadline_hm=$((SECONDS + 60))

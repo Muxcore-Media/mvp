@@ -145,7 +145,7 @@ Restart only the peers you enabled:
 
 Confirm admin **Automation** page lists indexer/downloader peers, and history shows indexer names after Search/dispatch.
 
-Live torrent engine: set `DOWNLOADER_ENGINE` to something other than `fixture`/`fake` **only** when `check-vpn-up.sh` passes. On gringotts, kill-switch / `wg-quick` remain forbidden.
+Live torrent engine: set `DOWNLOADER_ENGINE=live` **only** when `check-vpn-up.sh` passes. Accepted values are unset/`fixture` (`fake` is an alias) and `live` (`anacrolix` is a deprecated alias for `live`); any other value makes downloader-native-torrent refuse to start, and the BFF `/api/acquisition` reports it as `fixture`. On gringotts, kill-switch / `wg-quick` remain forbidden.
 
 ---
 
