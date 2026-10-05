@@ -10,7 +10,7 @@ import (
 // Response bodies are streamed unchanged so optional upstream fields (e.g.
 // status_detail, status_label on /api/requests) pass through without breaking
 // older clients when those fields are absent.
-func (s *server) registerRequestMediaRoutes(mux *http.ServeMux) {
+func (s *server) registerRequestMediaRoutes(mux routeRegistrar) {
 	h := http.HandlerFunc(s.proxyRequestMedia)
 	mux.Handle("/api/search", h)
 	mux.Handle("/api/request", h)
