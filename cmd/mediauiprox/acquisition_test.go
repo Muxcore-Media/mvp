@@ -163,3 +163,15 @@ func TestCapabilitiesAcquisitionReady(t *testing.T) {
 		t.Fatalf("expected acquisition false without peers, got %#v", downBody.Features)
 	}
 }
+
+func TestDownloaderEngineModeStrictSet(t *testing.T) {
+	for in, want := range map[string]string{
+		"": "fixture", "fixture": "fixture", "FAKE": "fixture",
+		"live": "live", " Live ": "live", "anacrolix": "live",
+		"qbittorrent": "fixture", "true": "fixture",
+	} {
+		if got := downloaderEngineMode(in); got != want {
+			t.Fatalf("%q → %q want %q", in, got, want)
+		}
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	healthmonitorv1 "github.com/Muxcore-Media/core/proto/gen/muxcore/healthmonitor/v1"
@@ -22,6 +23,7 @@ func main() {
 	moduleID := flag.String("module", "mvp-smoke", "module id to report")
 	mesh := flag.String("mesh", "127.0.0.1:9090", "core mesh addr (subscribe module.degraded)")
 	skipMesh := flag.Bool("skip-mesh", false, "skip mesh fan-out assertion")
+	token := flag.String("token", os.Getenv("HEALTH_MONITOR_HTTP_TOKEN"), "bearer token for /status (default $HEALTH_MONITOR_HTTP_TOKEN; required when health-monitor has one)")
 	flag.Parse()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -66,7 +68,15 @@ func main() {
 		fmt.Println("OK mesh fan-out module.degraded")
 	}
 
-	resp, err := http.Get(*statusURL)
+	statusReq, err := http.NewRequest(http.MethodGet, *statusURL, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "GET /status: %v\n", err)
+		os.Exit(1)
+	}
+	if t := strings.TrimSpace(*token); t != "" {
+		statusReq.Header.Set("Authorization", "Bearer "+t)
+	}
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(statusReq)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "GET /status: %v\n", err)
 		os.Exit(1)

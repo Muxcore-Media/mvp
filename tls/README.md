@@ -62,7 +62,7 @@ Only traffic from the tunnel address (e.g. `10.2.0.2`) exits via Proton; mesh `w
 # Fails if WG_CONF missing/unreadable, iface down, or curl --interface <wg-mux> cannot fetch an egress IP.
 ```
 
-Live `downloader-native-torrent` refuses Init when `DOWNLOADER_ENGINE` is not `fixture`/`fake` (or `DOWNLOADER_REQUIRE_VPN=1`) unless `WG_CONF` is readable. On `MUXCORE_HOST_ROLE=gringotts` (or hostname containing `gringotts`) it also refuses `WG_USE_WG_QUICK=1` and `WG_KILL_SWITCH=true`.
+Live `downloader-native-torrent` (`DOWNLOADER_ENGINE=live`; `anacrolix` is a deprecated alias) refuses Init unless `WG_CONF` is readable. Unset/`fixture`/`fake` select the fixture engine; any other value is rejected at startup. On `MUXCORE_HOST_ROLE=gringotts` (or hostname containing `gringotts`) it also refuses `WG_USE_WG_QUICK=1` and `WG_KILL_SWITCH=true`.
 
 Live `indexer-piratebay` / remote `indexer-torznab` HTTP uses the **same source-bind policy**: dial via the WG iface from `WG_CONF` (`SO_BINDTODEVICE` + tunnel address). Fixture / loopback paths skip the bind. There is no clearnet fallback when a live base URL is set.
 

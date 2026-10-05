@@ -38,7 +38,6 @@ if [[ -n "${WG_CONF:-}" ]]; then
   ACQ_VPN_ENV+=(WG_CONF="$WG_CONF")
   ACQ_VPN_ENV+=(WG_USE_WG_QUICK="${WG_USE_WG_QUICK:-0}")
   ACQ_VPN_ENV+=(WG_KILL_SWITCH="${WG_KILL_SWITCH:-false}")
-  [[ -n "${DOWNLOADER_REQUIRE_VPN:-}" ]] && ACQ_VPN_ENV+=(DOWNLOADER_REQUIRE_VPN="$DOWNLOADER_REQUIRE_VPN")
 fi
 
 # Dev default is insecure mesh TLS unless MUXCORE_REQUIRE_TLS=1 (vault/production).
@@ -54,6 +53,29 @@ MESH="${MUXCORE_MESH_ADDR:-127.0.0.1:9090}"
 MODULE_CERT_ROOT="${MUXCORE_MODULE_CERT_DIR:-$ROOT/tls/module-certs}"
 
 mkdir -p "$BIN" "$RUN" "$DATA"/{movies,tvshows,automation,scanner,roots,sqlite,secrets,library/tv,storage,auth,jellyfin,downloads,request,formats,rename,ffprobe,subtitles,backup,audiobooks,books,comics,intro-outro,transcoder-pool,graph,tagging,listsync,workflow,maintainer,playback-guard,playback-monitor,locks,schemas,userdata,feature-flags,dlna,plex,emby}
+
+# Restore target shared by the BFF (BACKUP_RESTORE_DIR → backup-local) and the
+# admin-ui restore allow-list (ADMIN_UI_RESTORE_ROOT); FR-BAK-003.
+RESTORE_DIR="${BACKUP_RESTORE_DIR:-$DATA/restore}"
+
+# ensure_secret_file <path>: print the secret in <path>, generating a random
+# 32-byte hex value (file 0600, dir 0700) on first use.
+ensure_secret_file() {
+  local f="$1"
+  if [[ ! -s "$f" ]]; then
+    mkdir -p "$(dirname "$f")"
+    chmod 700 "$(dirname "$f")"
+    local v
+    if command -v openssl >/dev/null 2>&1; then
+      v="$(openssl rand -hex 32)"
+    else
+      v="$(od -An -tx1 -N32 /dev/urandom | tr -d ' \n')"
+    fi
+    (umask 077 && printf '%s\n' "$v" >"$f")
+  fi
+  chmod 600 "$f"
+  tr -d '[:space:]' <"$f"
+}
 
 start_one() {
   local name="$1"; shift
@@ -439,11 +461,19 @@ EOF
       fi
     fi
 
+    # health-monitor HTTP is loopback by default; its /status bearer
+    # (NFR-SEC-011) is generated once into the data dir when unset and shared
+    # with admin-ui (ADMIN_UI_HEALTH_MONITOR_TOKEN) and smoke.sh.
+    if [[ -z "${HEALTH_MONITOR_HTTP_TOKEN:-}" ]]; then
+      HEALTH_MONITOR_HTTP_TOKEN="$(ensure_secret_file "$DATA/health-monitor/http.token")"
+    fi
+    export HEALTH_MONITOR_HTTP_TOKEN
     maybe_start health-monitor env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=health-monitor MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
       HEALTH_MONITOR_GRPC_ADDR="${HEALTH_MONITOR_GRPC_ADDR:-:9202}" \
-      HEALTH_MONITOR_HTTP_ADDR="${HEALTH_MONITOR_HTTP_ADDR:-:9203}" \
+      HEALTH_MONITOR_HTTP_ADDR="${HEALTH_MONITOR_HTTP_ADDR:-127.0.0.1:9203}" \
+      HEALTH_MONITOR_HTTP_TOKEN="$HEALTH_MONITOR_HTTP_TOKEN" \
       HEALTH_MONITOR_INTERVAL="${HEALTH_MONITOR_INTERVAL:-5s}" \
       "$BIN/health-monitor"
 
@@ -474,6 +504,8 @@ EOF
       ADMIN_UI_PUBLIC_URL="${ADMIN_UI_PUBLIC_URL:-https://admin.gringotts}" \
       ADMIN_UI_TRUSTED_PROXIES="${ADMIN_UI_TRUSTED_PROXIES:-127.0.0.1/32,::1/128}" \
       ADMIN_UI_HEALTH_MONITOR_URL="${ADMIN_UI_HEALTH_MONITOR_URL:-http://127.0.0.1:9203}" \
+      ADMIN_UI_HEALTH_MONITOR_TOKEN="${ADMIN_UI_HEALTH_MONITOR_TOKEN:-$HEALTH_MONITOR_HTTP_TOKEN}" \
+      ADMIN_UI_RESTORE_ROOT="${ADMIN_UI_RESTORE_ROOT:-$RESTORE_DIR}" \
       ADMIN_UI_LIVETV_FILE="${ADMIN_UI_LIVETV_FILE:-$DATA/media-ui/livetv.json}" \
       ADMIN_UI_BRANDING_FILE="${ADMIN_UI_BRANDING_FILE:-$DATA/media-ui/branding.json}" \
       ADMIN_UI_NETWORKING_FILE="${ADMIN_UI_NETWORKING_FILE:-$DATA/media-ui/networking.json}" \
@@ -1320,7 +1352,7 @@ EOF
           MAINTAINER_GRPC_CLIENT_ADDR="${MAINTAINER_GRPC_CLIENT_ADDR:-127.0.0.1:9545}" \
           PLAYBACK_GUARD_GRPC_CLIENT_ADDR="${PLAYBACK_GUARD_GRPC_CLIENT_ADDR:-127.0.0.1:9561}" \
           TAGGING_HTTP_URL="${TAGGING_HTTP_URL:-http://127.0.0.1:9741}" \
-          BACKUP_RESTORE_DIR="${BACKUP_RESTORE_DIR:-$DATA/restore}" \
+          BACKUP_RESTORE_DIR="$RESTORE_DIR" \
           GRAPH_HTTP_URL="${GRAPH_HTTP_URL:-http://127.0.0.1:9731}" \
           GRAPH_MODULE_TOKEN="${GRAPH_MODULE_TOKEN:-}" \
           PLAYBACK_MONITOR_HTTP_URL="${PLAYBACK_MONITOR_HTTP_URL:-http://127.0.0.1:8560}" \

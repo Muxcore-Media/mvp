@@ -91,22 +91,24 @@ func (u *serverUserdata) scopeFromRequest(r *http.Request, sessions *sessionStor
 	return store.Scope{TenantID: tenantID, UserID: userID}
 }
 
-func (u *serverUserdata) load(scope store.Scope) store.Blob {
+// load returns the scope's blob. authToken is the signed-in user's auth-local
+// token, forwarded as a bearer to userdata-local (ADR-0019).
+func (u *serverUserdata) load(scope store.Scope, authToken string) store.Blob {
 	if u.proxyURL != "" {
-		if blob, ok := u.proxyGet(scope); ok {
+		if blob, ok := u.proxyGet(scope, authToken); ok {
 			return blob
 		}
 	}
 	return u.store.Get(scope)
 }
 
-func (u *serverUserdata) save(scope store.Scope, incoming store.Blob) (store.Blob, error) {
+func (u *serverUserdata) save(scope store.Scope, incoming store.Blob, authToken string) (store.Blob, error) {
 	var (
 		merged store.Blob
 		err    error
 	)
 	if u.proxyURL != "" {
-		if blob, putErr := u.proxyPut(scope, incoming); putErr == nil {
+		if blob, putErr := u.proxyPut(scope, incoming, authToken); putErr == nil {
 			// Mirror into local cache for offline/fixture paths.
 			_, _ = u.store.Put(scope, blob)
 			merged = blob
@@ -119,11 +121,21 @@ func (u *serverUserdata) save(scope store.Scope, incoming store.Blob) (store.Blo
 	if err != nil {
 		return store.Blob{}, err
 	}
-	u.notifyJellyfinPush(scope, merged)
+	u.notifyJellyfinPush(scope, merged, authToken)
 	return merged, nil
 }
 
-func (u *serverUserdata) proxyGet(scope store.Scope) (store.Blob, bool) {
+// setUserdataAuth sets the end-user bearer and the target user header that
+// userdata-local / the jellyfin bridge check against the token's principal.
+// Client identity headers are never forwarded (requests are built fresh).
+func setUserdataAuth(h http.Header, scope store.Scope, authToken string) {
+	if tok := strings.TrimSpace(authToken); tok != "" {
+		h.Set("Authorization", "Bearer "+tok)
+	}
+	h.Set(muxcoreUserIDHeader, scope.UserID)
+}
+
+func (u *serverUserdata) proxyGet(scope store.Scope, authToken string) (store.Blob, bool) {
 	req, err := http.NewRequest(http.MethodGet, u.proxyURL+"/userdata", nil)
 	if err != nil {
 		return store.Blob{}, false
@@ -134,10 +146,7 @@ func (u *serverUserdata) proxyGet(scope store.Scope) (store.Blob, bool) {
 		q.Set("tenant_id", scope.TenantID)
 	}
 	req.URL.RawQuery = q.Encode()
-	if scope.TenantID != "" {
-		req.Header.Set("X-Tenant-ID", scope.TenantID)
-	}
-	req.Header.Set("X-User-ID", scope.UserID)
+	setUserdataAuth(req.Header, scope, authToken)
 	resp, err := upstreamClient.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		if resp != nil {
@@ -153,7 +162,7 @@ func (u *serverUserdata) proxyGet(scope store.Scope) (store.Blob, bool) {
 	return blob, true
 }
 
-func (u *serverUserdata) proxyPut(scope store.Scope, incoming store.Blob) (store.Blob, error) {
+func (u *serverUserdata) proxyPut(scope store.Scope, incoming store.Blob, authToken string) (store.Blob, error) {
 	body, err := json.Marshal(incoming)
 	if err != nil {
 		return store.Blob{}, err
@@ -169,10 +178,7 @@ func (u *serverUserdata) proxyPut(scope store.Scope, incoming store.Blob) (store
 	}
 	req.URL.RawQuery = q.Encode()
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-User-ID", scope.UserID)
-	if scope.TenantID != "" {
-		req.Header.Set("X-Tenant-ID", scope.TenantID)
-	}
+	setUserdataAuth(req.Header, scope, authToken)
 	resp, err := upstreamClient.Do(req)
 	if err != nil {
 		return store.Blob{}, err
@@ -190,8 +196,10 @@ func (u *serverUserdata) proxyPut(scope store.Scope, incoming store.Blob) (store
 
 // notifyJellyfinPush best-effort posts merged userdata to the jellyfin bridge
 // so companion UI updates can land in Jellyfin UserData (requires
-// USERDATA_PUSH_TO_JELLYFIN=1 on the bridge).
-func (u *serverUserdata) notifyJellyfinPush(scope store.Scope, blob store.Blob) {
+// USERDATA_PUSH_TO_JELLYFIN=1 on the bridge). The bridge (v0.3.2+) requires
+// the end user's bearer; authToken is captured here because the post runs in
+// a goroutine after the request has returned.
+func (u *serverUserdata) notifyJellyfinPush(scope store.Scope, blob store.Blob, authToken string) {
 	if u.pushURL == "" {
 		return
 	}
@@ -208,13 +216,16 @@ func (u *serverUserdata) notifyJellyfinPush(scope store.Scope, blob store.Blob) 
 		q.Set("user_id", scope.UserID)
 		req.URL.RawQuery = q.Encode()
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-User-ID", scope.UserID)
+		setUserdataAuth(req.Header, scope, authToken)
 		resp, err := upstreamClient.Do(req)
 		if err != nil {
 			log.Printf("jellyfin userdata push notify: %v", err)
 			return
 		}
 		_ = resp.Body.Close()
+		if resp.StatusCode >= 300 {
+			log.Printf("jellyfin userdata push notify: HTTP %d", resp.StatusCode)
+		}
 	}()
 }
 
@@ -228,7 +239,7 @@ func (s *server) handleUserdataGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scope := s.userdata.scopeFromRequest(r, s.sessions, s.sessionHasPrivilegedRole(r))
-	writeUserdataJSON(w, scope, s.userdata.load(scope))
+	writeUserdataJSON(w, scope, s.userdata.load(scope, s.sessionAuthToken(r)))
 }
 
 func (s *server) handleUserdataPut(w http.ResponseWriter, r *http.Request) {
@@ -246,7 +257,7 @@ func (s *server) handleUserdataPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scope := s.userdata.scopeFromRequest(r, s.sessions, s.sessionHasPrivilegedRole(r))
-	merged, err := s.userdata.save(scope, blob)
+	merged, err := s.userdata.save(scope, blob, s.sessionAuthToken(r))
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, err.Error(), "userdata.save_failed")
 		return
@@ -278,4 +289,13 @@ func writeUserdataJSON(w http.ResponseWriter, scope store.Scope, blob store.Blob
 		out["tenant_id"] = scope.TenantID
 	}
 	writeJSON(w, out)
+}
+
+// sessionAuthToken returns the signed-in user's auth-local token ("" without a
+// session or when the session was created without one).
+func (s *server) sessionAuthToken(r *http.Request) string {
+	if s.sessions == nil {
+		return ""
+	}
+	return s.sessions.LookupAuthToken(sessionTokenFromRequest(r))
 }

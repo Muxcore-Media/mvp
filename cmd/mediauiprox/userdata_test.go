@@ -384,3 +384,67 @@ func TestUserdataIgnoresCrossUserHeaderOverride(t *testing.T) {
 		t.Fatalf("user_id=%q want alice (header override ignored)", blob.UserID)
 	}
 }
+
+// ADR-0019: the userdata-local proxy and the jellyfin push carry the signed-in
+// user's auth-local bearer plus X-MuxCore-User-Id from the session, never the
+// client's identity headers.
+func TestUserdataProxyAndJellyfinPushForwardBearer(t *testing.T) {
+	type seen struct {
+		path string
+		h    http.Header
+	}
+	ch := make(chan seen, 8)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ch <- seen{path: r.URL.Path, h: r.Header.Clone()}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(upstream.Close)
+	t.Setenv("USERDATA_PREFER_MESH", "1")
+	t.Setenv("USERDATA_LOCAL_URL", upstream.URL)
+	t.Setenv("JELLYFIN_USERDATA_PUSH_URL", upstream.URL+"/userdata/from-muxcore")
+	u := newServerUserdata(t.TempDir())
+	sessions := newSessionStore(time.Hour)
+	tok, err := sessions.CreateWithAuth("alice-id", "alice", "", []string{"member"}, "alice-auth-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{userdata: u, sessions: sessions}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/userdata", strings.NewReader(`{"prefs":{"theme":"dark"}}`))
+	req.AddCookie(&http.Cookie{Name: "session", Value: tok})
+	req.Header.Set(muxcoreUserIDHeader, "bob") // ignored: alice is not admin
+	req.Header.Set("X-User-ID", "bob")
+	req.Header.Set("X-Tenant-ID", "other")
+	w := httptest.NewRecorder()
+	s.handleUserdataPut(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("put %d %s", w.Code, w.Body.String())
+	}
+
+	got := map[string]http.Header{}
+	deadline := time.After(5 * time.Second)
+	for len(got) < 2 {
+		select {
+		case v := <-ch:
+			got[v.path] = v.h
+		case <-deadline:
+			t.Fatalf("upstream calls: %v", got)
+		}
+	}
+	for _, p := range []string{"/userdata", "/userdata/from-muxcore"} {
+		h, ok := got[p]
+		if !ok {
+			t.Fatalf("no call to %s", p)
+		}
+		if h.Get("Authorization") != "Bearer alice-auth-token" {
+			t.Fatalf("%s Authorization=%q", p, h.Get("Authorization"))
+		}
+		if h.Get(muxcoreUserIDHeader) != "alice-id" {
+			t.Fatalf("%s %s=%q", p, muxcoreUserIDHeader, h.Get(muxcoreUserIDHeader))
+		}
+		if h.Get("X-User-ID") != "" || h.Get("X-Tenant-ID") != "" || h.Get("Cookie") != "" {
+			t.Fatalf("%s forwarded client identity: %v", p, h)
+		}
+	}
+}

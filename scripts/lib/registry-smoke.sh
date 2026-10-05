@@ -280,7 +280,11 @@ registry_smoke_cmd_healthreport() {
   registry_smoke_grpcurl "$addr" \
     -d '{"event_type":"health.smoke","module_id":"mvp-smoke","message":"health-monitor smoke"}' \
     muxcore.healthmonitor.v1.HealthMonitorService/PublishEvent
-  registry_smoke_curl -sf "$status_url" >/dev/null
+  local hm_auth=()
+  if [[ -n "${HEALTH_MONITOR_HTTP_TOKEN:-}" ]]; then
+    hm_auth=(-H "Authorization: Bearer ${HEALTH_MONITOR_HTTP_TOKEN}")
+  fi
+  registry_smoke_curl -sf "${hm_auth[@]}" "$status_url" >/dev/null
   echo "OK healthreport (registry grpcurl)"
 }
 
@@ -338,7 +342,15 @@ registry_smoke_cmd_mediarequest() {
       return 1
     }
   fi
-  code="$(curl -sf "${curl_auth[@]}" -o /tmp/mvp-registry-request.json -w '%{http_code}' \
+  # POST as a non-browser API client (bearer, no cookie) so the BFF CSRF
+  # Origin check does not apply (NFR-SEC-004).
+  local session_tok
+  session_tok="$(awk -F'\t' '$6 == "session" { v = $7 } END { print v }' "$jar")"
+  local post_auth=("${curl_auth[@]}")
+  if [[ -n "$session_tok" ]]; then
+    post_auth=(-H "Authorization: Bearer ${session_tok}")
+  fi
+  code="$(curl -sf "${post_auth[@]}" -o /tmp/mvp-registry-request.json -w '%{http_code}' \
     -X POST "${base}/api/request" \
     -H 'Content-Type: application/json' \
     -d '{"tmdbId":550,"title":"Fight Club","year":1999,"overview":"MVP smoke request","poster":""}')"
