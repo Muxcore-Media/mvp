@@ -139,7 +139,8 @@ smoke_cmd addtvshow -addr "$TVSHOWS_ADDR" -root "$tv_root"
 ADMIN_URL="${SMOKE_ADMIN_URL:-http://localhost:8082}"
 AUTH_HTTP="${AUTH_HTTP_URL:-http://127.0.0.1:9401}"
 ADMIN_USER="${MVP_ADMIN_USER:-admin}"
-ADMIN_PASS="${MVP_ADMIN_PASSWORD:-admin-dev-only}"
+mvp_require_admin_password "$ROOT" || exit 1
+ADMIN_PASS="$MVP_ADMIN_PASSWORD"
 
 echo "==> admin-ui health ${ADMIN_URL}/health"
 deadline_admin=$((SECONDS + 60))

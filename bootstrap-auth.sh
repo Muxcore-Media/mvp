@@ -9,13 +9,15 @@ if [[ -f "$ROOT/.env" ]]; then source "$ROOT/.env"; fi
 source "$ROOT/scripts/lib/smoke-cmd.sh"
 smoke_cmd_init
 
+mvp_require_admin_password "$ROOT" || exit 1
+
 if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
   registry_smoke_bootstrap_auth
   exit 0
 fi
 
 USER="${MVP_ADMIN_USER:-admin}"
-PASS="${MVP_ADMIN_PASSWORD:-admin-dev-only}"
+PASS="$MVP_ADMIN_PASSWORD"
 AUTH_ADDR="${AUTH_GRPC_ADDR:-127.0.0.1:9403}"
 TOKEN_FILE="${MVP_TOKEN_FILE:-$ROOT/run/admin.token}"
 BIN="$ROOT/bin"

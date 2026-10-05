@@ -29,4 +29,8 @@ jobs:
       - run: bash scripts/run-script-tests.sh
       # Household install path (ADR-0007): the registry compose must parse.
       - name: Compose config
+        # Required secrets have no defaults (NFR-SEC-001); CI only parses the file.
+        env:
+          MVP_ADMIN_PASSWORD: ci-parse-only
+          HEALTH_MONITOR_HTTP_TOKEN: ci-parse-only
         run: docker compose -f docker-compose.registry.yml config -q

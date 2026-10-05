@@ -24,6 +24,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -88,7 +89,7 @@ func main() {
 	mediaUI := flag.String("media-ui", "", "media-ui BFF base URL (e.g. http://127.0.0.1:5173); empty skips BFF checks")
 	authURL := flag.String("auth-url", "http://127.0.0.1:9401", "auth-local HTTP base URL (BFF login)")
 	user := flag.String("user", envOr("MVP_ADMIN_USER", "admin"), "login user for the BFF")
-	password := flag.String("password", envOr("MVP_ADMIN_PASSWORD", "admin-dev-only"), "login password for the BFF")
+	password := flag.String("password", envOr("MVP_ADMIN_PASSWORD", adminPasswordFromFile()), "login password for the BFF (default: $MVP_ADMIN_PASSWORD or the run-host generated data/auth/admin.password)")
 	requireBFF := flag.Bool("require-bff", false, "fail when media-ui is not reachable instead of skipping BFF checks")
 	flag.Parse()
 
@@ -147,6 +148,20 @@ func main() {
 	}
 	fmt.Printf("OK acquisition fixture: movie=%s release=%q indexer=%q download=%s file=%s bff=%s\n",
 		res.MovieID, res.Release, res.Indexer, res.DownloadID, res.FilePath, bff)
+}
+
+// adminPasswordFromFile reads the password run-host.sh generated on first run
+// (there is no default admin password; FR-INS-004). Empty when absent.
+func adminPasswordFromFile() string {
+	p := strings.TrimSpace(os.Getenv("MVP_ADMIN_PASSWORD_FILE"))
+	if p == "" {
+		p = filepath.Join("data", "auth", "admin.password")
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
 
 func envOr(key, def string) string {

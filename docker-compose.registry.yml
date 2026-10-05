@@ -78,7 +78,7 @@ services:
       AUTH_GRPC_ADDR: ":9403"
       AUTH_HTTP_ADDR: ":9401"
       AUTH_BOOTSTRAP_USER: ${MVP_ADMIN_USER:-admin}
-      AUTH_BOOTSTRAP_PASSWORD: ${MVP_ADMIN_PASSWORD:-admin-dev-only}
+      AUTH_BOOTSTRAP_PASSWORD: ${MVP_ADMIN_PASSWORD:?set MVP_ADMIN_PASSWORD in .env (openssl rand -hex 16)}
     ports:
       - "${AUTH_LOCAL_PORT:-9403}:9403"
       - "${AUTH_HTTP_PORT:-9401}:9401"
@@ -827,7 +827,7 @@ services:
       PLAYBACK_MONITOR_GRPC_ADDR: ":9560"
       PLAYBACK_MONITOR_HTTP_ADDR: ":8560"
       PLAYBACK_MONITOR_DB_PATH: /data/playback-monitor/monitor.db
-      PLAYBACK_MONITOR_HTTP_TOKEN: ${PLAYBACK_MONITOR_HTTP_TOKEN:-household-monitor}
+      PLAYBACK_MONITOR_HTTP_TOKEN: ${PLAYBACK_MONITOR_HTTP_TOKEN:-}
     ports:
       - "${PLAYBACK_MONITOR_GRPC_PORT:-9560}:9560"
       - "${PLAYBACK_MONITOR_HTTP_PORT:-8560}:8560"
@@ -884,7 +884,7 @@ services:
       TAGGING_HTTP_URL: http://media-tagging:9741
       BACKUP_RESTORE_DIR: /data/restore
       PLAYBACK_MONITOR_HTTP_URL: http://playback-monitor:8560
-      PLAYBACK_MONITOR_HTTP_TOKEN: ${PLAYBACK_MONITOR_HTTP_TOKEN:-household-monitor}
+      PLAYBACK_MONITOR_HTTP_TOKEN: ${PLAYBACK_MONITOR_HTTP_TOKEN:-}
       INDEXER_PIRATEBAY_HTTP_URL: http://indexer-piratebay:9487
       INDEXER_TORZNAB_GRPC_CLIENT_ADDR: indexer-torznab:9486
       DOWNLOADER_TORRENT_HTTP_URL: http://downloader-native-torrent:9464
