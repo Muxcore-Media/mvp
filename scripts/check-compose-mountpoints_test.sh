@@ -8,6 +8,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 COMPOSE="${1:-$ROOT/docker-compose.registry.yml}"
 MODULE_DF="$ROOT/dockerfiles/module.Dockerfile"
 MEDIA_UI_DF="$ROOT/dockerfiles/media-ui.Dockerfile"
+# Prebuilt-binary variants (ADR-0014, publish-module-images.sh PREBUILT_DIR) must
+# pre-create exactly the same directories as the Dockerfiles they mirror.
+MODULE_PREBUILT_DF="$ROOT/dockerfiles/module-prebuilt.Dockerfile"
+MEDIA_UI_PREBUILT_DF="$ROOT/dockerfiles/media-ui-prebuilt.Dockerfile"
 
 command -v yq >/dev/null || { echo "skip: yq not found"; exit 0; }
 command -v jq >/dev/null || { echo "skip: jq not found"; exit 0; }
@@ -34,6 +38,15 @@ media_ui_dirs="$(precreated "$MEDIA_UI_DF")"
 
 fail=0
 checked=0
+for pair in "$MODULE_DF:$MODULE_PREBUILT_DF" "$MEDIA_UI_DF:$MEDIA_UI_PREBUILT_DF"; do
+  src="${pair%%:*}" dst="${pair#*:}"
+  if [[ "$(precreated "$src")" != "$(precreated "$dst")" ]]; then
+    echo "FAIL: $(basename "$dst") pre-creates different /data dirs than $(basename "$src")" >&2
+    diff <(precreated "$src") <(precreated "$dst") >&2 || true
+    fail=1
+  fi
+  grep -q -- '-u 1000' "$dst" || { echo "FAIL: $(basename "$dst") does not create the uid 1000 app user" >&2; fail=1; }
+done
 while IFS=$'\t' read -r svc target; do
   [[ -n "$svc" ]] || continue
   case "$target" in

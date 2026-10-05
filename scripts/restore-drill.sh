@@ -405,19 +405,43 @@ compose_init() {
   PROJECT="$(registry_smoke_compose_project)"
 }
 
-dc() { registry_smoke_compose --profile backup-local "$@"; }
+# backup-local plus every profile in COMPOSE_PROFILES (a --profile flag replaces
+# the env var, so the stack's other profiles, e.g. the fixture acquisition
+# peers, would drop out of the project).
+dc() {
+  local -a prof=(--profile backup-local)
+  local p
+  for p in ${COMPOSE_PROFILES//,/ }; do
+    [[ "$p" == backup-local ]] || prof+=(--profile "$p")
+  done
+  registry_smoke_compose "${prof[@]}" "$@"
+}
+
+# Services that share core's network namespace (network_mode: service:core, the
+# dev-profile security sidecars). Podman refuses to remove core while they exist,
+# so compose cannot recreate core (and podman 4.x's compat API makes compose
+# recreate on every `up`). Remove them before an `up` that may touch core; the
+# next `up` recreates them. Harmless with docker.
+free_core_netns() {
+  local -a svcs=()
+  mapfile -t svcs < <(dc config --format json | jq -r '.services | to_entries[] | select(.value.network_mode == "service:core") | .key')
+  ((${#svcs[@]} == 0)) || dc rm -s -f "${svcs[@]}" >/dev/null 2>&1 || true
+}
 vol() { registry_smoke_volume "$1"; }
 alpine() { registry_smoke_cli run --rm "$@"; }
 compose_backupctl() { registry_smoke_cmd_backupctl "$@"; }
 
 compose_up() {
   log "compose: up -d (project $PROJECT, profile backup-local)"
+  free_core_netns
   dc up -d
   wait_stack_http
 }
 
 compose_smoke() {
   log "compose: smoke.sh (registry mode)"
+  # A session token from before the wipe/restore is not evidence; log in again.
+  rm -f "${MVP_TOKEN_FILE:-$ROOT/run/admin.token}"
   (cd "$ROOT" && MUXCORE_SMOKE_REGISTRY=1 MVP_ADMIN_PASSWORD="$ORIG_PASS" ./smoke.sh) || fail "smoke.sh failed"
 }
 
@@ -506,6 +530,7 @@ compose_fresh_restore() {
   local resp staging
   log "compose: fresh install: create volumes, start core + backup-local only"
   dc create
+  free_core_netns
   dc up -d --no-deps core backup-local
   alpine -i -v "$(vol backup-data):/b" "$REGISTRY_SMOKE_ALPINE_IMAGE" sh -c "cat > /b/$BACKUP_ID.tar.gz" \
     <"$WORK/backup/$BACKUP_ID.tar.gz" || fail "copying the archive into backup-data"
@@ -527,6 +552,7 @@ compose_fresh_restore() {
 
 compose_start_all() {
   log "compose: up -d on restored volumes (decoy bootstrap password)"
+  free_core_netns
   MVP_ADMIN_PASSWORD="$DECOY_PASS" dc up -d
 }
 

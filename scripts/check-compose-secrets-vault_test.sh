@@ -14,7 +14,7 @@ check_file() {
     || fail "$file secrets-vault must publish container gRPC port 9551"
   grep -A40 '^  secrets-vault:' "$file" | grep -q 'MUXCORE_MODULE_ID: secrets-vault' \
     || fail "$file secrets-vault must set MUXCORE_MODULE_ID"
-  grep -A40 '^  secrets-vault:' "$file" | grep -q 'SECRETS_GRPC_ADDR: ":9551"' \
+  grep -A40 '^  secrets-vault:' "$file" | grep -Eq 'SECRETS_GRPC_ADDR: ("|secrets-vault):9551' \
     || fail "$file secrets-vault must set SECRETS_GRPC_ADDR"
   grep -A40 '^  secrets-vault:' "$file" | grep -q 'SECRETS_BACKEND:' \
     || fail "$file secrets-vault must wire SECRETS_BACKEND"

@@ -20,6 +20,10 @@
 
 name: muxcore-mvp-registry
 
+# Module gRPC listen addresses are "<service>:<port>", never ":<port>": in the
+# insecure dev profile the modules rewrite a host-less bind to 127.0.0.1, and the
+# address a module listens on is also the one it advertises to core, so core and
+# peers in other containers could not reach it (scripts/check-compose-grpc-binds_test.sh).
 x-image: &image
   image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/${MUXCORE_SERVICE:-muxcored}:${MUXCORE_IMAGE_TAG:-v0.6.13}
   restart: unless-stopped
@@ -41,6 +45,10 @@ services:
     ports:
       - "${MUXCORE_HTTP_PORT:-8080}:8080"
       - "${MUXCORE_GRPC_PORT:-9090}:9090"
+      # auth-local runs in this network namespace (see the note there), so its
+      # ports are published here.
+      - "${AUTH_LOCAL_PORT:-9403}:9403"
+      - "${AUTH_HTTP_PORT:-9401}:9401"
     volumes:
       - core-data:/app/data
       - ./muxcore.json:/app/muxcore.json:ro
@@ -51,8 +59,20 @@ services:
       retries: 20
       start_period: 10s
     restart: unless-stopped
-    networks: [muxcore]
+    networks:
+      muxcore:
+        # Security sidecars that share core's network namespace keep their
+        # service names on the compose network.
+        aliases: [auth-local, call-policy-default, publish-policy-default]
 
+  # Security sidecars (auth-local, call-policy-default, publish-policy-default)
+  # share core's network namespace: in the dev profile (plaintext mesh,
+  # MUXCORE_INSECURE_DISABLE_TLS) core dials sidecar providers only on loopback
+  # (core >= v0.6.10, T-M3-02b), so they must be reachable on core's 127.0.0.1.
+  # Their gRPC addresses stay host-less (":port") so they advertise a loopback
+  # address to core; peers reach them by service name through core's aliases.
+  # Remove when compose moves to the household profile with mesh TLS (T-M3-02g).
+  # If core is recreated, recreate these too (`up -d --force-recreate`).
   api-rest:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/api-rest:${MUXCORE_IMAGE_TAG:-v0.6.13}
@@ -60,7 +80,7 @@ services:
       <<: *module_env
       MUXCORE_MODULE_ID: api-rest
       API_REST_HTTP_ADDR: ":8080"
-      API_REST_GRPC_ADDR: ":9400"
+      API_REST_GRPC_ADDR: api-rest:9400
     ports:
       - "${API_REST_HTTP_PORT:-18080}:8080"
       - "${API_REST_GRPC_PORT:-9400}:9400"
@@ -69,8 +89,9 @@ services:
         condition: service_healthy
 
   auth-local:
-    <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/auth-local:${MUXCORE_IMAGE_TAG:-v0.6.13}
+    restart: unless-stopped
+    network_mode: "service:core"   # see the note above api-rest; ports published on core
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: auth-local
@@ -79,9 +100,6 @@ services:
       AUTH_HTTP_ADDR: ":9401"
       AUTH_BOOTSTRAP_USER: ${MVP_ADMIN_USER:-admin}
       AUTH_BOOTSTRAP_PASSWORD: ${MVP_ADMIN_PASSWORD:?set MVP_ADMIN_PASSWORD in .env (openssl rand -hex 16)}
-    ports:
-      - "${AUTH_LOCAL_PORT:-9403}:9403"
-      - "${AUTH_HTTP_PORT:-9401}:9401"
     volumes:
       - auth-data:/data
     depends_on:
@@ -99,7 +117,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: auth-oidc
-      AUTH_OIDC_GRPC_ADDR: ":9410"
+      AUTH_OIDC_GRPC_ADDR: auth-oidc:9410
       AUTH_OIDC_HTTP_ADDR: ":9412"
       AUTH_OIDC_DB_PATH: /data/auth-oidc/auth.db
       AUTH_OIDC_ISSUER: ${AUTH_OIDC_ISSUER:-}
@@ -134,7 +152,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: cache-local
-      CACHE_LOCAL_GRPC_ADDR: ":9602"
+      CACHE_LOCAL_GRPC_ADDR: cache-local:9602
     ports:
       - "${CACHE_LOCAL_GRPC_PORT:-9602}:9602"
     depends_on:
@@ -149,6 +167,9 @@ services:
       <<: *module_env
       MUXCORE_MODULE_ID: database-sqlite
       SQLITE_DB_PATH: /data/muxcore.db
+      # Insecure dev mode rewrites ":port" binds to loopback; bind the service
+      # name so core and peers can reach gRPC across containers.
+      DATABASE_GRPC_ADDR: database-sqlite:9700
     volumes:
       - sqlite-data:/data
     depends_on:
@@ -162,6 +183,9 @@ services:
       <<: *module_env
       MUXCORE_MODULE_ID: secrets-file
       SECRETS_STORE: /data/secrets.json
+      # Insecure dev mode rewrites ":port" binds to loopback; bind the service
+      # name so core and peers can reach gRPC across containers.
+      SECRETS_GRPC_ADDR: secrets-file:9550
       # Required (64 hex chars, e.g. `openssl rand -hex 32`). Keep it OUTSIDE the
       # backup archive (operator .env / password manager): a restored secrets.json
       # is unreadable without it. Unset = fail closed at Init (ADR-0013).
@@ -183,7 +207,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: secrets-vault
-      SECRETS_GRPC_ADDR: ":9551"
+      SECRETS_GRPC_ADDR: secrets-vault:9551
       SECRETS_BACKEND: ${SECRETS_BACKEND:-}
       SECRETS_PREFIX: ${SECRETS_PREFIX:-muxcore/}
       VAULT_ADDR: ${VAULT_ADDR:-}
@@ -214,6 +238,9 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: encryption-aesgcm
+      # Insecure dev mode rewrites ":port" binds to loopback; bind the service
+      # name so core and peers can reach gRPC across containers.
+      ENCRYPTION_GRPC_ADDR: encryption-aesgcm:9601
       # Keyring is generated on first start. Key material: not in the backup
       # archive (household-manifest excluded_volumes); export it separately.
       ENCRYPTION_KEY_FILE: /data/master.key
@@ -224,21 +251,28 @@ services:
         condition: service_healthy
 
   call-policy-default:
-    <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/call-policy-default:${MUXCORE_IMAGE_TAG:-v0.6.13}
+    restart: unless-stopped
+    network_mode: "service:core"   # see the note above api-rest
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: call-policy-default
+      CALL_POLICY_GRPC_ADDR: ":9101"
+      # Shipped next to the binary (module images copy policies.yaml into /app).
+      CALL_POLICY_FILE: /app/policies.yaml
     depends_on:
       core:
         condition: service_healthy
 
   publish-policy-default:
-    <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/publish-policy-default:${MUXCORE_IMAGE_TAG:-v0.6.13}
+    restart: unless-stopped
+    network_mode: "service:core"   # see the note above api-rest
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: publish-policy-default
+      PUBLISH_POLICY_GRPC_ADDR: ":9102"
+      PUBLISH_POLICY_FILE: /app/policies.yaml
     depends_on:
       core:
         condition: service_healthy
@@ -249,6 +283,9 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: health-monitor
+      # Insecure dev mode rewrites ":port" binds to loopback; bind the service
+      # name so core and peers can reach gRPC across containers.
+      HEALTH_MONITOR_GRPC_ADDR: health-monitor:9202
       # Off-loopback HTTP needs a bearer token (NFR-SEC-011); admin-ui sends it.
       HEALTH_MONITOR_HTTP_ADDR: "0.0.0.0:9203"
       HEALTH_MONITOR_HTTP_TOKEN: ${HEALTH_MONITOR_HTTP_TOKEN:?set HEALTH_MONITOR_HTTP_TOKEN in .env (openssl rand -hex 32)}
@@ -263,7 +300,14 @@ services:
       <<: *module_env
       MUXCORE_MODULE_ID: admin-ui
       ADMIN_UI_ADDR: ":8082"
-      ADMIN_UI_AUTH_ADDR: http://auth-local:9401
+      # admin-ui reads its own core address (not MUXCORE_GRPC_ADDR).
+      ADMIN_UI_CORE_ADDR: core:9090
+      ADMIN_UI_INSECURE: "true"
+      # Browser-facing login URL (published auth-local HTTP port) vs the
+      # in-network URL admin-ui uses server-side.
+      ADMIN_UI_AUTH_ADDR: ${ADMIN_UI_AUTH_ADDR:-http://localhost:9401}
+      ADMIN_UI_AUTH_INTERNAL_ADDR: http://auth-local:9401
+      ADMIN_UI_USERDATA_URL: http://userdata-local:9672
       ADMIN_UI_DATA_DIR: /data
       # Shared with media-ui consumer POST /api/password-reset (umbrella #111).
       ADMIN_UI_PASSWORD_RESET_FILE: /data/media-ui/password-resets.json
@@ -310,7 +354,7 @@ services:
       MUXCORE_MODULE_ID: media-tvshows
       TVSHOWS_DB_PATH: /data/tvshows.db
       TVSHOWS_IMAGE_DIR: /data/images
-      TVSHOWS_GRPC_ADDR: ":9440"
+      TVSHOWS_GRPC_ADDR: media-tvshows:9440
       TVSHOWS_HTTP_ADDR: ":9450"
     volumes:
       - media-tvshows-data:/data
@@ -326,6 +370,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-automation
+      AUTOMATION_GRPC_ADDR: media-automation:9460
       DOWNLOADER_ENGINE: ${DOWNLOADER_ENGINE:-fixture}
       AUTOMATION_DB_PATH: /data/automation.db
       AUTOMATION_DOWNLOAD_DIR: /data/downloads
@@ -346,7 +391,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: downloader-native-torrent
-      DOWNLOADER_GRPC_ADDR: ":9461"
+      DOWNLOADER_GRPC_ADDR: downloader-native-torrent:9461
       DOWNLOADER_ENGINE: ${DOWNLOADER_ENGINE:-fixture}
       DOWNLOAD_DIR: /data/downloads
       # Payloads land on the shared `downloads` volume that media-automation and
@@ -374,7 +419,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: downloader-qbittorrent
-      QBIT_GRPC_ADDR: ":9462"
+      QBIT_GRPC_ADDR: downloader-qbittorrent:9462
       QBIT_HTTP_ADDR: ":9463"
       DOWNLOADER_ENGINE: ${DOWNLOADER_ENGINE:-fixture}
       QBIT_FIXTURE: ${QBIT_FIXTURE:-1}
@@ -395,7 +440,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: downloader-native-usenet
-      USENET_GRPC_ADDR: ":9622"
+      USENET_GRPC_ADDR: downloader-native-usenet:9622
       MUXCORE_HTTP_ADDR: ":9623"
       USENET_ENGINE: ${USENET_ENGINE:-fixture}
       USENET_DOWNLOAD_DIR: /data/downloads/usenet
@@ -470,7 +515,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: indexer-piratebay
-      PIRATEBAY_GRPC_ADDR: ":9485"
+      PIRATEBAY_GRPC_ADDR: indexer-piratebay:9485
       PIRATEBAY_HTTP_ADDR: ":9487"
       INDEXER_FIXTURE: ${INDEXER_FIXTURE:-1}
       PIRATEBAY_API_BASE: ${PIRATEBAY_API_BASE:-}
@@ -491,7 +536,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: indexer-torznab
-      TORZNAB_GRPC_ADDR: ":9486"
+      TORZNAB_GRPC_ADDR: indexer-torznab:9486
       TORZNAB_URL: ${TORZNAB_URL:-}
       TORZNAB_API_KEY: ${TORZNAB_API_KEY:-}
       PROWLARR_URL: ${PROWLARR_URL:-}
@@ -512,9 +557,15 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-scanner
+      SCANNER_GRPC_ADDR: media-scanner:9470
       SCANNER_DB_PATH: /data/scanner.db
       SCANNER_LIBRARY_ROOT: /data/movies
       SCANNER_TV_LIBRARY_ROOT: /data/shows
+      # Downloads are a watch dir from the first start (otherwise ImportPath
+      # answers "not initialized" until an operator adds one). Separate volumes
+      # cannot be hardlinked across, so copy.
+      SCANNER_DEFAULT_WATCH_DIR: /data/downloads
+      SCANNER_IMPORT_MODE: ${SCANNER_IMPORT_MODE:-copy}
     volumes:
       - media-scanner-data:/data
       - downloads:/data/downloads
@@ -548,6 +599,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: metadata-tmdb
+      METADATA_GRPC_ADDR: metadata-tmdb:9411
       TMDB_API_KEY: ${TMDB_API_KEY:-}
     depends_on:
       core:
@@ -559,6 +611,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-custom-formats
+      FORMATS_GRPC_ADDR: media-custom-formats:9490
       FORMATS_DB_PATH: /data/formats.db
       FORMATS_SEED_DEFAULTS: "true"
       FORMATS_TRASH_SYNC: "${FORMATS_TRASH_SYNC:-true}"
@@ -578,7 +631,7 @@ services:
       <<: *module_env
       MUXCORE_MODULE_ID: media-rename
       RENAME_DB_PATH: /data/rename.db
-      RENAME_GRPC_ADDR: ":9510"
+      RENAME_GRPC_ADDR: media-rename:9510
     volumes:
       - media-rename-data:/data
     depends_on:
@@ -591,6 +644,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-ffprobe
+      FFPROBE_GRPC_ADDR: media-ffprobe:9480
       FFPROBE_DB_PATH: /data/cache.db
     volumes:
       - media-ffprobe-data:/data
@@ -604,6 +658,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-subtitles
+      SUBS_GRPC_ADDR: media-subtitles:9520
       SUBS_DB_PATH: /data/subtitles.db
       SUBS_DIR: /data/files
     volumes:
@@ -618,6 +673,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-root-folders
+      ROOTS_GRPC_ADDR: media-root-folders:9540
       ROOTS_DB_PATH: /data/roots.db
     volumes:
       - media-root-folders-data:/data
@@ -651,7 +707,7 @@ services:
       <<: *module_env
       MUXCORE_MODULE_ID: userdata-local
       USERDATA_LOCAL_HTTP_ADDR: ":9672"
-      USERDATA_LOCAL_GRPC_ADDR: ":9673"
+      USERDATA_LOCAL_GRPC_ADDR: userdata-local:9673
       USERDATA_LOCAL_DB_PATH: /data/userdata.db
     ports:
       - "${USERDATA_LOCAL_PORT:-9672}:9672"
@@ -675,7 +731,7 @@ services:
       <<: *module_env
       MUXCORE_MODULE_ID: backup-local
       BACKUP_DIR: /data/backups
-      BACKUP_GRPC_ADDR: ":9302"
+      BACKUP_GRPC_ADDR: backup-local:9302
       BACKUP_GRPC_BIND_ALL: "true"
       BACKUP_SOURCE_DIRS: ${BACKUP_SOURCE_DIRS:-/source/core,/source/auth-local,/source/database-sqlite,/source/secrets-file,/source/admin-ui,/source/media-movies,/source/media-tvshows,/source/media-scanner,/source/media-automation,/source/request-media,/source/userdata-local,/source/media-ui,/source/media-custom-formats,/source/media-rename,/source/media-ffprobe,/source/media-subtitles,/source/media-root-folders,/source/auth-oidc,/source/playback-guard,/source/playback-monitor,/source/media-dlna,/source/media-tagging,/source/media-intro-outro,/source/media-transcoder-pool,/source/jellyfin,/source/plex,/source/emby}
       BACKUP_SCHEDULE_CRON: ${BACKUP_SCHEDULE_CRON:-}
@@ -731,7 +787,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-dlna
-      DLNA_GRPC_ADDR: ":9751"
+      DLNA_GRPC_ADDR: media-dlna:9751
       DLNA_HEALTH_HTTP_ADDR: ":8751"
       DLNA_HTTP_ADDR: ":9750"
       DLNA_MEDIA_PATH: ${DLNA_MEDIA_PATH:-/data/movies}
@@ -760,7 +816,7 @@ services:
       <<: *module_env
       MUXCORE_MODULE_ID: media-tagging
       TAGGING_DATA_DIR: /data/tagging
-      TAGGING_GRPC_ADDR: ":9740"
+      TAGGING_GRPC_ADDR: media-tagging:9740
       MUXCORE_HTTP_ADDR: ":9741"
     ports:
       - "${MEDIA_TAGGING_GRPC_PORT:-9740}:9740"
@@ -804,7 +860,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: playback-guard
-      PLAYBACK_GUARD_GRPC_ADDR: ":9561"
+      PLAYBACK_GUARD_GRPC_ADDR: playback-guard:9561
       PLAYBACK_GUARD_DB_PATH: /data/playback-guard/guard.db
     ports:
       - "${PLAYBACK_GUARD_GRPC_PORT:-9561}:9561"
@@ -824,7 +880,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: playback-monitor
-      PLAYBACK_MONITOR_GRPC_ADDR: ":9560"
+      PLAYBACK_MONITOR_GRPC_ADDR: playback-monitor:9560
       PLAYBACK_MONITOR_HTTP_ADDR: ":8560"
       PLAYBACK_MONITOR_DB_PATH: /data/playback-monitor/monitor.db
       PLAYBACK_MONITOR_HTTP_TOKEN: ${PLAYBACK_MONITOR_HTTP_TOKEN:-}

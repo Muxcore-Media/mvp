@@ -6,6 +6,15 @@
 #   MODULES="api-rest auth-local media-automation" ./scripts/publish-module-images.sh v0.6.13
 #   BUILD_ONLY=1 MUXCORE_REGISTRY=localhost:5000/muxcore ./scripts/publish-module-images.sh v0.6.13
 #   MUXCORE_REGISTRY=ghcr.io/muxcore-media ./scripts/publish-module-images.sh v0.6.13   # needs write:packages
+#   PREBUILT_DIR=/tmp/muxcore-bin ./scripts/publish-module-images.sh v0.6.13      # ADR-0014 prebuilt mode
+#
+# PREBUILT_DIR mode packages binaries built on the host by
+# scripts/build-module-binaries.sh (workspace mode, ADR-0012 flags) with
+# dockerfiles/module-prebuilt.Dockerfile / media-ui-prebuilt.Dockerfile — no Go
+# toolchain or private-module credentials inside the image build. Missing
+# binaries are built first (build-module-binaries.sh) unless PREBUILT_NO_BUILD=1.
+# Without PREBUILT_DIR each image compiles in-container (module.Dockerfile),
+# which needs the module's private dependencies to be fetchable there.
 #
 # MUXCORE_REGISTRY defaults to localhost:5000/muxcore (see ../local-registry.sh).
 #
@@ -20,6 +29,7 @@ WS="$(cd "$ROOT/.." && pwd)"
 REGISTRY="${MUXCORE_REGISTRY:-localhost:5000/muxcore}"
 BUILD_ONLY="${BUILD_ONLY:-0}"
 DOCKERFILE="$ROOT/dockerfiles/module.Dockerfile"
+PREBUILT_DIR="${PREBUILT_DIR:-}"
 
 DEFAULT_MODULES=(
   api-rest auth-local database-sqlite secrets-file encryption-aesgcm
@@ -84,9 +94,63 @@ fi
 [[ -f "$DOCKERFILE" ]] || die "missing $DOCKERFILE"
 
 RT="$(detect_runtime)"
-echo "==> publishing ${#MODULE_LIST[@]} modules to ${REGISTRY} tag ${TAG} via $RT"
+echo "==> publishing ${#MODULE_LIST[@]} modules to ${REGISTRY} tag ${TAG} via $RT${PREBUILT_DIR:+ (prebuilt: $PREBUILT_DIR)}"
+
+# prebuilt_ready <name> — host artefacts for <name> exist under PREBUILT_DIR.
+prebuilt_ready() {
+  if [[ "$1" == "media-ui" ]]; then
+    [[ -x "$PREBUILT_DIR/media-ui/mediauiprox" && -f "$PREBUILT_DIR/media-ui/dist-app/index.html" ]]
+  else
+    [[ -x "$PREBUILT_DIR/$1/module" ]]
+  fi
+}
+
+if [[ -n "$PREBUILT_DIR" ]]; then
+  mkdir -p "$PREBUILT_DIR"
+  PREBUILT_DIR="$(cd "$PREBUILT_DIR" && pwd)"
+  missing=()
+  for name in "${MODULE_LIST[@]}"; do
+    prebuilt_ready "$name" || missing+=("$name")
+  done
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    [[ "${PREBUILT_NO_BUILD:-0}" != "1" ]] || die "PREBUILT_DIR missing binaries: ${missing[*]}"
+    "$ROOT/scripts/build-module-binaries.sh" "$PREBUILT_DIR" "${missing[@]}"
+  fi
+fi
+
+# Extra alpine packages a module needs at runtime (module Dockerfiles' APK_EXTRA).
+module_apk_extra() {
+  case "$1" in
+    media-ffprobe | media-intro-outro | media-transcoder-pool) echo ffmpeg ;;
+    downloader-native-torrent | indexer-piratebay | indexer-torznab) echo "wireguard-tools iptables iproute2" ;;
+    *) echo "" ;;
+  esac
+}
+
+# Plain-HTTP LAN registry with podman: mark it insecure in registries.conf
+# (scripts/clean-room.sh writes a registries.conf.d drop-in for localhost:5000).
+push_image() {
+  "$RT" push "$1"
+}
 
 for name in "${MODULE_LIST[@]}"; do
+  image="${REGISTRY}/${name}:${TAG}"
+  if [[ -n "$PREBUILT_DIR" ]]; then
+    if [[ "$name" == "media-ui" ]]; then
+      dockerfile="$ROOT/dockerfiles/media-ui-prebuilt.Dockerfile"
+    else
+      dockerfile="$ROOT/dockerfiles/module-prebuilt.Dockerfile"
+    fi
+    echo "==> package $name -> $image"
+    "$RT" build -f "$dockerfile" \
+      --build-arg APK_EXTRA="$(module_apk_extra "$name")" \
+      --label "org.opencontainers.image.version=${TAG#v}" \
+      -t "$image" "$PREBUILT_DIR/$name"
+    if [[ "$BUILD_ONLY" != "1" ]]; then
+      push_image "$image"
+    fi
+    continue
+  fi
   mod_dir="$WS/$name"
   [[ -d "$mod_dir" ]] || die "module dir not found: $mod_dir"
   image="${REGISTRY}/${name}:${TAG}"
@@ -102,11 +166,12 @@ for name in "${MODULE_LIST[@]}"; do
   "$RT" build -f "$dockerfile" \
     --build-arg MODULE="$name" \
     --build-arg VERSION="${TAG#v}" \
+    --build-arg APK_EXTRA="$(module_apk_extra "$name")" \
     "${extra_build_args[@]}" \
     -t "$image" \
     "$WS"
   if [[ "$BUILD_ONLY" != "1" ]]; then
-    "$RT" push "$image"
+    push_image "$image"
   fi
 done
 

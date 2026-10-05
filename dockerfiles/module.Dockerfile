@@ -18,6 +18,8 @@ RUN if [ -d ./cmd/module ]; then \
     else \
       echo "no module entrypoint in ${MODULE}" >&2; exit 1; \
     fi
+# Runtime files the module reads from its working dir (policies.yaml, …).
+RUN mkdir -p /assets && for f in policies*.yaml; do [ -f "$f" ] && cp "$f" /assets/; done; true
 
 FROM alpine:3.21
 # Compose mounts named volumes at these paths (docker-compose.registry.yml). A
@@ -25,7 +27,9 @@ FROM alpine:3.21
 # the image directory's owner on first mount, so pre-create them owned by `app`
 # (uid 1000, shared with media-ui.Dockerfile). scripts/check-compose-mountpoints_test.sh
 # keeps this list in sync with the compose file.
-RUN apk add --no-cache ca-certificates curl \
+# Extra runtime packages per module (publish-module-images.sh module_apk_extra).
+ARG APK_EXTRA=""
+RUN apk add --no-cache ca-certificates curl ${APK_EXTRA} \
   && adduser -D -u 1000 -h /data app \
   && mkdir -p /data/downloads /data/movies /data/shows /data/media-ui \
      /data/backups /data/restore /data/dlna /data/tagging /data/intro-outro \
@@ -34,4 +38,5 @@ RUN apk add --no-cache ca-certificates curl \
 USER app
 WORKDIR /app
 COPY --from=builder /module ./module
+COPY --from=builder /assets/ ./
 ENTRYPOINT ["./module"]
