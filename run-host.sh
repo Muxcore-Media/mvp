@@ -459,7 +459,7 @@ EOF
     if [[ ! -x "$BIN/admin-ui" ]]; then
       echo "building admin-ui"
       ver="${ADMIN_UI_VERSION:-0.1.10}"
-      (cd "$WS/admin-ui" && go build -ldflags="-s -w -X main.version=${ver}" -o "$BIN/admin-ui" .)
+      (cd "$WS/admin-ui" && go build -ldflags="-s -w -X main.version=${ver}" -o "$BIN/admin-ui" ./cmd/module)
     fi
     mkdir -p "$DATA/media-ui"
     maybe_start admin-ui env \

@@ -45,7 +45,7 @@ for line in "${LINES[@]}"; do
   git -C "$dir" checkout -q "$tag"
   if [[ "$name" == "admin-ui" ]]; then
     ver="${tag#v}"
-    (cd "$dir" && go build -ldflags="-s -w -X main.version=${ver}" -o "$BIN/admin-ui" .)
+    (cd "$dir" && go build -ldflags="-s -w -X main.version=${ver}" -o "$BIN/admin-ui" ./cmd/module)
   elif [[ -d "$dir/cmd/module" ]]; then
     (cd "$dir" && go build -o "$BIN/$name" ./cmd/module)
   elif [[ -f "$dir/main.go" ]]; then

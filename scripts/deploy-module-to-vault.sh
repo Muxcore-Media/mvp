@@ -189,7 +189,7 @@ build_module() {
       fi
       ver="${ADMIN_UI_VERSION:-0.1.10}"
       run_go "$WS/admin-ui" \
-        "GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags='-s -w -X main.version=${ver}' -o '$out' ."
+        "GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags='-s -w -X main.version=${ver}' -o '$out' ./cmd/module"
       ;;
     media-ui)
       echo "==> building mediauiprox"
