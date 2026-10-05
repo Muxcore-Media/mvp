@@ -18,7 +18,7 @@ type libraryKind struct {
 	CodePrefix string
 }
 
-func (s *server) registerLibraryRoutes(mux *http.ServeMux) {
+func (s *server) registerLibraryRoutes(mux routeRegistrar) {
 	for _, kind := range []libraryKind{
 		{Name: "music", Upstream: s.musicHTTP, ListPath: "/api/artists", CodePrefix: "music"},
 		{Name: "books", Upstream: s.booksHTTP, ListPath: "/api/authors", CodePrefix: "books"},

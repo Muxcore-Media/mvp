@@ -9,7 +9,9 @@
 #
 # MUXCORE_REGISTRY defaults to localhost:5000/muxcore (see ../local-registry.sh).
 #
-# Defaults MODULES to the MVP registry compose set in docker-compose.registry.yml.
+# Defaults MODULES to every image in docker-compose.registry.yml (all profiles) except
+# muxcored, which publish-muxcored-local.sh builds. Enforced by scripts/check-publish-set.sh
+# (TDD §5; part of run-script-tests.sh).
 set -euo pipefail
 
 TAG="${1:-}"
@@ -23,8 +25,13 @@ DEFAULT_MODULES=(
   api-rest auth-local database-sqlite secrets-file encryption-aesgcm
   call-policy-default publish-policy-default health-monitor admin-ui
   media-movies media-tvshows media-scanner media-automation metadata-tmdb
-  media-custom-formats media-rename media-ffprobe media-subtitles media-root-folders
-  request-media notification-default userdata-local media-ui jellyfin
+  media-custom-formats media-rename media-ffprobe media-subtitles
+  media-root-folders request-media notification-default userdata-local media-ui
+  jellyfin auth-oidc backup-local cache-local downloader-debrid
+  downloader-native-torrent downloader-native-usenet downloader-qbittorrent
+  downloader-sabnzbd emby indexer-piratebay indexer-torznab media-dlna
+  media-intro-outro media-tagging media-transcoder-pool playback-guard
+  playback-monitor plex secrets-vault
 )
 
 if [[ -n "${MODULES:-}" ]]; then

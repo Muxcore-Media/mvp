@@ -400,6 +400,30 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	s.registerRoutes(mux)
+
+	handler := http.Handler(mux)
+	if s.requireAuth {
+		handler = s.withAuth(mux)
+	}
+
+	log.Printf("media-ui proxy listening on %s (dist=%s auth=%v auth_http=%s auth_internal=%s public=%s)",
+		*listen, *dist, *requireAuth, s.authHTTP, s.authInternal, s.publicURL)
+	if err := http.ListenAndServe(*listen, handler); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// routeRegistrar is the subset of *http.ServeMux used for route registration.
+// It lets tests enumerate every registered pattern (routes_inventory_test.go)
+// without a network listener.
+type routeRegistrar interface {
+	Handle(pattern string, handler http.Handler)
+	HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request))
+}
+
+// registerRoutes registers every BFF route. Keep BFF-API.md "Route inventory" in sync.
+func (s *server) registerRoutes(mux routeRegistrar) {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -635,7 +659,7 @@ func main() {
 	mux.HandleFunc("GET /api/livetv", s.handleLiveTV)
 	mux.HandleFunc("POST /api/livetv/timers", s.handleLiveTVTimer)
 	mux.HandleFunc("/api/quickconnect", s.handleQuickConnect)
-	mux.HandleFunc("/api/tv/login", s.handleTVLogin)
+	mux.HandleFunc("POST /api/tv/login", s.handleTVLogin)
 	mux.HandleFunc("/api/tv/login/totp", s.handleTVLoginTOTP)
 	mux.HandleFunc("GET /api/mobile/auth/login", s.handleMobileAuthLogin)
 	mux.HandleFunc("GET /api/mobile/auth/done", s.handleMobileAuthDone)
@@ -669,7 +693,7 @@ func main() {
 	mux.HandleFunc("POST /api/debrid/add", s.handleDebridAdd)
 	mux.HandleFunc("GET /api/debrid/vfs", s.handleDebridVFS)
 	mux.HandleFunc("GET /api/debrid/stream", s.handleDebridStream)
-	mux.HandleFunc("GET /api/music/tracks/", s.handleTrackLyrics)
+	mux.HandleFunc("GET /api/music/tracks/{id}/lyrics", s.handleTrackLyrics)
 	mux.HandleFunc("/api/userdata", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -705,17 +729,6 @@ func main() {
 	mux.Handle("/stream/movies/", reverseProxy(s.moviesHTTP))
 	mux.Handle("/stream/tv/", reverseProxy(s.tvHTTP))
 	mux.HandleFunc("/", s.spa)
-
-	handler := http.Handler(mux)
-	if s.requireAuth {
-		handler = s.withAuth(mux)
-	}
-
-	log.Printf("media-ui proxy listening on %s (dist=%s auth=%v auth_http=%s auth_internal=%s public=%s)",
-		*listen, *dist, *requireAuth, s.authHTTP, s.authInternal, s.publicURL)
-	if err := http.ListenAndServe(*listen, handler); err != nil {
-		log.Fatal(err)
-	}
 }
 
 type sessionStore struct {

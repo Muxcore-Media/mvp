@@ -2,6 +2,8 @@
 
 Consumer SPA (`media-ui-app`) talks to `mvp/cmd/mediauiprox` on `:5173`.
 
+The complete, test-enforced list of every registered route is the [Route inventory](#route-inventory) at the end of this file; the sections below describe request/response contracts for the main groups.
+
 ## List endpoints
 
 ### `GET /api/movies?page=&page_size=&library=`
@@ -524,3 +526,407 @@ All `/api/playback/*` routes return JSON errors `{ "error", "code" }` on upstrea
 
 Set `MEDIA_UI_PUBLIC_URL` and `MEDIA_UI_TRUSTED_PROXIES` (dawn/dusk `/128` CIDRs) when behind edge nginx so Secure cookies and callback origins match `https://mux.zem.systems`.
 
+## Route inventory
+
+Every route registered by `registerRoutes` in `cmd/mediauiprox/main.go` (plus `registerLibraryRoutes` and `registerRequestMediaRoutes`). `routes_inventory_test.go` fails when this table and the registered patterns differ. Format: `METHOD /pattern` (`ANY` = registered without a method, so every method reaches the handler; a trailing `/` matches the subtree). `{x}` are path parameters.
+
+### Service, auth, static and streams
+
+| Route | Purpose |
+|-------|---------|
+| `ANY /` | SPA static files and client-side routing fallback |
+| `ANY /auth/callback` | OAuth callback from auth-local |
+| `ANY /healthz` | Liveness probe (`{"status":"ok"}`) |
+| `ANY /images/audiobooks/` | Reverse proxy to audiobook images |
+| `ANY /images/books/` | Reverse proxy to book images |
+| `ANY /images/comics/` | Reverse proxy to comic images |
+| `ANY /images/movies/` | Reverse proxy to movie images (media-movies) |
+| `ANY /images/music/` | Reverse proxy to music images |
+| `ANY /images/tv/` | Reverse proxy to TV images (media-tvshows) |
+| `ANY /login` | Start login (redirect to auth-local) |
+| `ANY /logout` | End session |
+| `GET /stream/audiobooks/` | Audiobook stream |
+| `GET /stream/books/` | Book stream |
+| `GET /stream/comics/` | Comic issue stream |
+| `GET /stream/hls` | HLS playlist index |
+| `GET /stream/hls/{key}/{file}` | HLS segment/asset |
+| `ANY /stream/movies/` | Reverse proxy to media-movies file stream |
+| `GET /stream/music/` | Music stream |
+| `GET /stream/transcode` | Transcode stream |
+| `GET /stream/trickplay` | Trickplay sprite |
+| `ANY /stream/tv/` | Reverse proxy to media-tvshows file stream |
+
+### Capabilities & discover
+
+| Route | Purpose |
+|-------|---------|
+| `GET /api/capabilities` | Which optional modules/features are available to the SPA |
+| `ANY /api/discover/` | Discover movies/TV/people/music/book browse and detail (subtree) |
+| `GET /api/graph/related` | Related titles from media-graph |
+| `ANY /api/search` | Proxy to request-media search |
+
+### Movies & TV library
+
+| Route | Purpose |
+|-------|---------|
+| `GET /api/calendar` | Upcoming releases calendar |
+| `GET /api/collections` | List collections |
+| `GET /api/collections/` | Collection detail (subtree) |
+| `GET /api/collections/{id}` | Collection detail (subtree) |
+| `PATCH /api/collections/{id}` | Set collection monitored |
+| `PUT /api/collections/{id}` | Set collection monitored |
+| `POST /api/collections/{id}/sync` | Sync collection |
+| `PATCH /api/episodes/{id}` | Patch episode |
+| `DELETE /api/episodes/{id}/file` | Delete episode file |
+| `GET /api/episodes/{id}/file` | Get episode file |
+| `GET /api/missing` | Missing/wanted library items |
+| `ANY /api/movies` | List movies (paged); POST adds a movie |
+| `ANY /api/movies/` | Movie detail subtree (`/api/movies/{id}`) |
+| `DELETE /api/movies/{id}` | Delete movie |
+| `PATCH /api/movies/{id}` | Patch movie |
+| `GET /api/movies/{id}/artwork` | List movie artwork |
+| `POST /api/movies/{id}/artwork` | Replace movie artwork |
+| `DELETE /api/movies/{id}/file` | Delete movie file |
+| `GET /api/movies/{id}/files` | List movie files |
+| `DELETE /api/movies/{id}/files/{fileId}` | Delete movie file by ID |
+| `GET /api/movies/{id}/history` | List movie history |
+| `POST /api/movies/{id}/refresh` | Refresh movie |
+| `GET /api/movies/{id}/subtitles` | List movie subtitles |
+| `POST /api/movies/{id}/subtitles` | Upload movie subtitles |
+| `GET /api/movies/{id}/tags` | Get movie tags |
+| `POST /api/movies/{id}/tags` | Set movie tags |
+| `PUT /api/movies/{id}/tags` | Set movie tags |
+| `GET /api/movies/{id}/titles` | List movie titles |
+| `POST /api/movies/{id}/titles` | Add movie title |
+| `DELETE /api/movies/{id}/titles/{titleId}` | Delete movie title |
+| `GET /api/tags` | List tags |
+| `POST /api/tags` | Create tag |
+| `DELETE /api/tags/{id}` | Delete tag |
+| `ANY /api/tv` | List TV shows (paged); POST adds a show |
+| `ANY /api/tv/` | TV show detail subtree (`/api/tv/{id}`, seasons, episodes) |
+| `POST /api/tv/login` | TV login with username/password (device code flow, POST) |
+| `ANY /api/tv/login/totp` | TV login second step: verify TOTP code (POST) |
+| `PATCH /api/tv/seasons/{id}` | Patch TV season |
+| `DELETE /api/tv/{id}` | Delete TV |
+| `PATCH /api/tv/{id}` | Patch TV |
+| `GET /api/tv/{id}/artwork` | List TV artwork |
+| `POST /api/tv/{id}/artwork` | Replace TV artwork |
+| `GET /api/tv/{id}/history` | List TV history |
+| `DELETE /api/tv/{id}/override` | Delete series override |
+| `GET /api/tv/{id}/override` | Get series override |
+| `POST /api/tv/{id}/override` | Put series override |
+| `PUT /api/tv/{id}/override` | Put series override |
+| `POST /api/tv/{id}/refresh` | Refresh TV |
+| `GET /api/tv/{id}/subtitles` | List TV subtitles |
+| `POST /api/tv/{id}/subtitles` | Upload TV subtitles |
+| `GET /api/tv/{id}/tags` | Get TV tags |
+| `POST /api/tv/{id}/tags` | Set TV tags |
+| `PUT /api/tv/{id}/tags` | Set TV tags |
+| `GET /api/tv/{id}/titles` | List TV titles |
+| `POST /api/tv/{id}/titles` | Add TV title |
+| `DELETE /api/tv/{id}/titles/{titleId}` | Delete TV title |
+
+### Library-plus (music, books, comics, audiobooks)
+
+| Route | Purpose |
+|-------|---------|
+| `GET /api/audiobooks` | List audiobooks (media-audiobooks) |
+| `POST /api/audiobooks` | Add audiobook |
+| `GET /api/audiobooks/` | Audiobook by ID |
+| `DELETE /api/audiobooks/{id}` | Delete audiobook |
+| `PATCH /api/audiobooks/{id}` | Patch audiobook |
+| `GET /api/audiobooks/{id}/artwork` | List audiobook artwork |
+| `POST /api/audiobooks/{id}/artwork` | Replace audiobook artwork |
+| `GET /api/audiobooks/{id}/history` | List audiobook history |
+| `POST /api/audiobooks/{id}/import` | Import audiobook |
+| `GET /api/books` | List book authors (media-books) |
+| `POST /api/books` | Add book author |
+| `GET /api/books/` | Book author by ID |
+| `DELETE /api/books/works/{id}` | Delete book |
+| `PATCH /api/books/works/{id}` | Patch book |
+| `POST /api/books/works/{id}/import` | Import book |
+| `DELETE /api/books/{id}` | Delete book author |
+| `PATCH /api/books/{id}` | Patch book author |
+| `GET /api/books/{id}/artwork` | List book artwork |
+| `POST /api/books/{id}/artwork` | Replace book artwork |
+| `POST /api/books/{id}/books` | Add book |
+| `GET /api/books/{id}/history` | List book history |
+| `GET /api/books/{id}/tags` | Get book tags |
+| `POST /api/books/{id}/tags` | Set book tags |
+| `PUT /api/books/{id}/tags` | Set book tags |
+| `GET /api/comics` | List comic series (media-comics) |
+| `POST /api/comics` | Add comic series |
+| `GET /api/comics/` | Comic series by ID |
+| `DELETE /api/comics/issues/{id}` | Delete comic issue |
+| `PATCH /api/comics/issues/{id}` | Patch comic issue |
+| `POST /api/comics/issues/{id}/import` | Import comic issue |
+| `DELETE /api/comics/{id}` | Delete comic series |
+| `PATCH /api/comics/{id}` | Patch comic series |
+| `GET /api/comics/{id}/artwork` | List comic artwork |
+| `POST /api/comics/{id}/artwork` | Replace comic artwork |
+| `GET /api/comics/{id}/history` | List comic history |
+| `POST /api/comics/{id}/issues` | Add comic issue |
+| `GET /api/music` | List music artists (media-music) |
+| `POST /api/music` | Add music artist |
+| `GET /api/music/` | Music artist by ID |
+| `PATCH /api/music/albums/{id}` | Patch music album |
+| `POST /api/music/albums/{id}/import` | Import music album |
+| `GET /api/music/tracks/{id}/lyrics` | Track lyrics |
+| `DELETE /api/music/{id}` | Delete music artist |
+| `PATCH /api/music/{id}` | Patch music artist |
+| `POST /api/music/{id}/albums` | Add music album |
+| `GET /api/music/{id}/artwork` | List music artwork |
+| `POST /api/music/{id}/artwork` | Replace music artwork |
+| `GET /api/music/{id}/files` | List music track files |
+| `DELETE /api/music/{id}/files/{fileId}` | Delete music track file |
+| `GET /api/music/{id}/history` | List music history |
+| `POST /api/music/{id}/refresh` | Refresh music artist |
+| `GET /api/music/{id}/tags` | Get music tags |
+| `POST /api/music/{id}/tags` | Set music tags |
+| `PUT /api/music/{id}/tags` | Set music tags |
+
+### Roots, scan, rename & import
+
+| Route | Purpose |
+|-------|---------|
+| `POST /api/import` | Import path |
+| `GET /api/import/candidates` | Import candidates |
+| `POST /api/rename` | Rename execute |
+| `POST /api/rename/organize` | Organize library |
+| `GET /api/rename/preview` | Rename preview |
+| `GET /api/rename/templates` | List rename templates |
+| `POST /api/rename/templates` | Create rename template |
+| `DELETE /api/rename/templates/{id}` | Delete rename template |
+| `PATCH /api/rename/templates/{id}` | Patch rename template |
+| `GET /api/roots` | List roots |
+| `POST /api/roots` | Create root |
+| `GET /api/roots/browse` | Browse roots |
+| `GET /api/roots/pick` | Pick root |
+| `POST /api/roots/probe` | Probe root |
+| `DELETE /api/roots/{id}` | Delete root |
+| `PATCH /api/roots/{id}` | Patch root |
+| `GET /api/scan` | Library scan status |
+| `POST /api/scan` | Library scan |
+| `GET /api/scan/watch-dirs` | List watch dirs |
+| `POST /api/scan/watch-dirs` | Create watch dir |
+| `DELETE /api/scan/watch-dirs/{id}` | Delete watch dir |
+| `PATCH /api/scan/watch-dirs/{id}` | Update watch dir |
+| `PUT /api/scan/watch-dirs/{id}` | Update watch dir |
+
+### Quality, formats & releases
+
+| Route | Purpose |
+|-------|---------|
+| `GET /api/blocklist` | List blocklist |
+| `POST /api/blocklist/clear` | Clear blocklist |
+| `GET /api/delay-profiles` | List delay profiles |
+| `POST /api/delay-profiles` | Upsert delay profile |
+| `PUT /api/delay-profiles` | Upsert delay profile |
+| `GET /api/formats` | List custom formats and quality profiles |
+| `POST /api/formats` | Create custom format |
+| `POST /api/formats/parse` | Parse a release title into format attributes |
+| `POST /api/formats/profiles` | Create quality profile |
+| `DELETE /api/formats/profiles/{id}` | Delete quality profile |
+| `PATCH /api/formats/profiles/{id}` | Patch quality profile |
+| `GET /api/formats/release-profiles` | List release profiles |
+| `POST /api/formats/release-profiles` | Upsert release profile |
+| `DELETE /api/formats/release-profiles/{id}` | Delete release profile |
+| `PATCH /api/formats/release-profiles/{id}` | Upsert release profile |
+| `PUT /api/formats/release-profiles/{id}` | Upsert release profile |
+| `POST /api/formats/score` | Score a release against profiles |
+| `POST /api/formats/sync-trash` | Sync TRaSH Guides packs |
+| `DELETE /api/formats/{id}` | Delete custom format |
+| `PATCH /api/formats/{id}` | Patch custom format |
+| `POST /api/releases/block` | Block a release (adds to blocklist) |
+| `POST /api/releases/grab` | Grab a release from interactive search |
+| `GET /api/releases/search` | Interactive release search |
+| `POST /api/releases/search-now` | Search now |
+| `GET /api/releases/upgrades` | Items below their quality cutoff (upgrade candidates) |
+
+### Acquisition, indexers & activity
+
+| Route | Purpose |
+|-------|---------|
+| `GET /api/acquisition` | Acquisition stack health/status |
+| `GET /api/activity` | Download and import activity queue |
+| `POST /api/activity/retry` | Retry a failed activity item |
+| `POST /api/debrid/add` | Add a magnet/link to the debrid service |
+| `GET /api/debrid/stream` | Stream a debrid file |
+| `GET /api/debrid/vfs` | Browse the debrid virtual filesystem |
+| `GET /api/indexers` | List indexers |
+| `POST /api/indexers` | Create indexer |
+| `DELETE /api/indexers/{id}` | Delete indexer |
+| `PATCH /api/indexers/{id}` | Update indexer |
+| `GET /api/wanted` | List wanted (monitored, missing) items |
+| `POST /api/wanted` | Add a wanted item |
+| `POST /api/wanted/remove` | Remove a wanted item |
+
+### Requests, lists & watchlist
+
+| Route | Purpose |
+|-------|---------|
+| `GET /api/lists` | List sources |
+| `POST /api/lists` | Create list source |
+| `GET /api/lists/history` | List sync history |
+| `GET /api/lists/items` | List sync items |
+| `POST /api/lists/sync` | Sync list sources |
+| `DELETE /api/lists/{id}` | Delete list source |
+| `PATCH /api/lists/{id}` | Update list source |
+| `PUT /api/lists/{id}` | Update list source |
+| `POST /api/lists/{id}/sync` | Sync list source |
+| `POST /api/lists/{id}/test` | Test list source |
+| `ANY /api/media-issues` | Media issue reports (GET list, POST create, PATCH resolve) |
+| `POST /api/migrate` | Arr migration import (Radarr/Sonarr/Lidarr) |
+| `ANY /api/request` | Proxy to request-media create request |
+| `ANY /api/request-policy` | Proxy to request-media request policy (quotas) |
+| `ANY /api/requests` | Proxy to request-media request list |
+| `ANY /api/requests/` | Proxy to request-media request detail/actions |
+| `ANY /api/watchlist` | Per-user watchlist (GET|POST|DELETE) |
+
+### Playback, userdata & live TV
+
+| Route | Purpose |
+|-------|---------|
+| `DELETE /api/jellyfin/link` | Unlink the household Jellyfin account |
+| `GET /api/jellyfin/link` | Jellyfin link status |
+| `POST /api/jellyfin/match` | Match a Mux item to a Jellyfin item |
+| `ANY /api/jellyfin/play` | Jellyfin play deep-link resolve |
+| `POST /api/jellyfin/refresh` | Trigger Jellyfin library refresh |
+| `GET /api/jellyfin/status` | Jellyfin status |
+| `POST /api/jellyfin/sync` | Sync watched state with Jellyfin |
+| `GET /api/livetv` | Live TV |
+| `POST /api/livetv/timers` | Create live TV recording timer |
+| `GET /api/playback/analysis` | Media analysis (streams, codecs) for playback |
+| `GET /api/playback/chapters` | Chapter markers (ffprobe) |
+| `GET /api/playback/resolve` | Playback resolve |
+| `DELETE /api/playback/segments` | Delete playback segments |
+| `GET /api/playback/segments` | Intro/outro/credits skip segments |
+| `PUT /api/playback/segments` | Put playback segments |
+| `GET /api/playback/segments/media` | Media with detected segments (admin list) |
+| `POST /api/playback/session` | Report native-player playback session to playback-monitor |
+| `GET /api/playback/subtitles` | List subtitles for a playback item |
+| `GET /api/playback/subtitles/{id}` | Serve a subtitle file |
+| `ANY /api/plex/play` | Plex play deep-link resolve |
+| `GET /api/plex/sync-lists` | Plex watchlist/list sync sources |
+| `ANY /api/userdata` | Session userdata: GET reads, PUT/POST writes progress/favorites/prefs |
+| `ANY /api/watch-together` | Create a Watch Together room (POST) |
+| `ANY /api/watch-together/` | Watch Together room state/actions (subtree) |
+
+### Users, auth & household admin
+
+| Route | Purpose |
+|-------|---------|
+| `GET /api/backups` | List backups |
+| `POST /api/backups` | Create backup |
+| `DELETE /api/backups/{id}` | Delete backup |
+| `POST /api/backups/{id}/restore` | Restore backup |
+| `GET /api/guard` | Playback-guard status |
+| `GET /api/guard/rules` | List playback-guard rules |
+| `POST /api/guard/rules` | Upsert guard rule |
+| `PUT /api/guard/rules` | Upsert guard rule |
+| `DELETE /api/guard/rules/{id}` | Delete guard rule |
+| `POST /api/guard/trust/reset` | Reset guard trust |
+| `POST /api/guard/users/merge` | Merge guard users |
+| `POST /api/guard/violations/ack` | Ack guard violations |
+| `GET /api/history` | Household playback history |
+| `GET /api/invite/peek` | Invite peek |
+| `POST /api/invite/redeem` | Invite redeem |
+| `GET /api/invites` | List invites |
+| `POST /api/invites` | Create invite |
+| `DELETE /api/invites/{id}` | Revoke invite |
+| `GET /api/keys` | List API keys |
+| `POST /api/keys` | Create API key |
+| `DELETE /api/keys/{id}` | Delete API key |
+| `POST /api/keys/{id}/rotate` | Rotate API key |
+| `GET /api/maintainer` | Library maintainer state (rules, candidates, exclusions) |
+| `POST /api/maintainer/act` | Act on maintainer candidates in bulk |
+| `POST /api/maintainer/candidates/{id}/{action}` | Maintainer candidate action |
+| `POST /api/maintainer/collections` | Upsert maintainer collection |
+| `DELETE /api/maintainer/collections/{id}` | Delete maintainer collection |
+| `POST /api/maintainer/exclusions` | Upsert maintainer exclusion |
+| `POST /api/maintainer/exclusions/sync` | Sync maintainer exclusions |
+| `DELETE /api/maintainer/exclusions/{id}` | Delete maintainer exclusion |
+| `POST /api/maintainer/protections` | Upsert maintainer protection |
+| `DELETE /api/maintainer/protections/{id}` | Delete maintainer protection |
+| `POST /api/maintainer/rules` | Upsert maintainer rule |
+| `GET /api/maintainer/rules/export` | Export maintainer rules |
+| `POST /api/maintainer/rules/import` | Import maintainer rules |
+| `POST /api/maintainer/rules/preview` | Preview maintainer rule |
+| `DELETE /api/maintainer/rules/{id}` | Delete maintainer rule |
+| `POST /api/maintainer/rules/{id}/toggle` | Toggle maintainer rule |
+| `POST /api/maintainer/scan` | Run a maintainer scan |
+| `GET /api/me` | Current session user |
+| `GET /api/mobile/auth/done` | Mobile auth done |
+| `GET /api/mobile/auth/login` | Mobile auth login |
+| `POST /api/mobile/session` | Mobile session |
+| `GET /api/notifications` | List notifications |
+| `POST /api/notifications` | Configure notification channel |
+| `PUT /api/notifications` | Configure notification channel |
+| `POST /api/notifications/test` | Test notification |
+| `GET /api/passkeys` | List passkeys |
+| `POST /api/passkeys/register/begin` | Begin passkey register |
+| `POST /api/passkeys/register/complete` | Complete passkey register |
+| `DELETE /api/passkeys/{id}` | Delete passkey |
+| `ANY /api/password-reset` | Password reset requests (POST request, GET list) |
+| `POST /api/password-reset/{id}/dismiss` | Dismiss password reset |
+| `POST /api/password-reset/{id}/password` | Set password reset |
+| `ANY /api/quickconnect` | Quick Connect code flow (GET|POST) |
+| `GET /api/session` | Current session user (alias of `/api/me`) |
+| `GET /api/sessions` | Active playback sessions |
+| `GET /api/sessions/events` | Playback session event stream |
+| `POST /api/sessions/{id}/stop` | Stop playback session |
+| `GET /api/subtitles/blacklist` | List subtitle blacklist |
+| `DELETE /api/subtitles/blacklist/{id}` | Remove subtitle blacklist |
+| `POST /api/subtitles/download` | Download a subtitle for an item |
+| `DELETE /api/subtitles/files/{id}` | Delete item subtitle |
+| `GET /api/subtitles/history` | List subtitle history |
+| `POST /api/subtitles/history/clear` | Clear subtitle history |
+| `GET /api/subtitles/languages` | List subtitle languages |
+| `GET /api/subtitles/media` | List subtitle media |
+| `POST /api/subtitles/media/mass-edit` | Mass edit subtitle media |
+| `PATCH /api/subtitles/media/{id}` | Patch subtitle media |
+| `GET /api/subtitles/profiles` | List subtitle profiles |
+| `POST /api/subtitles/profiles` | Upsert subtitle profile |
+| `PUT /api/subtitles/profiles` | Upsert subtitle profile |
+| `GET /api/subtitles/providers` | List subtitle providers |
+| `POST /api/subtitles/providers/{id}` | Set subtitle provider |
+| `PUT /api/subtitles/providers/{id}` | Set subtitle provider |
+| `GET /api/subtitles/search` | Search subtitle providers |
+| `GET /api/subtitles/wanted` | List subtitle wanted |
+| `POST /api/subtitles/wanted` | Create subtitle wanted |
+| `POST /api/subtitles/wanted/search` | Search subtitle wanted |
+| `DELETE /api/subtitles/wanted/{id}` | Delete subtitle wanted |
+| `GET /api/tagging` | Tagging rules and tags state |
+| `POST /api/tagging/classify` | Classify items with tagging rules |
+| `POST /api/tagging/rules` | Upsert tagging rule |
+| `PUT /api/tagging/rules` | Upsert tagging rule |
+| `DELETE /api/tagging/rules/{id}` | Delete tagging rule |
+| `POST /api/tagging/tags` | Create tagging tag |
+| `DELETE /api/tagging/tags/{id}` | Delete tagging tag |
+| `DELETE /api/totp` | Disable TOTP |
+| `GET /api/totp` | Get TOTP |
+| `POST /api/totp` | Enable TOTP |
+| `POST /api/totp/verify` | Verify TOTP |
+| `GET /api/users` | List users |
+| `POST /api/users` | Create user |
+| `DELETE /api/users/{id}` | Delete user |
+| `PATCH /api/users/{id}` | Patch user |
+| `POST /api/users/{id}/password` | Set user password |
+| `PUT /api/users/{id}/password` | Set user password |
+| `GET /api/watch-notify` | Watch-notify destinations and rules |
+| `POST /api/watch-notify/destinations` | Upsert watch notify destination |
+| `PUT /api/watch-notify/destinations` | Upsert watch notify destination |
+| `DELETE /api/watch-notify/destinations/{id}` | Delete watch notify destination |
+| `POST /api/watch-notify/destinations/{id}/test` | Test watch notify destination |
+| `POST /api/watch-notify/rules` | Upsert watch notify rule |
+| `PUT /api/watch-notify/rules` | Upsert watch notify rule |
+| `DELETE /api/watch-notify/rules/{id}` | Delete watch notify rule |
+| `GET /api/watch-stats` | Watch statistics summary |
+| `GET /api/watch-stats/charts` | Watch statistics chart series |
+| `GET /api/watch-stats/duplicates` | Duplicate library items |
+| `POST /api/watch-stats/import-jellystat` | Import history from Jellystat |
+| `POST /api/watch-stats/import-tautulli` | Import history from Tautulli |
+| `GET /api/watch-stats/item` | Watch statistics for one item |
+| `GET /api/watch-stats/stale` | Stale (unwatched) items |
+| `GET /api/watch-stats/storage` | Library storage usage |
+| `GET /api/watch-stats/storage-history` | Library storage usage over time |
