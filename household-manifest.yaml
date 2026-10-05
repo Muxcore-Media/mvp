@@ -320,6 +320,71 @@ state:
     env: {POOL_DB_PATH: /data/transcoder-pool/pool.db}
     kind: sqlite
     personal: false
+  media-music:
+    volume: music-data
+    mount: /data/music
+    host: music
+    env: {MUSIC_DATA_DIR: /data/music}
+    kind: files
+    personal: false
+    notes: music DB and cover images; the library itself (library-data) is excluded
+  media-books:
+    volume: books-data
+    mount: /data/books
+    host: books
+    env: {BOOKS_DATA_DIR: /data/books}
+    kind: files
+    personal: false
+    notes: book catalog DB and cover images; library files (library-data) are excluded
+  media-comics:
+    volume: comics-data
+    mount: /data/comics
+    host: comics
+    env: {COMICS_DATA_DIR: /data/comics}
+    kind: files
+    personal: false
+    notes: comic catalog DB and cover images; library files (library-data) are excluded
+  media-audiobooks:
+    volume: audiobooks-data
+    mount: /data/audiobooks
+    host: audiobooks
+    env: {AUDIOBOOKS_DATA_DIR: /data/audiobooks}
+    kind: files
+    personal: false
+    notes: audiobook catalog DB and cover images; library files (library-data) are excluded
+  media-transcoder:
+    volume: transcoder-data
+    mount: /data/transcoder
+    host: transcoder
+    env: {TRANSCODER_DB_PATH: /data/transcoder/transcoder.db}
+    kind: sqlite
+    personal: false
+    notes: job DB only; HLS segments and trickplay sprites are rebuildable caches on transcoder-cache (excluded)
+  media-list-sync:
+    volume: listsync-data
+    mount: /data/listsync
+    host: listsync
+    env: {LISTSYNC_DB_PATH: /data/listsync/listsync.db}
+    kind: sqlite
+    personal: false
+    notes: import-list configuration and sync state
+  media-library-maintainer:
+    volume: maintainer-data
+    mount: /data/maintainer
+    host: maintainer
+    env: {MAINTAINER_DB_PATH: /data/maintainer/maintainer.db}
+    kind: sqlite
+    personal: false
+    shares: [userdata-data]
+    notes: maintenance rules and exclusions; also mounts userdata-data read-only
+  media-graph:
+    volume: graph-data
+    mount: /data/graph
+    host: graph
+    env: {GRAPH_DB_PATH: /data/graph/graph.db}
+    kind: sqlite
+    personal: false
+    notes: cross-media graph nodes/edges (rebuildable by ingest, cheaper to keep)
   jellyfin:
     service: jellyfin-bridge
     volume: jellyfin-data
@@ -357,6 +422,10 @@ excluded_volumes:
     reason: library media (user content), not module state; back up with your own media strategy
   - volume: shows
     reason: library media (user content), not module state
+  - volume: library-data
+    reason: music/books/comics/audiobooks library files (user content), not module state
+  - volume: transcoder-cache
+    reason: rebuildable HLS segments and trickplay sprites
   - volume: downloads
     reason: transient acquisition staging; re-fetchable
   - volume: encryption-aesgcm-data
@@ -457,6 +526,22 @@ excluded_volumes:
   - volume: plex-bridge-id
     reason: mesh identity (module key + certificate; key material)
   - volume: emby-bridge-id
+    reason: mesh identity (module key + certificate; key material)
+  - volume: media-music-id
+    reason: mesh identity (module key + certificate; key material)
+  - volume: media-books-id
+    reason: mesh identity (module key + certificate; key material)
+  - volume: media-comics-id
+    reason: mesh identity (module key + certificate; key material)
+  - volume: media-audiobooks-id
+    reason: mesh identity (module key + certificate; key material)
+  - volume: media-transcoder-id
+    reason: mesh identity (module key + certificate; key material)
+  - volume: media-list-sync-id
+    reason: mesh identity (module key + certificate; key material)
+  - volume: media-library-maintainer-id
+    reason: mesh identity (module key + certificate; key material)
+  - volume: media-graph-id
     reason: mesh identity (module key + certificate; key material)
 
 contract_deps:

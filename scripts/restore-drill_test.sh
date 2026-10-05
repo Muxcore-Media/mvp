@@ -57,11 +57,11 @@ expect_rc "missing manifest" 2 "manifest not found" --mode host --dry-run --mani
 # --- dry-run plans on the real manifest ---
 expect_rc "host plan: shared media-ui dir" 0 "admin-ui +data/media-ui/ +media-ui" --mode host --dry-run
 expect_rc "host plan: key material escrowed" 0 "encryption-aesgcm +\(escrow, not archived\) +encryption" --mode=host --dry-run
-expect_rc "host plan: counts" 0 "backed-up locations: 24  escrowed: 1" --mode host --dry-run
+expect_rc "host plan: counts" 0 "backed-up locations: 32  escrowed: 1" --mode host --dry-run
 out="$(bash "$DRILL" --mode host --dry-run)"
 if grep -qE '^  (plex|emby) ' <<<"$out"; then fail "host plan lists plex/emby (no host-mode state)"; else ok "host plan skips entries without host:"; fi
 expect_rc "compose plan: module-id prefixes on volumes" 0 "auth-local +data/auth-local/ +auth-data" --mode compose --dry-run
-expect_rc "compose plan: counts" 0 "backed-up locations: 27  escrowed: 1" --mode compose --dry-run
+expect_rc "compose plan: counts" 0 "backed-up locations: 35  escrowed: 1" --mode compose --dry-run
 
 # --- state-map lib ---
 # shellcheck disable=SC1091
@@ -69,7 +69,7 @@ source "$ROOT/scripts/lib/state-map.sh"
 src="$(state_map_host_sources "$MANIFEST" /D)"
 n="$(tr ',' '\n' <<<"$src" | wc -l)"
 uniq_n="$(tr ',' '\n' <<<"$src" | sort -u | wc -l)"
-if [[ "$n" == 24 && "$uniq_n" == 24 ]] && grep -q '^/D/storage,/D/auth,' <<<"$src" && ! grep -q '/D/encryption' <<<"$src"; then
+if [[ "$n" == 32 && "$uniq_n" == 32 ]] && grep -q '^/D/storage,/D/auth,' <<<"$src" && ! grep -q '/D/encryption' <<<"$src"; then
   ok "host backup sources: 24 unique dirs, manifest order, key dir excluded"
 else
   fail "host backup sources: $src"

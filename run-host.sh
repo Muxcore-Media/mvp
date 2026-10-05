@@ -904,13 +904,17 @@ EOF
           ln -sfn "$ff" "$BIN/ffmpeg"
         fi
       fi
-      mkdir -p "$DATA/transcoder"
+      # Job DB in data/transcoder (backed up, ADR-0013); HLS segments and trickplay
+      # sprites are rebuildable caches in data/transcoder-cache (not backed up).
+      mkdir -p "$DATA/transcoder" "$DATA/transcoder-cache"
       maybe_start media-transcoder env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-transcoder MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
         PATH="$BIN:${PATH}" \
         TRANSCODER_GRPC_ADDR=":9525" \
         TRANSCODER_HTTP_ADDR="127.0.0.1:9526" \
         TRANSCODER_DB_PATH="$DATA/transcoder/transcoder.db" \
+        TRANSCODER_HLS_CACHE="${TRANSCODER_HLS_CACHE:-$DATA/transcoder-cache/hls}" \
+        TRANSCODER_TRICKPLAY_DIR="${TRANSCODER_TRICKPLAY_DIR:-$DATA/transcoder-cache/trickplay}" \
         TRANSCODER_MAX_CONCURRENT="${TRANSCODER_MAX_CONCURRENT:-2}" \
         "$BIN/media-transcoder"
     fi
