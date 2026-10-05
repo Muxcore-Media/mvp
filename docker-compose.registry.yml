@@ -342,6 +342,10 @@ services:
       DOWNLOADER_GRPC_ADDR: ":9461"
       DOWNLOADER_ENGINE: ${DOWNLOADER_ENGINE:-fixture}
       DOWNLOAD_DIR: /data/downloads
+      # Payloads land on the shared `downloads` volume that media-automation and
+      # media-scanner mount. Mesh mode (storage:// URIs) breaks the fixture engine,
+      # which writes the URI as a relative directory.
+      DOWNLOAD_STORAGE: ${DOWNLOAD_STORAGE:-local}
       MUXCORE_HTTP_ADDR: ":9464"
       WG_CONF: ${WG_CONF:-}
       WG_USE_WG_QUICK: ${WG_USE_WG_QUICK:-0}
@@ -615,6 +619,10 @@ services:
       ROOTS_DB_PATH: /data/roots.db
     volumes:
       - media-root-folders-data:/data
+      # AddRootFolder stats/lists the path and reports free space, so the
+      # libraries it registers must exist in this container (read-only is enough).
+      - movies:/data/movies:ro
+      - shows:/data/shows:ro
     depends_on:
       core:
         condition: service_healthy
@@ -625,7 +633,9 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: notification-default
-      NOTIFY_GRPC_ADDR: ":9441"
+      # Insecure dev mode rewrites ":port" binds to loopback; bind the service
+      # name so the media-ui BFF (NOTIFY_GRPC_CLIENT_ADDR) can reach gRPC.
+      NOTIFY_GRPC_ADDR: notification-default:9441
       WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-http://127.0.0.1:9/muxcore-notify-sink}
     depends_on:
       core:

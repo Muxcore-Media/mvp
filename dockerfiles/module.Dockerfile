@@ -20,7 +20,17 @@ RUN if [ -d ./cmd/module ]; then \
     fi
 
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates curl && adduser -D -h /data app
+# Compose mounts named volumes at these paths (docker-compose.registry.yml). A
+# missing mount point is created root-owned, and an empty named volume inherits
+# the image directory's owner on first mount, so pre-create them owned by `app`
+# (uid 1000, shared with media-ui.Dockerfile). scripts/check-compose-mountpoints_test.sh
+# keeps this list in sync with the compose file.
+RUN apk add --no-cache ca-certificates curl \
+  && adduser -D -u 1000 -h /data app \
+  && mkdir -p /data/downloads /data/movies /data/shows /data/media-ui \
+     /data/backups /data/restore /data/dlna /data/tagging /data/intro-outro \
+     /data/playback-guard /data/playback-monitor /data/transcoder-pool \
+  && chown -R app:app /data
 USER app
 WORKDIR /app
 COPY --from=builder /module ./module

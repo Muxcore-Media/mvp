@@ -3,7 +3,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
-[[ -f "$ROOT/.env" ]] && source "$ROOT/.env" || true
+if [[ -f "$ROOT/.env" ]]; then source "$ROOT/.env"; fi
 
 # shellcheck disable=SC1091
 source "$ROOT/scripts/lib/smoke-cmd.sh"
@@ -29,6 +29,14 @@ fi
 if [[ ! -x "$BIN/gettoken" ]]; then
   echo "==> building gettoken"
   (cd "$ROOT" && go build -o "$BIN/gettoken" ./cmd/gettoken)
+fi
+
+# auth-local creates the admin (with role) from AUTH_BOOTSTRAP_USER/PASSWORD on an
+# empty DB (run-host.sh and compose set them); once any user exists, authctl
+# adduser needs an admin token. So try logging in first.
+if "$BIN/gettoken" -addr "$AUTH_ADDR" -user "$USER" -password "$PASS" -out "$TOKEN_FILE" 2>/tmp/mvp-gettoken.err; then
+  echo "token written to $TOKEN_FILE (existing user $USER)"
+  exit 0
 fi
 
 echo "==> ensuring user $USER exists"

@@ -1326,10 +1326,13 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func reverseProxy(target *url.URL) http.Handler {
-	p := httputil.NewSingleHostReverseProxy(target)
-	p.Rewrite = func(pr *httputil.ProxyRequest) {
-		pr.SetURL(target)
-		pr.Out.Host = target.Host
+	// Rewrite only: NewSingleHostReverseProxy also sets Director, and a proxy with
+	// both fails every request ("must have exactly one of Director or Rewrite").
+	p := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(target)
+			pr.Out.Host = target.Host
+		},
 	}
 	p.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		http.Error(w, err.Error(), http.StatusBadGateway)

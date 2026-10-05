@@ -342,6 +342,8 @@ EOF
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=auth-local MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       AUTH_DB_PATH="$DATA/auth/auth.db" \
       AUTH_GRPC_ADDR=":9403" AUTH_HTTP_ADDR=":9401" \
+      AUTH_BOOTSTRAP_USER="${MVP_ADMIN_USER:-admin}" \
+      AUTH_BOOTSTRAP_PASSWORD="${MVP_ADMIN_PASSWORD:-admin-dev-only}" \
       ADMIN_UI_PUBLIC_URL="${ADMIN_UI_PUBLIC_URL:-}" \
       MEDIA_UI_PUBLIC_URL="${MEDIA_UI_PUBLIC_URL:-}" \
       AUTH_ALLOWED_REDIRECT_HOSTS="${AUTH_ALLOWED_REDIRECT_HOSTS:-}" \
@@ -679,11 +681,20 @@ EOF
     # Optional native torrent peer (:9461) — fixture by default; VPN required for live engine.
     if [[ "${MVP_ENABLE_DOWNLOADER_TORRENT:-0}" == "1" ]]; then
       ensure_origin_module downloader-native-torrent
+      # The fixture engine writes its payload to the save path on disk; in mesh
+      # storage mode that path is a storage:// URI, which ends up as a literal
+      # ./storage:/torrent/… directory and an import the scanner cannot list.
+      # Fixture grabs therefore default to local storage under DOWNLOAD_DIR.
+      dl_storage="${DOWNLOAD_STORAGE:-}"
+      case "${DOWNLOADER_ENGINE:-fixture}" in
+        fixture | fake) dl_storage="${dl_storage:-local}" ;;
+      esac
       maybe_start downloader-native-torrent env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=downloader-native-torrent MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
         DOWNLOADER_GRPC_ADDR=":9461" MUXCORE_HTTP_ADDR=":9464" \
         DOWNLOADER_ENGINE="${DOWNLOADER_ENGINE:-fixture}" \
         DOWNLOAD_DIR="${MVP_DOWNLOADS_DIR:-$DATA/downloads}" \
+        DOWNLOAD_STORAGE="$dl_storage" \
         "${ACQ_VPN_ENV[@]}" \
         "$BIN/downloader-native-torrent"
     fi
