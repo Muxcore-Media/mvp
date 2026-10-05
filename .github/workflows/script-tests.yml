@@ -27,3 +27,6 @@ jobs:
       # Umbrella-only checks (proto drift) are skipped automatically when
       # ../scripts is absent.
       - run: bash scripts/run-script-tests.sh
+      # Household install path (ADR-0007): the registry compose must parse.
+      - name: Compose config
+        run: docker compose -f docker-compose.registry.yml config -q
