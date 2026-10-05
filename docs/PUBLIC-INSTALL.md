@@ -24,8 +24,8 @@ Developers keep using [`../run-host.sh`](../run-host.sh).
 cd _mvp
 ./local-registry.sh start
 export MUXCORE_REGISTRY=localhost:5000/muxcore
-./scripts/publish-muxcored-local.sh v0.5.7
-./scripts/publish-module-images.sh v0.5.7
+./scripts/publish-muxcored-local.sh v0.6.7
+./scripts/publish-module-images.sh v0.6.7
 ```
 
 ## Install (primary)
@@ -33,7 +33,7 @@ export MUXCORE_REGISTRY=localhost:5000/muxcore
 ```bash
 cd _mvp
 export MUXCORE_REGISTRY=localhost:5000/muxcore   # or ghcr.io/muxcore-media once images are published
-export MUXCORE_IMAGE_TAG=v0.5.7
+export MUXCORE_IMAGE_TAG=v0.6.7
 export DOWNLOADER_ENGINE=fixture
 docker compose -f docker-compose.registry.yml pull
 docker compose -f docker-compose.registry.yml up -d
@@ -55,10 +55,10 @@ Build and push `muxcored` with [`../scripts/publish-muxcored-local.sh`](../scrip
 ```bash
 # LAN registry (default MUXCORE_REGISTRY=localhost:5000/muxcore; see ../local-registry.sh)
 ./local-registry.sh start
-./scripts/publish-muxcored-local.sh v0.5.7
+./scripts/publish-muxcored-local.sh v0.6.7
 
 # Build + tag only (no push)
-BUILD_ONLY=1 ./scripts/publish-muxcored-local.sh v0.5.7
+BUILD_ONLY=1 ./scripts/publish-muxcored-local.sh v0.6.7
 ```
 
 `MUXCORE_REGISTRY` defaults to `localhost:5000/muxcore` in the publish scripts and in the compose file — set the same value on publish and install hosts.
@@ -71,10 +71,10 @@ The publish script prefers `podman`, then `docker` (`CONTAINER_RUNTIME` override
 
 ```bash
 cd ../core
-docker build --build-arg VERSION=0.5.7 -t localhost/muxcored:v0.5.7 -f Dockerfile .
-docker tag localhost/muxcored:v0.5.7 ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/muxcored:v0.5.7
+docker build --build-arg VERSION=0.6.7 -t localhost/muxcored:v0.6.7 -f Dockerfile .
+docker tag localhost/muxcored:v0.6.7 ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/muxcored:v0.6.7
 # push when ready:
-docker push ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/muxcored:v0.5.7
+docker push ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/muxcored:v0.6.7
 ```
 
 Same commands work with `podman` instead of `docker`.
@@ -88,7 +88,7 @@ Smoke and day-1 demos must use `DOWNLOADER_ENGINE=fixture`. Do not require live 
 GHCR uses the **same** [`../docker-compose.registry.yml`](../docker-compose.registry.yml); there is no separate GHCR compose file. Once images are published under `ghcr.io/muxcore-media/*`:
 
 ```bash
-export MUXCORE_REGISTRY=ghcr.io/muxcore-media MUXCORE_IMAGE_TAG=v0.5.7
+export MUXCORE_REGISTRY=ghcr.io/muxcore-media MUXCORE_IMAGE_TAG=v0.6.7
 docker compose -f docker-compose.registry.yml pull
 docker compose -f docker-compose.registry.yml up -d
 ```
@@ -96,17 +96,17 @@ docker compose -f docker-compose.registry.yml up -d
 Publishing is **blocked** until a token with `write:packages` exists. Build-only smoke (no push); uses `core/Dockerfile.monorepo` when monorepo siblings exist:
 
 ```bash
-./scripts/smoke-ghcr-build.sh v0.5.7
+./scripts/smoke-ghcr-build.sh v0.6.7
 ```
 
 Unlock push (interactive — needs read:packages + write:packages):
 
 ```bash
 gh auth refresh -h github.com -s write:packages,read:packages,repo
-./scripts/publish-muxcored-ghcr.sh v0.5.7
+./scripts/publish-muxcored-ghcr.sh v0.6.7
 # module images:
 gh auth token | podman login ghcr.io -u <user> --password-stdin
-MUXCORE_REGISTRY=ghcr.io/muxcore-media ./scripts/publish-module-images.sh v0.5.7
+MUXCORE_REGISTRY=ghcr.io/muxcore-media ./scripts/publish-module-images.sh v0.6.7
 ```
 
 Alternative: a GitHub Actions release workflow on `Muxcore-Media/core` with `packages: write` can publish `ghcr.io/muxcore-media/muxcored` (see `core/.github/workflows/release.yml`; pushing workflow files needs `workflow` scope on `gh`).

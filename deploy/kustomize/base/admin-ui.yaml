@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
         - name: admin-ui
-          image: localhost:5000/muxcore/admin-ui:v0.5.7
+          image: localhost:5000/muxcore/admin-ui:v0.6.7
           imagePullPolicy: IfNotPresent
           env:
             - name: MUXCORE_GRPC_ADDR

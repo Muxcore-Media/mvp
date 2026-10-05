@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Bump github.com/Muxcore-Media/core and sdk/go/* pins across module go.mod files.
 #
+# Also syncs compose defaults, household-manifest core_tag, Helm coreTag/images
+# and kustomize image pins (see umbrella release-train.env / check-pins.sh).
+#
 # Usage:
 #   ./scripts/bump-core-pins.sh v0.5.7
 #   DRY_RUN=1 ./scripts/bump-core-pins.sh v0.5.7
@@ -84,3 +87,24 @@ for f in "${sync_tag_files[@]}"; do
   sed -i -E "s/smoke-ghcr-build\.sh v[0-9.]+/smoke-ghcr-build.sh ${VER}/g" "$f"
   echo "synced image tag examples in $f -> ${VER}"
 done
+
+# Helm values + kustomize manifests: coreTag, image strings, newTag, and the
+# kustomize README/comment pins all track the same release-train tag
+# (T-M2-04, FR-INS-006; umbrella scripts/check-pins.sh section c-f).
+if [[ "$DRY" != "1" ]]; then
+  helm_values="$ROOT/deploy/helm/muxcore/values.yaml"
+  if [[ -f "$helm_values" ]]; then
+    sed -i -E "s|^coreTag:.*|coreTag: ${VER}|" "$helm_values"
+    sed -i -E "s|(/muxcore/[A-Za-z0-9_.-]+:)v[0-9]+\.[0-9]+\.[0-9]+|\1${VER}|g" "$helm_values"
+    echo "updated $helm_values -> ${VER}"
+  fi
+  if [[ -d "$ROOT/deploy/kustomize" ]]; then
+    while IFS= read -r f; do
+      sed -i -E "s|(/muxcore/[A-Za-z0-9_.-]+:)v[0-9]+\.[0-9]+\.[0-9]+|\1${VER}|g; s|^([[:space:]-]*newTag:[[:space:]]*\"?)v[0-9]+\.[0-9]+\.[0-9]+|\1${VER}|; s|(core_tag \()v[0-9.]+\)|\1${VER})|" "$f"
+    done < <(find "$ROOT/deploy/kustomize" -name '*.yaml')
+    echo "updated kustomize image pins -> ${VER}"
+  fi
+  [[ -f "$ROOT/deploy/README.md" ]] && sed -i -E "s|(core_tag\` \(currently \*\*)v[0-9.]+|\1${VER}|" "$ROOT/deploy/README.md"
+  [[ -f "$ROOT/local-registry.sh" ]] && sed -i -E "s|(MUXCORE_LOCAL_IMAGE_TAG:-)v[0-9.]+|\1${VER}|" "$ROOT/local-registry.sh"
+  [[ -f "$ROOT/README.md" ]] && sed -i -E "s|(\`core_tag\` \(currently \*\*)v[0-9.]+|\1${VER}|" "$ROOT/README.md"
+fi

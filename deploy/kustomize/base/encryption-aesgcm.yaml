@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
         - name: encryption-aesgcm
-          image: localhost:5000/muxcore/encryption-aesgcm:v0.5.7
+          image: localhost:5000/muxcore/encryption-aesgcm:v0.6.7
           imagePullPolicy: IfNotPresent
           env:
             - name: MUXCORE_GRPC_ADDR
