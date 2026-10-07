@@ -54,6 +54,10 @@ export MUXCORE_LOG_LEVEL="${MUXCORE_LOG_LEVEL:-info}"
 export MUXCORE_CONFIG="${MUXCORE_CONFIG:-$ROOT/muxcore.json}"
 MESH="${MUXCORE_MESH_ADDR:-127.0.0.1:9090}"
 MODULE_CERT_ROOT="${MUXCORE_MODULE_CERT_DIR:-$ROOT/tls/module-certs}"
+_transcoder_http_url=https://127.0.0.1:9526
+if [[ "${MUXCORE_INSECURE_DISABLE_TLS:-}" == "true" || "${MUXCORE_INSECURE_DISABLE_TLS:-}" == "1" ]]; then
+  _transcoder_http_url=http://127.0.0.1:9526
+fi
 
 mkdir -p "$BIN" "$RUN" "$DATA"/{movies,tvshows,automation,scanner,roots,sqlite,secrets,library/tv,storage,auth,jellyfin,downloads,request,formats,rename,ffprobe,subtitles,backup,audiobooks,books,comics,intro-outro,transcoder-pool,graph,tagging,listsync,workflow,maintainer,playback-guard,playback-monitor,locks,schemas,userdata,feature-flags,dlna,plex,emby}
 
@@ -638,6 +642,14 @@ EOF
       FORMATS_TRASH_SERVICES="${FORMATS_TRASH_SERVICES:-radarr,sonarr}" \
       "$BIN/media-custom-formats"
 
+    # Movie dest for the downloads watch dir. TV dest is separate — never nest
+    # shows under SCANNER_LIBRARY_ROOT (that produced movies/TV and movies/Other).
+    LIBRARY_ROOT="${MVP_LIBRARY_ROOT:-$DATA/library}"
+    TV_LIBRARY_ROOT="${MVP_TV_LIBRARY_ROOT:-$DATA/library/tv}"
+    MUSIC_LIBRARY_ROOT="${MVP_MUSIC_LIBRARY_ROOT:-$DATA/library/music}"
+    DOWNLOADS_DIR="${MVP_DOWNLOADS_DIR:-$DATA/downloads}"
+    mkdir -p "$LIBRARY_ROOT" "$TV_LIBRARY_ROOT" "$MUSIC_LIBRARY_ROOT" "$DOWNLOADS_DIR"
+
     if [[ ! -x "$BIN/media-rename" ]]; then
       echo "building media-rename"
       (cd "$WS/media-rename" && go build -o "$BIN/media-rename" ./cmd/module)
@@ -647,6 +659,7 @@ EOF
       RENAME_DB_PATH="$DATA/rename/rename.db" \
       RENAME_GRPC_ADDR="${RENAME_GRPC_ADDR:-:9510}" \
       RENAME_IMPORT_MODE=copy \
+      RENAME_ALLOWED_ROOTS="${RENAME_ALLOWED_ROOTS:-$LIBRARY_ROOT:$TV_LIBRARY_ROOT:$MUSIC_LIBRARY_ROOT:$DOWNLOADS_DIR}" \
       "$BIN/media-rename"
 
     if [[ ! -x "$BIN/media-ffprobe" ]]; then
@@ -667,16 +680,9 @@ EOF
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-subtitles MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       SUBS_DB_PATH="$DATA/subtitles/subtitles.db" \
       SUBS_DIR="$DATA/subtitles/files" \
+      SUBS_MEDIA_ROOTS="${SUBS_MEDIA_ROOTS:-$LIBRARY_ROOT:$TV_LIBRARY_ROOT:$MUSIC_LIBRARY_ROOT}" \
       SUBS_GRPC_ADDR="${SUBS_GRPC_ADDR:-:9520}" \
       "$BIN/media-subtitles"
-
-    # Movie dest for the downloads watch dir. TV dest is separate — never nest
-    # shows under SCANNER_LIBRARY_ROOT (that produced movies/TV and movies/Other).
-    LIBRARY_ROOT="${MVP_LIBRARY_ROOT:-$DATA/library}"
-    TV_LIBRARY_ROOT="${MVP_TV_LIBRARY_ROOT:-$DATA/library/tv}"
-    MUSIC_LIBRARY_ROOT="${MVP_MUSIC_LIBRARY_ROOT:-$DATA/library/music}"
-    DOWNLOADS_DIR="${MVP_DOWNLOADS_DIR:-$DATA/downloads}"
-    mkdir -p "$LIBRARY_ROOT" "$TV_LIBRARY_ROOT" "$MUSIC_LIBRARY_ROOT" "$DOWNLOADS_DIR"
 
     ensure_origin_module media-scanner
     maybe_start media-scanner env \
@@ -687,6 +693,7 @@ EOF
       SCANNER_TV_LIBRARY_ROOT="$TV_LIBRARY_ROOT" \
       SCANNER_MUSIC_LIBRARY_ROOT="$MUSIC_LIBRARY_ROOT" \
       SCANNER_DEFAULT_WATCH_DIR="$DOWNLOADS_DIR" \
+      SCANNER_ALLOWED_ROOTS="${SCANNER_ALLOWED_ROOTS:-$LIBRARY_ROOT:$TV_LIBRARY_ROOT:$MUSIC_LIBRARY_ROOT:$DOWNLOADS_DIR}" \
       SCANNER_GRPC_ADDR=":9470" \
       SCANNER_IMPORT_MODE=copy \
       SCANNER_MIN_VIDEO_BYTES=0 \
@@ -695,6 +702,7 @@ EOF
     maybe_start media-root-folders env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=media-root-folders MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       ROOTS_DB_PATH="$DATA/roots/roots.db" \
+      ROOTS_ALLOWED_PREFIXES="${ROOTS_ALLOWED_PREFIXES:-$LIBRARY_ROOT,$TV_LIBRARY_ROOT,$MUSIC_LIBRARY_ROOT}" \
       "$BIN/media-root-folders"
 
     maybe_start request-media env \
@@ -775,6 +783,7 @@ EOF
       maybe_start downloader-native-torrent env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=downloader-native-torrent MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
         DOWNLOADER_GRPC_ADDR=":9461" MUXCORE_HTTP_ADDR=":9464" \
+        DOWNLOADER_INDEXER_HOSTS="${DOWNLOADER_INDEXER_HOSTS:-}" \
         DOWNLOADER_ENGINE="${DOWNLOADER_ENGINE:-fixture}" \
         DOWNLOAD_DIR="${MVP_DOWNLOADS_DIR:-$DATA/downloads}" \
         DOWNLOAD_STORAGE="$dl_storage" \
@@ -854,6 +863,8 @@ EOF
         QBIT_GRPC_ADDR=":9462" QBIT_HTTP_ADDR=":9463" \
         DOWNLOADER_ENGINE="${DOWNLOADER_ENGINE:-fixture}" \
         QBIT_FIXTURE="${QBIT_FIXTURE:-1}" \
+        QBIT_DOWNLOAD_ROOTS="${QBIT_DOWNLOAD_ROOTS:-$DOWNLOADS_DIR}" \
+        DOWNLOADER_INDEXER_HOSTS="${DOWNLOADER_INDEXER_HOSTS:-}" \
         QBIT_URL="${QBIT_URL:-}" \
         QBIT_USERNAME="${QBIT_USERNAME:-}" \
         QBIT_PASSWORD="${QBIT_PASSWORD:-}" \
@@ -913,6 +924,9 @@ EOF
         TRANSCODER_GRPC_ADDR=":9525" \
         TRANSCODER_HTTP_ADDR="127.0.0.1:9526" \
         TRANSCODER_DB_PATH="$DATA/transcoder/transcoder.db" \
+        TRANSCODER_MEDIA_ROOTS="${TRANSCODER_MEDIA_ROOTS:-$LIBRARY_ROOT:$TV_LIBRARY_ROOT:$MUSIC_LIBRARY_ROOT}" \
+        TRANSCODER_ALLOW_URL_SOURCES=1 \
+        TRANSCODER_URL_SOURCE_HOSTS="${TRANSCODER_URL_SOURCE_HOSTS:-127.0.0.1:9430,127.0.0.1:9450}" \
         TRANSCODER_HLS_CACHE="${TRANSCODER_HLS_CACHE:-$DATA/transcoder-cache/hls}" \
         TRANSCODER_TRICKPLAY_DIR="${TRANSCODER_TRICKPLAY_DIR:-$DATA/transcoder-cache/trickplay}" \
         TRANSCODER_MAX_CONCURRENT="${TRANSCODER_MAX_CONCURRENT:-2}" \
@@ -1409,7 +1423,7 @@ EOF
           SUBTITLES_GRPC_CLIENT_ADDR="127.0.0.1:9520" \
           SUBTITLES_HTTP_URL="http://127.0.0.1:9521" \
           FFPROBE_GRPC_CLIENT_ADDR="127.0.0.1:9480" \
-          TRANSCODER_HTTP_URL="http://127.0.0.1:9526" \
+          TRANSCODER_HTTP_URL="${TRANSCODER_HTTP_URL-$_transcoder_http_url}" \
           LISTSYNC_GRPC_CLIENT_ADDR="${LISTSYNC_GRPC_CLIENT_ADDR:-127.0.0.1:9530}" \
           AUTOMATION_GRPC_CLIENT_ADDR="${AUTOMATION_GRPC_CLIENT_ADDR:-127.0.0.1:9460}" \
           SCANNER_GRPC_CLIENT_ADDR="${SCANNER_GRPC_CLIENT_ADDR:-127.0.0.1:9470}" \

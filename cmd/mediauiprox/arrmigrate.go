@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/Muxcore-Media/core/sdk/go/module/netguard"
 )
 
 // Household copy of admin-ui/arrmigrate (fetch + remap + import). Keep behavior in lockstep.
@@ -54,7 +56,11 @@ func (c *arrClient) httpClient() *http.Client {
 	if c != nil && c.HTTP != nil {
 		return c.HTTP
 	}
-	return &http.Client{Timeout: 30 * time.Second}
+	// Arr integrations are administrator-owned and may live on the LAN or
+	// localhost. Never follow redirects carrying their X-Api-Key credential.
+	return netguard.NewClient(netguard.Integration, netguard.Options{
+		Timeout: 30 * time.Second, AllowPrivate: true, AllowLoopback: true, MaxRedirects: -1,
+	})
 }
 
 func (c *arrClient) fetchRadarr(ctx context.Context, baseURL, apiKey string) ([]arrItem, error) {

@@ -7,13 +7,13 @@
   (dict "name" "media-tvshows" "image" .Values.media.images.mediaTvshows "http" 9450 "svcHttp" 9450 "grpc" 9440 "health" "/health")
   (dict "name" "request-media" "image" .Values.media.images.requestMedia "http" 9380 "svcHttp" 9380 "grpc" 9481 "health" "/health")
   (dict "name" "media-automation" "image" .Values.media.images.mediaAutomation "grpc" 9460)
-  (dict "name" "media-scanner" "image" .Values.media.images.mediaScanner "grpc" 9470)
+  (dict "name" "media-scanner" "image" .Values.media.images.mediaScanner "grpc" 9470 "extra" (list (dict "name" "SCANNER_ALLOWED_ROOTS" "value" .Values.media.scannerAllowedRoots)))
   (dict "name" "media-ffprobe" "image" .Values.media.images.mediaFfprobe "grpc" 9480)
   (dict "name" "notification-default" "image" .Values.media.images.notificationDefault "grpc" 9441)
   (dict "name" "userdata-local" "image" .Values.media.images.userdataLocal "http" 9672 "svcHttp" 9672 "grpc" 9673 "health" "/health" "pvc" "userdata-local-data" "pvcSize" .Values.media.persistence.userdataSize)
   (dict "name" "cache-local" "image" .Values.media.images.cacheLocal "grpc" 9602)
   (dict "name" "logging-file" "image" .Values.media.images.loggingFile "grpc" 9625)
-  (dict "name" "media-ui" "image" .Values.media.images.mediaUi "http" 5173 "svcHttp" 5173 "health" "/healthz" "extra" (list (dict "name" "MEDIA_UI_DIST" "value" "/app/dist-app") (dict "name" "AUTH_HTTP_URL" "value" "http://auth-local:9401") (dict "name" "MOVIES_HTTP_URL" "value" "http://media-movies:9430") (dict "name" "TVSHOWS_HTTP_URL" "value" "http://media-tvshows:9450") (dict "name" "REQUEST_MEDIA_HTTP_URL" "value" "http://request-media:9380")))
+  (dict "name" "media-ui" "image" .Values.media.images.mediaUi "http" 5173 "svcHttp" 5173 "health" "/healthz" "extra" (list (dict "name" "TRANSCODER_HTTP_URL" "value" .Values.media.transcoderHttpUrl) (dict "name" "MEDIA_UI_DIST" "value" "/app/dist-app") (dict "name" "AUTH_HTTP_URL" "value" "http://auth-local:9401") (dict "name" "MOVIES_HTTP_URL" "value" "http://media-movies:9430") (dict "name" "TVSHOWS_HTTP_URL" "value" "http://media-tvshows:9450") (dict "name" "REQUEST_MEDIA_HTTP_URL" "value" "http://request-media:9380")))
 -}}
 {{- range $m := $modules }}
 {{- if $m.pvc }}

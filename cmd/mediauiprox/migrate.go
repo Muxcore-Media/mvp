@@ -185,8 +185,8 @@ func (s *server) handleMigrate(w http.ResponseWriter, r *http.Request) {
 		writeAPIMethodNotAllowed(w)
 		return
 	}
-	if !s.sessionHasPrivilegedRole(r) {
-		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin or manager role required", "code": "migrate.forbidden"})
+	if !s.sessionHasAdminRole(r) {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin role required", "code": "migrate.forbidden"})
 		return
 	}
 	var body struct {

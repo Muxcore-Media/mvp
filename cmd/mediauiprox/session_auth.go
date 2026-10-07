@@ -71,6 +71,20 @@ func (s *server) sessionHasPrivilegedRole(r *http.Request) bool {
 	return false
 }
 
+// sessionHasAdminRole gates operator-controlled network and filesystem settings.
+func (s *server) sessionHasAdminRole(r *http.Request) bool {
+	_, roles, ok := s.sessionIdentity(r)
+	if !ok {
+		return false
+	}
+	for _, role := range roles {
+		if strings.EqualFold(strings.TrimSpace(role), "admin") {
+			return true
+		}
+	}
+	return false
+}
+
 func rolesFromClaims(claims map[string]any) []string {
 	if claims == nil {
 		return nil

@@ -40,6 +40,10 @@ spec:
             - name: MUXCORE_MODULE_ID
               value: {{ $m.name }}
             {{- include "muxcore.tlsEnv" $root | nindent 12 }}
+            {{- if eq $m.name "downloader-native-torrent" }}
+            - name: DOWNLOADER_INDEXER_HOSTS
+              value: {{ $root.Values.acquisition.downloaderIndexerHosts | quote }}
+            {{- end }}
           ports:
             - { name: grpc, containerPort: {{ $m.grpc }} }
             {{- if $m.http }}

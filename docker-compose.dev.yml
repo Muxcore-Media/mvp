@@ -221,6 +221,7 @@ services:
   media-transcoder:
     environment:
       <<: *dev_env
+      TRANSCODER_HTTP_TOKEN: ${TRANSCODER_HTTP_TOKEN:?set a random dev transcoder token in .env}
 
   media-list-sync:
     environment:
@@ -237,6 +238,8 @@ services:
   media-ui:
     environment:
       <<: *dev_env
+      TRANSCODER_HTTP_URL: ${TRANSCODER_HTTP_URL-http://media-transcoder:9526}
+      TRANSCODER_HTTP_TOKEN: ${TRANSCODER_HTTP_TOKEN:?set a random dev transcoder token in .env}
 
   jellyfin-bridge:
     environment:

@@ -139,7 +139,11 @@ func (s *server) transcoderModuleLive(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
-	resp, err := upstreamClient.Do(req)
+	client := &http.Client{
+		Transport: s.transcoderTransport, Timeout: upstreamClient.Timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return false
 	}

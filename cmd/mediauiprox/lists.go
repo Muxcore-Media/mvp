@@ -53,8 +53,8 @@ func (s *server) handleListSources(w http.ResponseWriter, r *http.Request) {
 		writeAPIMethodNotAllowed(w)
 		return
 	}
-	if !s.sessionHasPrivilegedRole(r) {
-		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin or manager role required", "code": "lists.forbidden"})
+	if !s.sessionHasAdminRole(r) {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin role required", "code": "lists.forbidden"})
 		return
 	}
 	if s.listSync == nil {
@@ -83,8 +83,8 @@ func (s *server) handleCreateListSource(w http.ResponseWriter, r *http.Request) 
 		writeAPIMethodNotAllowed(w)
 		return
 	}
-	if !s.sessionHasPrivilegedRole(r) {
-		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin or manager role required", "code": "lists.forbidden"})
+	if !s.sessionHasAdminRole(r) {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin role required", "code": "lists.forbidden"})
 		return
 	}
 	if s.listSync == nil {
@@ -142,8 +142,8 @@ func (s *server) handleUpdateListSource(w http.ResponseWriter, r *http.Request) 
 		writeAPIMethodNotAllowed(w)
 		return
 	}
-	if !s.sessionHasPrivilegedRole(r) {
-		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin or manager role required", "code": "lists.forbidden"})
+	if !s.sessionHasAdminRole(r) {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin role required", "code": "lists.forbidden"})
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
@@ -222,8 +222,8 @@ func (s *server) handleDeleteListSource(w http.ResponseWriter, r *http.Request) 
 		writeAPIMethodNotAllowed(w)
 		return
 	}
-	if !s.sessionHasPrivilegedRole(r) {
-		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin or manager role required", "code": "lists.forbidden"})
+	if !s.sessionHasAdminRole(r) {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin role required", "code": "lists.forbidden"})
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
@@ -249,8 +249,8 @@ func (s *server) handleSyncListSources(w http.ResponseWriter, r *http.Request) {
 		writeAPIMethodNotAllowed(w)
 		return
 	}
-	if !s.sessionHasPrivilegedRole(r) {
-		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin or manager role required", "code": "lists.forbidden"})
+	if !s.sessionHasAdminRole(r) {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin role required", "code": "lists.forbidden"})
 		return
 	}
 	if s.listSync == nil {
@@ -276,8 +276,8 @@ func (s *server) handleSyncListSource(w http.ResponseWriter, r *http.Request) {
 		writeAPIMethodNotAllowed(w)
 		return
 	}
-	if !s.sessionHasPrivilegedRole(r) {
-		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin or manager role required", "code": "lists.forbidden"})
+	if !s.sessionHasAdminRole(r) {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin role required", "code": "lists.forbidden"})
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
@@ -309,8 +309,8 @@ func (s *server) handleTestListSource(w http.ResponseWriter, r *http.Request) {
 		writeAPIMethodNotAllowed(w)
 		return
 	}
-	if !s.sessionHasPrivilegedRole(r) {
-		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin or manager role required", "code": "lists.forbidden"})
+	if !s.sessionHasAdminRole(r) {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin role required", "code": "lists.forbidden"})
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))
@@ -382,8 +382,8 @@ func (s *server) handleListSyncHistory(w http.ResponseWriter, r *http.Request) {
 		writeAPIMethodNotAllowed(w)
 		return
 	}
-	if !s.sessionHasPrivilegedRole(r) {
-		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin or manager role required", "code": "lists.forbidden"})
+	if !s.sessionHasAdminRole(r) {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin role required", "code": "lists.forbidden"})
 		return
 	}
 	if s.listSync == nil {
@@ -412,8 +412,8 @@ func (s *server) handleListSyncItems(w http.ResponseWriter, r *http.Request) {
 		writeAPIMethodNotAllowed(w)
 		return
 	}
-	if !s.sessionHasPrivilegedRole(r) {
-		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin or manager role required", "code": "lists.forbidden"})
+	if !s.sessionHasAdminRole(r) {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin role required", "code": "lists.forbidden"})
 		return
 	}
 	if s.listSync == nil {
