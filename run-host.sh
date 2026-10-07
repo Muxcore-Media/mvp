@@ -9,6 +9,8 @@ DATA="$ROOT/data"
 
 # shellcheck disable=SC1091
 source "$ROOT/scripts/lib/admin-secret.sh"
+# shellcheck disable=SC1091
+source "$ROOT/scripts/lib/secrets-provider.sh"
 
 # Load $ROOT/.env defaults without clobbering env already set (systemd/nix on vault).
 load_env_file() {
@@ -84,11 +86,21 @@ ensure_secret_file() {
   tr -d '[:space:]' <"$f"
 }
 
+# Keep legacy process handling for other modules; secrets provider switches
+# must not treat an unrelated process in a reused pidfile as that provider.
+runner_pid_running() {
+  local name="$1" pid="$2"
+  case "$name" in
+    secrets-file|secrets-vault) mvp_secrets_pid_matches "$name" "$pid" ;;
+    *) kill -0 "$pid" 2>/dev/null ;;
+  esac
+}
+
 start_one() {
   local name="$1"; shift
   local pidfile="$RUN/$name.pid"
   local logfile="$RUN/$name.log"
-  if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+  if [[ -f "$pidfile" ]] && runner_pid_running "$name" "$(cat "$pidfile")"; then
     echo "already running $name (pid $(cat "$pidfile"))"
     return 0
   fi
@@ -143,7 +155,7 @@ stop_all() {
     [[ -f "$f" ]] || continue
     pid=$(cat "$f")
     name=$(basename "$f" .pid)
-    if kill -0 "$pid" 2>/dev/null; then
+    if runner_pid_running "$name" "$pid"; then
       echo "stopping $name ($pid)"
       kill "$pid" 2>/dev/null || true
       pids+=("$pid")
@@ -178,7 +190,7 @@ stop_one() {
   if [[ -f "$pidfile" ]]; then
     local pid
     pid=$(cat "$pidfile")
-    if kill -0 "$pid" 2>/dev/null; then
+    if runner_pid_running "$name" "$pid"; then
       echo "stopping $name ($pid)"
       kill "$pid" 2>/dev/null || true
       for _ in $(seq 1 20); do
@@ -280,6 +292,7 @@ case "$cmd" in
     ;;
   restart)
     [[ -n "${2:-}" ]] || { echo "usage: $0 restart <name>" >&2; exit 2; }
+    mvp_secrets_preflight "$2"
     stop_one "$2"
     unregister_best_effort "$2"
     sleep 0.5
@@ -367,6 +380,7 @@ EOF
     exit 0
     ;;
   up)
+    mvp_secrets_preflight "${START_ONLY:-}"
     if [[ -z "${START_ONLY:-}" ]]; then
       stop_all
     fi
@@ -418,12 +432,7 @@ EOF
       "$BIN/database-sqlite"
 
     mkdir -p "$DATA/secrets" "$DATA/encryption"
-    maybe_start secrets-file env \
-      MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=secrets-file MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
-      SECRETS_STORE="$DATA/secrets/store.json" \
-      SECRETS_KEY_FILE="$DATA/secrets/master.key" \
-      SECRETS_GRPC_ADDR="${SECRETS_GRPC_ADDR:-:9550}" \
-      "$BIN/secrets-file"
+    mvp_start_secrets_provider
 
     maybe_start encryption-aesgcm env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=encryption-aesgcm MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
@@ -1383,13 +1392,6 @@ EOF
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=database-postgres MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
         DATABASE_GRPC_ADDR=":9701" \
         "$BIN/database-postgres"
-    fi
-
-    if [[ "${MVP_ENABLE_SECRETS_VAULT:-0}" == "1" ]]; then
-      maybe_start secrets-vault env \
-        MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=secrets-vault MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
-        SECRETS_GRPC_ADDR=":9551" \
-        "$BIN/secrets-vault"
     fi
 
     # Consumer SPA from media-ui-app (clean extract; not the polluted media-ui dump).
