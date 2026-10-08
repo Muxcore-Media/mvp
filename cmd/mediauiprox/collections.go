@@ -50,6 +50,17 @@ func (s *server) handleListCollections(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+	if restr, ok := parentalRestrictionFrom(ctx); ok {
+		// ListCollections counts hidden movies and names collections after
+		// them; a restricted principal's list is derived from visible movies.
+		items, err := s.restrictedCollections(ctx, restr)
+		if err != nil {
+			writeListGatewayError(w, ctx, err, "collections.gateway_error")
+			return
+		}
+		writeJSON(w, map[string]any{"items": items, "total": len(items), "available": true, "source": "media-movies"})
+		return
+	}
 	resp, err := s.movies.ListCollections(ctx, &mgmntv1.ListCollectionsRequest{})
 	if err != nil {
 		writeAPIError(w, http.StatusBadGateway, err.Error(), "collections.gateway_error")
@@ -90,16 +101,27 @@ func (s *server) handleCollectionByID(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	resp, err := s.movies.GetCollectionMovies(ctx, &mgmntv1.GetCollectionMoviesRequest{CollectionId: id})
 	if err != nil {
-		writeAPIError(w, http.StatusBadGateway, err.Error(), "collections.gateway_error")
+		writeListGatewayError(w, ctx, err, "collections.gateway_error")
 		return
 	}
-	movies := make([]map[string]any, 0, len(resp.GetMovies()))
-	for _, m := range resp.GetMovies() {
+	name := resp.GetName()
+	shown := visibleMovies(ctx, resp.GetMovies())
+	if _, restricted := parentalRestrictionFrom(ctx); restricted {
+		if len(shown) == 0 {
+			// Same answer for an absent collection and one with no visible
+			// movie; the name and size of a hidden collection stay hidden.
+			writeAPIError(w, http.StatusNotFound, "collection not found", "collections.not_found")
+			return
+		}
+		name = shown[0].GetCollectionName()
+	}
+	movies := make([]map[string]any, 0, len(shown))
+	for _, m := range shown {
 		movies = append(movies, movieJSON(m))
 	}
 	out := map[string]any{
 		"id":        idStr,
-		"name":      resp.GetName(),
+		"name":      name,
 		"movies":    movies,
 		"total":     len(movies),
 		"available": true,

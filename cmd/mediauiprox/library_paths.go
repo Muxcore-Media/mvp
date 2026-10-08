@@ -269,23 +269,23 @@ func (s *server) collectMoviesForLibrary(ctx context.Context, lib string) ([]*mg
 	}
 
 	if tagID := s.resolveLibraryTagID(ctx, lib); tagID != "" {
-		resp, err := s.movies.ListMovies(ctx, &mgmntv1.ListMoviesRequest{
+		resp, err := s.movies.ListMovies(ctx, listMoviesRequest(ctx, &mgmntv1.ListMoviesRequest{
 			Page: 1, PageSize: 100, TagId: tagID,
-		})
+		}))
 		if err == nil && resp != nil {
-			add(resp.GetMovies())
+			add(visibleMovies(ctx, resp.GetMovies()))
 		}
 	}
 
 	// Scan library pages for path / genre / heuristic matches.
 	for page := int32(1); page <= 10; page++ {
-		resp, err := s.movies.ListMovies(ctx, &mgmntv1.ListMoviesRequest{
+		resp, err := s.movies.ListMovies(ctx, listMoviesRequest(ctx, &mgmntv1.ListMoviesRequest{
 			Page: page, PageSize: 100,
-		})
+		}))
 		if err != nil {
 			return nil, err
 		}
-		add(resp.GetMovies())
+		add(visibleMovies(ctx, resp.GetMovies()))
 		if int(page)*100 >= int(resp.GetTotal()) || len(resp.GetMovies()) == 0 {
 			break
 		}
@@ -315,7 +315,7 @@ func (s *server) handleLibraryMovies(w http.ResponseWriter, r *http.Request, lib
 
 	all, err := s.collectMoviesForLibrary(ctx, lib)
 	if err != nil {
-		writeAPIError(w, http.StatusBadGateway, err.Error(), "movies.gateway_error")
+		writeListGatewayError(w, ctx, err, "movies.gateway_error")
 		return
 	}
 

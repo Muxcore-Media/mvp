@@ -118,9 +118,10 @@ type parentalClassifier interface {
 	Classify(ctx context.Context, item parentalItem) (parental.Classification, error)
 }
 
-// unavailableClassifier is used until the media modules publish content
-// ratings (roadmap T-M4-01 S5b): every rating is unavailable, so a restricted
-// policy denies every C-PLAY request while an unrestricted one never asks.
+// unavailableClassifier is the fail-closed default of a gate that was never
+// given media modules (tests, and a server without movie/TV clients): every
+// rating is unavailable, so a restricted policy denies every gated item while
+// an unrestricted one never asks. Production installs mediaClassifier.
 type unavailableClassifier struct{}
 
 func (unavailableClassifier) Classify(context.Context, parentalItem) (parental.Classification, error) {
@@ -138,7 +139,10 @@ type parentalGate struct {
 	now        func() time.Time
 	ttl        time.Duration
 	classifier parentalClassifier
-	hls        *hlsKeyBindings
+	// playClassifier is the <=30 s playback classification cache over
+	// classifier (ADR-0031 §4); it reads classifier at call time.
+	playClassifier *cachingClassifier
+	hls            *hlsKeyBindings
 
 	mu    sync.Mutex
 	cache map[string]parentalCacheEntry
@@ -166,7 +170,7 @@ func newParentalPolicyClient(timeout time.Duration) *http.Client {
 
 // newParentalGateWith injects the HTTP client and clock (tests).
 func newParentalGateWith(userdataBase string, client *http.Client, now func() time.Time) *parentalGate {
-	return &parentalGate{
+	g := &parentalGate{
 		policyURL:  parentalPolicyURL(userdataBase),
 		client:     client,
 		now:        now,
@@ -175,6 +179,17 @@ func newParentalGateWith(userdataBase string, client *http.Client, now func() ti
 		hls:        newHLSKeyBindings(),
 		cache:      map[string]parentalCacheEntry{},
 	}
+	g.playClassifier = newCachingClassifier(classifierFunc(func(ctx context.Context, item parentalItem) (parental.Classification, error) {
+		return g.itemClassifier().Classify(ctx, item)
+	}), now)
+	return g
+}
+
+// classifierFunc adapts a function to parentalClassifier.
+type classifierFunc func(context.Context, parentalItem) (parental.Classification, error)
+
+func (f classifierFunc) Classify(ctx context.Context, item parentalItem) (parental.Classification, error) {
+	return f(ctx, item)
 }
 
 // parentalPolicyURL derives the fixed policy resource URL. The request never
@@ -432,11 +447,30 @@ func (g *parentalGate) itemClassifier() parentalClassifier {
 
 // authorizeItem evaluates a restricted policy against the item's trusted
 // classification with the shared evaluator (userdata-local parental.Evaluate).
+// It is the C-PLAY check and uses the playback classification cache.
 func (g *parentalGate) authorizeItem(ctx context.Context, pol parentalPolicy, item parentalItem) *parentalError {
+	var cl parentalClassifier = unavailableClassifier{}
+	if g != nil && g.playClassifier != nil {
+		cl = g.playClassifier
+	}
+	return g.authorizeWith(ctx, cl, pol, item)
+}
+
+// authorizeItemFresh is the C-ITEM check: it always asks the owning module,
+// because only C-PLAY lookups may be cached (ADR-0031 §4).
+func (g *parentalGate) authorizeItemFresh(ctx context.Context, pol parentalPolicy, item parentalItem) *parentalError {
+	return g.authorizeWith(ctx, g.itemClassifier(), pol, item)
+}
+
+func (g *parentalGate) authorizeWith(ctx context.Context, cl parentalClassifier, pol parentalPolicy, item parentalItem) *parentalError {
 	c := parental.Classification{State: parental.Unavailable}
-	if item.ID != "" {
+	if item.ID != "" && item.Kind != "" {
 		var err error
-		if c, err = g.itemClassifier().Classify(ctx, item); err != nil {
+		switch c, err = cl.Classify(ctx, item); {
+		case errors.Is(err, errClassifyNotFound):
+			// A missing or unmappable item is unavailable, not a failure.
+			c = parental.Classification{State: parental.Unavailable}
+		case err != nil:
 			log.Printf("parental: classification lookup for %s %q failed: %v", item.Kind, item.ID, err)
 			return errParentalClassif
 		}

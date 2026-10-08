@@ -407,6 +407,8 @@ func main() {
 		together:             newWatchTogetherStore(*userdataDir),
 		parental:             newParentalGate(os.Getenv("USERDATA_LOCAL_URL")),
 	}
+	// Classification comes only from the owning media modules (ADR-0031 §2).
+	s.parental.classifier = newMediaClassifier(s)
 	// ADR-0031: there is no switch that disables parental enforcement. Only a
 	// dev stack without auth serves requests that carry no session.
 	if !s.requireAuth {
@@ -971,13 +973,14 @@ func (s *server) handleListMovies(w http.ResponseWriter, r *http.Request) {
 	page, pageSize := pageParams(r)
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	resp, err := s.movies.ListMovies(ctx, &mgmntv1.ListMoviesRequest{Page: page, PageSize: pageSize})
+	resp, err := s.movies.ListMovies(ctx, listMoviesRequest(ctx, &mgmntv1.ListMoviesRequest{Page: page, PageSize: pageSize}))
 	if err != nil {
-		writeAPIError(w, http.StatusBadGateway, err.Error(), "movies.gateway_error")
+		writeListGatewayError(w, ctx, err, "movies.gateway_error")
 		return
 	}
-	items := make([]map[string]any, 0, len(resp.GetMovies()))
-	for _, m := range resp.GetMovies() {
+	shown := visibleMovies(ctx, resp.GetMovies())
+	items := make([]map[string]any, 0, len(shown))
+	for _, m := range shown {
 		items = append(items, movieJSON(m))
 	}
 	writeJSON(w, map[string]any{
@@ -1017,13 +1020,18 @@ func (s *server) handleListTV(w http.ResponseWriter, r *http.Request) {
 	page, pageSize := pageParams(r)
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	resp, err := s.tv.ListTVShows(ctx, &tvmgmtv1.ListTVShowsRequest{Page: page, PageSize: pageSize})
+	req := &tvmgmtv1.ListTVShowsRequest{Page: page, PageSize: pageSize}
+	if restr, ok := parentalRestrictionFrom(ctx); ok {
+		req.ClassificationFilter = restr.tvFilter()
+	}
+	resp, err := s.tv.ListTVShows(ctx, req)
 	if err != nil {
-		writeAPIError(w, http.StatusBadGateway, err.Error(), "tv.gateway_error")
+		writeListGatewayError(w, ctx, err, "tv.gateway_error")
 		return
 	}
-	items := make([]map[string]any, 0, len(resp.GetSeries()))
-	for _, m := range resp.GetSeries() {
+	shown := visibleSeries(ctx, resp.GetSeries())
+	items := make([]map[string]any, 0, len(shown))
+	for _, m := range shown {
 		items = append(items, tvJSON(m))
 	}
 	writeJSON(w, map[string]any{

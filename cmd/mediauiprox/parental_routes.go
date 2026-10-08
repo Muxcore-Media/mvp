@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/Muxcore-Media/userdata-local/parental"
 )
 
 // Route classes (ADR-0031 §1.2). Every pattern registered by registerRoutes
@@ -13,14 +15,16 @@ import (
 // parentalRegistrar panics at startup on an unclassified pattern and
 // routes_inventory_test.go fails on one.
 //
-// Wired in this slice: C-PLAY and C-DENY. C-LIST and C-ITEM are recorded here
-// and enforced with media classification in roadmap T-M4-01 S5b; until then
-// they pass through unchanged.
+// All five classes are enforced for a restricted principal: C-LIST narrows the
+// list at the owning module and re-checks every returned item, C-ITEM checks
+// the one item the path names, C-PLAY checks the item behind src or the path,
+// and C-DENY refuses the route. Classification comes only from the owning media
+// module (parental_classify.go).
 type routeClass string
 
 const (
-	classList   routeClass = "C-LIST"   // filter items; policy failure fails the response (S5b)
-	classItem   routeClass = "C-ITEM"   // check one item; deny the whole response (S5b)
+	classList   routeClass = "C-LIST"   // filter items; policy failure fails the response
+	classItem   routeClass = "C-ITEM"   // check one item; deny the whole response
 	classPlay   routeClass = "C-PLAY"   // check the item behind src or the path
 	classDeny   routeClass = "C-DENY"   // no trusted classification: restricted principals get 403
 	classExempt routeClass = "C-EXEMPT" // no catalogue content, or already admin/manager-gated
@@ -29,7 +33,7 @@ const (
 // parentalRoute is one row of the route-class table.
 type parentalRoute struct {
 	class routeClass
-	// item locates the catalogue item behind a C-PLAY request.
+	// item locates the catalogue item behind a C-PLAY or C-ITEM request.
 	item func(*http.Request) parentalItem
 	// hlsAsset marks GET /stream/hls/{key}/{file}: the item comes from the
 	// session's key binding, not from the request.
@@ -54,10 +58,14 @@ type parentalRoute struct {
 }
 
 var (
-	cList   = parentalRoute{class: classList}
-	cItem   = parentalRoute{class: classItem}
-	cDeny   = parentalRoute{class: classDeny}
-	cExempt = parentalRoute{class: classExempt}
+	cList = parentalRoute{class: classList}
+	// C-ITEM: the item is named by the path, in the same form the handler reads
+	// it (TrimSpace(PathValue("id")) or the trimmed catch-all path).
+	cItemMovie   = parentalRoute{class: classItem, item: parentalItemMovieID}
+	cItemSeries  = parentalRoute{class: classItem, item: parentalItemSeriesID}
+	cItemEpisode = parentalRoute{class: classItem, item: parentalItemEpisodeID}
+	cDeny        = parentalRoute{class: classDeny}
+	cExempt      = parentalRoute{class: classExempt}
 	// cOperator is C-EXEMPT because the handler already rejects sessions
 	// without the admin/manager (or admin) role before touching catalogue data.
 	cOperator = parentalRoute{class: classExempt, roleGated: true}
@@ -92,38 +100,38 @@ var parentalRouteClasses = map[string]parentalRoute{
 	"GET /api/playback/subtitles":      cPlaySrc,
 	"GET /api/playback/subtitles/{id}": cPlayUnknown, // subtitle id; the item is not named
 	"GET /api/playback/segments": {class: classPlay, item: func(r *http.Request) parentalItem {
-		return parentalItem{ID: strings.TrimSpace(r.URL.Query().Get("media_id"))}
+		return parentalItem{Kind: kindMedia, ID: strings.TrimSpace(r.URL.Query().Get("media_id"))}
 	}},
 	"GET /api/playback/chapters": cPlaySrc,
 	"GET /api/playback/analysis": cPlaySrc,
 
-	// --- C-LIST (recorded; S5b) ---
+	// --- C-LIST ---
 	"/api/movies":               cList, // includes ?library=
 	"/api/tv":                   cList,
 	"GET /api/collections":      cList,
 	"GET /api/collections/{id}": cList,
 	"GET /api/collections/":     cList,
 
-	// --- C-ITEM (recorded; S5b) ---
-	"/api/movies/":                   cItem,
-	"/api/tv/":                       cItem, // episodes are classified by their series
-	"GET /api/movies/{id}/tags":      cItem,
-	"GET /api/tv/{id}/tags":          cItem,
-	"GET /api/movies/{id}/titles":    cItem,
-	"GET /api/tv/{id}/titles":        cItem,
-	"GET /api/movies/{id}/history":   cItem,
-	"GET /api/tv/{id}/history":       cItem,
-	"GET /api/movies/{id}/artwork":   cItem,
-	"GET /api/tv/{id}/artwork":       cItem,
-	"GET /api/movies/{id}/files":     cItem,
-	"GET /api/movies/{id}/subtitles": cItem,
-	"GET /api/tv/{id}/subtitles":     cItem,
-	"GET /api/episodes/{id}/file":    cItem,
+	// --- C-ITEM ---
+	"/api/movies/":                   {class: classItem, item: parentalItemMoviePath},
+	"/api/tv/":                       {class: classItem, item: parentalItemSeriesPath}, // episodes are classified by their series
+	"GET /api/movies/{id}/tags":      cItemMovie,
+	"GET /api/tv/{id}/tags":          cItemSeries,
+	"GET /api/movies/{id}/titles":    cItemMovie,
+	"GET /api/tv/{id}/titles":        cItemSeries,
+	"GET /api/movies/{id}/history":   cItemMovie,
+	"GET /api/tv/{id}/history":       cItemSeries,
+	"GET /api/movies/{id}/artwork":   cItemMovie,
+	"GET /api/tv/{id}/artwork":       cItemSeries,
+	"GET /api/movies/{id}/files":     cItemMovie,
+	"GET /api/movies/{id}/subtitles": cItemMovie,
+	"GET /api/tv/{id}/subtitles":     cItemSeries,
+	"GET /api/episodes/{id}/file":    cItemEpisode,
 	// Not in ADR-0031 §1.2: the response is the full item. Operator-only
 	// (T-M5-12); root_folder_path needs admin. The role gate runs first, so
-	// the S5b item check only ever sees admin/manager principals.
-	"PATCH /api/movies/{id}": {class: classItem, requirePrivileged: true, rootPathAdmin: true},
-	"PATCH /api/tv/{id}":     {class: classItem, requirePrivileged: true, rootPathAdmin: true},
+	// the item check only ever sees admin/manager principals.
+	"PATCH /api/movies/{id}": {class: classItem, item: parentalItemMovieID, requirePrivileged: true, rootPathAdmin: true},
+	"PATCH /api/tv/{id}":     {class: classItem, item: parentalItemSeriesID, requirePrivileged: true, rootPathAdmin: true},
 
 	// --- C-DENY: external catalogue ---
 	"/api/discover/":               cDeny,
@@ -495,6 +503,10 @@ func (s *server) parentalWrap(pattern string, h http.Handler) http.Handler {
 	switch route.class {
 	case classPlay:
 		gated = s.parentalPlayGate(route, h)
+	case classList:
+		gated = s.parentalListGate(h)
+	case classItem:
+		gated = s.parentalItemGate(route, h)
 	case classDeny:
 		gated = s.parentalDenyGate(h)
 	default:
@@ -598,6 +610,62 @@ func (s *server) parentalPlayGate(route parentalRoute, next http.Handler) http.H
 	})
 }
 
+// parentalListGate marks the request of a restricted principal so the C-LIST
+// handler narrows its module calls and re-checks every item it returns
+// (parentalRestrictionFrom). Unrestricted principals reach the handler with
+// nothing added, so their responses are unchanged and cost no lookups.
+func (s *server) parentalListGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pol, _, active, perr := s.parentalCheck(r)
+		switch {
+		case perr != nil:
+			writeParentalError(w, perr, "")
+		case !active || pol.unrestricted():
+			next.ServeHTTP(w, r)
+		default:
+			ctx := context.WithValue(r.Context(), parentalRestrictionKey{}, parentalRestriction{policy: pol.policy})
+			next.ServeHTTP(w, r.WithContext(ctx))
+		}
+	})
+}
+
+// parentalItemGate checks the one item a C-ITEM path names, against its owning
+// module (never the playback cache), and denies the whole response.
+func (s *server) parentalItemGate(route parentalRoute, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pol, _, active, perr := s.parentalCheck(r)
+		if perr != nil {
+			writeParentalError(w, perr, "")
+			return
+		}
+		if !active || pol.unrestricted() {
+			next.ServeHTTP(w, r)
+			return
+		}
+		var item parentalItem
+		if route.item != nil {
+			item = route.item(r)
+		}
+		if perr := s.parental.authorizeItemFresh(r.Context(), pol, item); perr != nil {
+			writeParentalError(w, perr, "")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+type parentalRestrictionKey struct{}
+
+// parentalRestriction is the restricted policy a C-LIST handler applies.
+type parentalRestriction struct {
+	policy parental.Policy
+}
+
+func parentalRestrictionFrom(ctx context.Context) (parentalRestriction, bool) {
+	r, ok := ctx.Value(parentalRestrictionKey{}).(parentalRestriction)
+	return r, ok
+}
+
 type parentalGrantKey struct{}
 
 // parentalGrant records that a restricted principal was authorized for item.
@@ -633,9 +701,43 @@ func parentalItemFromStreamPath(p string) parentalItem {
 	}
 	switch parts[2] {
 	case "movies":
-		return parentalItem{Kind: "movie", ID: parts[3]}
+		return parentalItem{Kind: kindMovie, ID: parts[3]}
 	case "tv":
-		return parentalItem{Kind: "episode", ID: parts[3]}
+		return parentalItem{Kind: kindEpisode, ID: parts[3]}
 	}
 	return parentalItem{}
+}
+
+// C-ITEM item extractors. They read the id exactly as the handlers do, so the
+// gate and the handler can never name different items.
+func parentalItemMovieID(r *http.Request) parentalItem {
+	return parentalItem{Kind: kindMovie, ID: strings.TrimSpace(r.PathValue("id"))}
+}
+
+func parentalItemSeriesID(r *http.Request) parentalItem {
+	return parentalItem{Kind: kindSeries, ID: strings.TrimSpace(r.PathValue("id"))}
+}
+
+func parentalItemEpisodeID(r *http.Request) parentalItem {
+	return parentalItem{Kind: kindEpisode, ID: strings.TrimSpace(r.PathValue("id"))}
+}
+
+// parentalItemMoviePath and parentalItemSeriesPath serve the catch-all detail
+// routes (/api/movies/, /api/tv/), whose handlers read Trim(TrimPrefix(path)).
+// More than one segment is not an item id (the module would be asked for an id
+// that cannot exist), so it classifies as unknown and is denied.
+func parentalItemMoviePath(r *http.Request) parentalItem {
+	return parentalItem{Kind: kindMovie, ID: catchAllItemID(r, "/api/movies/")}
+}
+
+func parentalItemSeriesPath(r *http.Request) parentalItem {
+	return parentalItem{Kind: kindSeries, ID: catchAllItemID(r, "/api/tv/")}
+}
+
+func catchAllItemID(r *http.Request, prefix string) string {
+	id := strings.Trim(strings.TrimPrefix(r.URL.Path, prefix), "/")
+	if id == "" || strings.Contains(id, "/") || id != strings.TrimSpace(id) {
+		return ""
+	}
+	return id
 }

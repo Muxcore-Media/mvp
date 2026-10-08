@@ -63,6 +63,9 @@ func TestParentalPlayAllowsClassifiedItem(t *testing.T) {
 	// debrid sources and unparseable paths name no item: unavailable → denied.
 	assertParentalError(t, "GET /api/playback/resolve", hlsGet(h, "/api/playback/resolve?src=debrid%3Aabc", kid), http.StatusForbidden, parentalCodeBlocked)
 	assertParentalError(t, "/stream/movies/", hlsGet(h, "/stream/movies/ok/extra", kid), http.StatusForbidden, parentalCodeBlocked)
+	// Playback classifications are cached for up to 30 s (ADR-0031 §4); the
+	// failure shows once the cached entry has expired.
+	h.clock.Advance(playbackClassificationTTL + time.Second)
 	fc.mu.Lock()
 	fc.err = errors.New("lookup failed")
 	fc.mu.Unlock()
