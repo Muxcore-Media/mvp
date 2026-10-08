@@ -37,7 +37,7 @@ curl -s http://127.0.0.1:9401/health   # auth
 
 1. Configure OIDC issuer, client ID/secret in `auth-oidc` env (`AUTH_OIDC_*`).
 2. Set `MVP_ENABLE_AUTH_OIDC=1`, ensure `auth-local` is **not** started.
-3. Update `AUTH_HTTP_URL`, `ADMIN_UI_PUBLIC_URL`, `MEDIA_UI_PUBLIC_URL` for OIDC login redirects.
+3. Update `AUTH_HTTP_URL`, `ADMIN_UI_PUBLIC_URL`, `MEDIA_UI_PUBLIC_URL` for OIDC login redirects. Configure the BFF `AUTH_GRPC_CLIENT_ADDR` to that provider's gRPC endpoint as well: linked BFF sessions require compatible `Validate` semantics on each protected request (see [`BFF-API.md`](../BFF-API.md#auth-session)); unsupported/unavailable validation returns retryable 503 without deleting the session.
 4. Re-create users via OIDC provider (no automatic user import from auth-local SQLite).
 
 ## secrets-file → secrets-vault

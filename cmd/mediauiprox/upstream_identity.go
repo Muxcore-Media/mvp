@@ -58,15 +58,11 @@ func (u upstreamIdentity) callerID() string {
 // sessionUpstreamIdentity resolves the request's BFF session to the identity
 // forwarded upstream. ok is false without a valid session.
 func (s *server) sessionUpstreamIdentity(r *http.Request) (upstreamIdentity, bool) {
-	if s.sessions == nil {
-		return upstreamIdentity{}, false
-	}
-	tok := sessionTokenFromRequest(r)
-	userID, username, _, _, ok := s.sessions.LookupRoles(tok)
+	e, ok := requestSession(r, s.sessions)
 	if !ok {
 		return upstreamIdentity{}, false
 	}
-	return upstreamIdentity{userID: userID, username: username, authToken: s.sessions.LookupAuthToken(tok)}, true
+	return upstreamIdentity{userID: e.userID, username: e.username, authToken: e.authToken}, true
 }
 
 // apply sets the bearer and compatibility caller header on an upstream request.

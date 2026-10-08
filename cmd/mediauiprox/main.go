@@ -25,6 +25,7 @@ import (
 	metadatav1 "github.com/Muxcore-Media/contracts-metadata/muxcore/metadata/v1"
 	notifyv1 "github.com/Muxcore-Media/contracts-notification/muxcore/notification/v1"
 	scannerv1 "github.com/Muxcore-Media/contracts-scanner/muxcore/scanner/v1"
+	authv1 "github.com/Muxcore-Media/core/proto/gen/muxcore/auth/v1"
 	jellyfinv1 "github.com/Muxcore-Media/jellyfin/proto/jellyfinv1"
 	formatsv1 "github.com/Muxcore-Media/media-custom-formats/proto/formatsv1"
 	ffprobev1 "github.com/Muxcore-Media/media-ffprobe/proto/ffprobev1"
@@ -86,6 +87,7 @@ func main() {
 	playbackMonitorHTTP := flag.String("playback-monitor-http", envOr("PLAYBACK_MONITOR_HTTP_URL", "http://127.0.0.1:8560"), "playback-monitor HTTP (optional native session ingest)")
 	playbackMonitorToken := flag.String("playback-monitor-token", envOr("PLAYBACK_MONITOR_HTTP_TOKEN", ""), "operator token for playback-monitor POST /ingest")
 	taggingHTTP := flag.String("tagging-http", envOr("TAGGING_HTTP_URL", "http://127.0.0.1:9741"), "media-tagging HTTP (optional Arr auto-tag rules)")
+	authGRPC := flag.String("auth-grpc", envOr("AUTH_GRPC_CLIENT_ADDR", "127.0.0.1:9403"), "auth provider gRPC (session revalidation)")
 	authHTTP := flag.String("auth-http", envOr("AUTH_HTTP_URL", "http://127.0.0.1:9401"), "browser-facing auth-local URL (login redirects)")
 	authInternal := flag.String("auth-http-internal", envOr("AUTH_HTTP_INTERNAL_URL", ""), "server-side auth-local URL for code exchange (defaults to auth-http)")
 	publicURL := flag.String("public-url", envOr("MEDIA_UI_PUBLIC_URL", ""), "public origin for OAuth callbacks (e.g. https://media.gringotts)")
@@ -328,6 +330,17 @@ func main() {
 		}
 	}
 
+	var authClient sessionValidator
+	if addr := strings.TrimSpace(*authGRPC); addr != "" {
+		authConn, err := dialMeshGRPC(addr)
+		if err != nil {
+			log.Printf("warn: auth session validation unavailable: %v", err)
+		} else {
+			defer func() { _ = authConn.Close() }()
+			authClient = authv1.NewAuthServiceClient(authConn)
+		}
+	}
+
 	transcoderURL := optionalURL(*transcoderHTTP)
 	transcoderTransport, err := newTranscoderTransport(transcoderURL)
 	if err != nil {
@@ -389,6 +402,7 @@ func main() {
 		formats:              formatsClient,
 		roots:                rootsClient,
 		rename:               renameClient,
+		auth:                 authClient,
 		authHTTP:             authPublic,
 		authInternal:         authInt,
 		publicURL:            strings.TrimRight(*publicURL, "/"),
@@ -420,10 +434,7 @@ func main() {
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 
-	handler := http.Handler(mux)
-	if s.requireAuth {
-		handler = s.withAuth(mux)
-	}
+	handler := s.withSessionValidation(mux, s.requireAuth)
 	handler = s.hardenHandler(handler)
 
 	log.Printf("media-ui proxy listening on %s (dist=%s auth=%v auth_http=%s auth_internal=%s public=%s)",
@@ -805,6 +816,7 @@ type server struct {
 	formats              formatsv1.FormatServiceClient
 	roots                rootsv1.RootFolderServiceClient
 	rename               renamev1.RenameServiceClient
+	auth                 sessionValidator
 	authHTTP             string   // browser redirects
 	authInternal         string   // server-side code exchange
 	publicURL            string   // optional fixed public origin
@@ -822,50 +834,6 @@ type server struct {
 	issues               *mediaIssueStore
 	together             *watchTogetherStore
 	parental             *parentalGate // ADR-0031 enforcement; nil fails closed
-}
-
-func (s *server) withAuth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/healthz", "/login", "/auth/callback", "/logout", "/api/quickconnect", "/api/tv/login", "/api/tv/login/totp",
-			"/api/mobile/auth/login", "/api/mobile/auth/done", "/api/mobile/session",
-			"/api/invite/peek", "/api/invite/redeem":
-			next.ServeHTTP(w, r)
-			return
-		}
-		if r.URL.Path == "/api/password-reset" && r.Method == http.MethodPost {
-			next.ServeHTTP(w, r)
-			return
-		}
-		if strings.HasPrefix(r.URL.Path, "/invite/") {
-			next.ServeHTTP(w, r)
-			return
-		}
-		// Poster/backdrop URLs are loaded via <img>; allow after login path rewrite
-		// without forcing a login redirect (cookies are still preferred for /api).
-		if strings.HasPrefix(r.URL.Path, "/images/") {
-			next.ServeHTTP(w, r)
-			return
-		}
-		c, err := r.Cookie("session")
-		if err == nil && s.sessions.Valid(c.Value) {
-			next.ServeHTTP(w, r)
-			return
-		}
-		if tok := bearerSessionToken(r); tok != "" && s.sessions.Valid(tok) {
-			next.ServeHTTP(w, r)
-			return
-		}
-		if wantsJSON(r) || strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/stream/") {
-			if strings.HasPrefix(r.URL.Path, "/api/") {
-				writeAPIUnauthorized(w)
-				return
-			}
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		s.redirectLogin(w, r)
-	})
 }
 
 func wantsJSON(r *http.Request) bool {

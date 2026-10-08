@@ -257,6 +257,7 @@ spec:
           env:
             - { name: MUXCORE_INSECURE_DISABLE_TLS, value: "true" }
             - { name: AUTH_HTTP_URL, value: "http://auth-local:9401" }
+            - { name: AUTH_GRPC_CLIENT_ADDR, value: "auth-local:9403" }
             - { name: MOVIES_HTTP_URL, value: "http://media-movies:9430" }
             - { name: TVSHOWS_HTTP_URL, value: "http://media-tvshows:9450" }
             - { name: REQUEST_MEDIA_HTTP_URL, value: "http://request-media:9380" }

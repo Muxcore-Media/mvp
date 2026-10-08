@@ -14,14 +14,8 @@ func sessionTokenFromRequest(r *http.Request) string {
 }
 
 func (s *server) sessionPrincipal(r *http.Request) (userID, username, tenantID string, roles []string, ok bool) {
-	if s.sessions == nil {
-		return "", "", "", nil, false
-	}
-	tok := sessionTokenFromRequest(r)
-	if tok == "" {
-		return "", "", "", nil, false
-	}
-	return s.sessions.LookupRoles(tok)
+	e, ok := requestSession(r, s.sessions)
+	return e.userID, e.username, e.tenantID, append([]string(nil), e.roles...), ok
 }
 
 func (s *server) sessionIdentity(r *http.Request) (username string, roles []string, ok bool) {

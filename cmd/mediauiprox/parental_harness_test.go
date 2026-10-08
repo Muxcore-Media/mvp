@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	authv1 "github.com/Muxcore-Media/core/proto/gen/muxcore/auth/v1"
 )
 
 // Test harness for ADR-0031 enforcement: a fake userdata-local policy
@@ -122,6 +125,8 @@ func (p *fakePolicyProvider) requests() []policyRequest {
 	return append([]policyRequest(nil), p.reqs...)
 }
 
+type parentalAuthFixtureKey struct{}
+
 type parentalHarness struct {
 	t        *testing.T
 	s        *server
@@ -164,8 +169,22 @@ func newParentalHarness(t *testing.T) *parentalHarness {
 	h.s.registerRoutes(gated)
 	raw := http.NewServeMux()
 	h.s.registerClassifiedRoutes(raw)
-	h.gated = h.s.withAuth(gated)
-	h.baseline = h.s.withAuth(raw)
+	// These tests vary roles for local sessions sharing a provider bearer to
+	// isolate the parental/operator gate. Supply their selected identity as an
+	// explicit auth fixture; independent session_revalidate tests exercise real
+	// provider claim changes, failures and races.
+	h.s.auth = sessionValidatorFunc(func(ctx context.Context, req *authv1.ValidateRequest) (*authv1.ValidateResponse, error) {
+		e, _ := ctx.Value(parentalAuthFixtureKey{}).(sessionEntry)
+		return &authv1.ValidateResponse{Valid: e.authToken == req.GetToken(), UserId: e.userID, Username: e.username, TenantId: e.tenantID, Roles: e.roles}, nil
+	})
+	withFixture := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			e, _ := h.s.sessions.get(sessionTokenFromRequest(r))
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), parentalAuthFixtureKey{}, e)))
+		})
+	}
+	h.gated = withFixture(h.s.withAuth(gated))
+	h.baseline = withFixture(h.s.withAuth(raw))
 	return h
 }
 
