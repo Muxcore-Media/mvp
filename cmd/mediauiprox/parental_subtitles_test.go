@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	authv1 "github.com/Muxcore-Media/core/proto/gen/muxcore/auth/v1"
 	mgmntv1 "github.com/Muxcore-Media/media-movies/proto/mgmntv1"
 	subtv1 "github.com/Muxcore-Media/media-subtitles/proto/subtv1"
 	"google.golang.org/grpc"
@@ -592,5 +593,67 @@ func TestTVSubtitlesKeepToTheAuthorizedSeries(t *testing.T) {
 	res = f.get("/api/tv/series1/subtitles", f.kid)
 	if res.status != http.StatusOK || strings.Contains(res.body, "ef-bad") || f.subs.askedAbout("ef-bad") {
 		t.Fatalf("restricted fallback must not map the series id to a media row: %d %s", res.status, res.body)
+	}
+}
+
+// A subtitle fetch is authorized through the revalidated session (PR #104):
+// the binding never stands in for the principal. A provider that revokes the
+// session, reports another user, or is down must stop the fetch before any
+// bound track is served, and a bare binding with no session is no credential.
+func TestSubtitleFetchRequiresRevalidatedSession(t *testing.T) {
+	f := newSubtitleFixture(t)
+	tracks := f.tracks(t, "/stream/movies/m-pg", f.kid)
+	fixtureAuth := f.s.auth
+	setAuth := func(fn func(*authv1.ValidateRequest) (*authv1.ValidateResponse, error)) {
+		f.s.auth = sessionValidatorFunc(func(_ context.Context, req *authv1.ValidateRequest) (*authv1.ValidateResponse, error) {
+			return fn(req)
+		})
+	}
+	denied := func(what string, want int) {
+		t.Helper()
+		for _, tr := range tracks {
+			res := f.get(tr.Src, f.kid)
+			if res.status != want || strings.Contains(res.body, "Hello") || strings.Contains(res.body, "upstream") {
+				t.Fatalf("%s %s: %d %s", what, tr.ID, res.status, res.body)
+			}
+		}
+	}
+
+	// Provider outage: 503 and the sign-in is kept, nothing served.
+	setAuth(func(*authv1.ValidateRequest) (*authv1.ValidateResponse, error) {
+		return nil, status.Error(codes.Unavailable, "auth down")
+	})
+	denied("provider down", http.StatusServiceUnavailable)
+	// Another user behind the same bearer: the local session is dropped.
+	setAuth(func(*authv1.ValidateRequest) (*authv1.ValidateResponse, error) {
+		return &authv1.ValidateResponse{Valid: true, UserId: "someone-else"}, nil
+	})
+	denied("provider reports another user", http.StatusUnauthorized)
+	if _, ok := f.s.sessions.get(f.kid); ok {
+		t.Fatal("session survived a provider identity mismatch")
+	}
+	// The binding table still holds the entries; without the session they
+	// authorize nothing, even if the provider later accepts the old bearer.
+	f.s.auth = fixtureAuth
+	denied("session gone", http.StatusUnauthorized)
+	if len(f.s.parental.subtitles.byID) == 0 {
+		t.Fatal("test premise: bindings should outlive the session")
+	}
+
+	// Revocation by the provider while the session exists.
+	f.kid = f.session("kid", "", "kid-bearer")
+	tracks = f.tracks(t, "/stream/movies/m-pg", f.kid)
+	setAuth(func(*authv1.ValidateRequest) (*authv1.ValidateResponse, error) {
+		return nil, status.Error(codes.Unauthenticated, "revoked")
+	})
+	denied("provider revoked", http.StatusUnauthorized)
+
+	// No credential at all, with a bound track id: not served, not anonymous.
+	f.s.auth = fixtureAuth
+	for _, tr := range tracks {
+		res := classificationRequest(f.parentalHarness, "", tr.Src)
+		if res.status == http.StatusOK || strings.Contains(res.body, "Hello") {
+			t.Fatalf("credential-less fetch of %s: %d %s", tr.ID, res.status, res.body)
+		}
 	}
 }
