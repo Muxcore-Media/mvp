@@ -42,10 +42,24 @@ curl -s http://127.0.0.1:9401/health   # auth
 
 ## secrets-file → secrets-vault
 
-1. Export secrets from file backend (`SECRETS_FILE_DIR`) — manual copy to Vault paths.
-2. Set `MVP_ENABLE_SECRETS_VAULT=1` (or `docker compose --profile secrets-vault up -d`), point `SECRETS_BACKEND` + `VAULT_ADDR` + token env. Stop `secrets-file` first — both advertise capability `secrets`.
-3. Restart modules that read secrets on boot.
-4. Missing `SECRETS_BACKEND` / provider credentials fail-closed (module Init refuses to start).
+Both modules implement the same `secrets` capability. Core does not reject two secrets providers, so select exactly one at deployment time. Migration of secret values is manual: read them through the file provider and write them to the external backend's configured namespace. Keep the encrypted file store and its master key for rollback; there is no plaintext export directory.
+
+**Compose:** the default remains `secrets-file`. Set `SECRETS_BACKEND` (`vault`, `infisical`, `aws`, `gcp` or `azure`) and that backend's provider variables in `.env`. Keep the normal enrollment generation, which produces tokens for both providers: base-file variables interpolate before the overlay removes a service.
+
+```bash
+./scripts/gen-enrollment.sh
+docker compose -f docker-compose.registry.yml -f docker-compose.secrets-vault.yml config -q
+docker compose -f docker-compose.registry.yml stop secrets-file
+docker compose -f docker-compose.registry.yml -f docker-compose.secrets-vault.yml up -d
+```
+
+Use `docker-compose.yml` instead of the registry base for source builds. For dev, order files as **registry → dev → secrets-vault**. The selection overlay must be last: it removes the file service with `!reset null` and enables Vault. Requires Compose `!reset` support; tested with Docker Compose v2.40.3. Earlier versions and Podman Compose are unverified. Run the `config -q` check before startup; parsing failure is a failure, not a skipped check.
+
+Raw `--profile secrets-vault` (including `--profile '*'` without the selection overlay) is unsupported: profiles are additive and select both providers. The overlay selects only Vault even with wildcard profiles. Removing a service from the model does not stop an existing container, so stop the old provider explicitly before switching. Do not use `down -v` or delete either identity/data volume.
+
+Rollback: stop Vault using the same file set, then start the default file provider from the base file. Retain the original `SECRETS_MASTER_KEY`, file data and both providers' mesh identity volumes. Restart modules that cache secrets or provider connections after either switch. Vault credentials and connectivity are validated by the provider at runtime; successful compose rendering does not establish backend readiness.
+
+**Host:** run `./run-host.sh stop-one secrets-file`, set `MVP_ENABLE_SECRETS_VAULT=1` plus the backend variables, then `./run-host.sh up`. The flag now selects Vault instead of file. Missing `SECRETS_BACKEND`, a live opposing runner process, or a restart request for the unselected provider fails before stop/start actions. To roll back, stop Vault, set the flag to `0`, and start the stack. An unrelated single-module restart does not change provider selection.
 
 ## database-sqlite → database-postgres
 

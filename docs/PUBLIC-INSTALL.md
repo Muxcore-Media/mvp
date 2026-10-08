@@ -45,6 +45,8 @@ docker compose -f docker-compose.registry.yml up -d
 
 `./scripts/smoke-registry.sh` (or `./smoke.sh` when the registry compose stack is up and host `go build` is unavailable) verifies the install using **curl**, **docker compose**, **openssl** and a **grpcurl** container only — no sibling clones and no Go toolchain on the host. In the household profile it enrolls a client identity of its own (`mvp-smoke`, token from `gen-enrollment.sh --print-token`, kept in `run/smoke-id/`) and talks TLS to core and the modules.
 
+For an external secrets backend, follow [provider switching](INFRA-BACKENDS.md#secrets-file--secrets-vault): stop the old provider, then append `docker-compose.secrets-vault.yml` last. The override requires Compose `!reset` support (tested with Docker Compose v2.40.3; Podman Compose compatibility is unverified). A bare `--profile secrets-vault` also selects `secrets-file` and is unsupported.
+
 **State and backups (ADR-0013).** Every stateful module keeps its data on a named volume mounted at a fixed path, as declared in the `state:` map of [`household-manifest.yaml`](../household-manifest.yaml). The `backup-local` profile mounts each of those volumes read-only at `/source/<module-id>` and archives them by default. Library media (`movies`, `shows`, `downloads`) and key material are not archived: keep `SECRETS_MASTER_KEY` (and an export of the `encryption-aesgcm-data` keyring) somewhere else, because a restored `secrets.json` cannot be read without the key. `./scripts/check-state-coverage.sh` verifies that the manifest, the compose file, and the backup mounts agree.
 
 Operator UI defaults ([`PORTS.md`](../PORTS.md)):

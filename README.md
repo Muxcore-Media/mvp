@@ -152,7 +152,7 @@ Consumer SPA source/build: **[`../media-ui-app/`](../media-ui-app/)** → org [`
 | `observability` | compose-only: `metrics-prometheus` (`:9901` scrape) + `tracing-otlp` (slog fallback unless `OTEL_EXPORTER_OTLP_ENDPOINT` set) |
 | `media-ui` | compose-only: consumer SPA + BFF on `:5173` |
 | `cache-local` | optional process-local cache (`:9602`); `MVP_ENABLE_CACHE_LOCAL=1` on run-host |
-| `secrets-vault` | optional Vault/OpenBao/cloud secrets sidecar (`:9551`); `MVP_ENABLE_SECRETS_VAULT=1` on run-host. Do not dual-run with `secrets-file`. |
+| `secrets-vault` | use the final `docker-compose.secrets-vault.yml` overlay, **not** the additive profile; host flag `MVP_ENABLE_SECRETS_VAULT=1` selects Vault instead of file. [Switching/rollback](docs/INFRA-BACKENDS.md#secrets-file--secrets-vault). |
 
 Polluted `media-ui/` dump is quarantined — shippable SPA is **`media-ui-app/`**. Operator admin remains `admin-ui`.
 
