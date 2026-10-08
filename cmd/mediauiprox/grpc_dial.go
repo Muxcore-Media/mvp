@@ -25,6 +25,15 @@ func meshGRPCDialOptions() ([]grpc.DialOption, error) {
 	if meshInsecureAllowed() {
 		return []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, nil
 	}
+	tlsConfig, err := meshTLSConfig()
+	if err != nil {
+		return nil, err
+	}
+	return []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}, nil
+}
+
+// meshTLSConfig is shared by mesh gRPC and the transcoder HTTP client.
+func meshTLSConfig() (*tls.Config, error) {
 	certFile := strings.TrimSpace(os.Getenv("MUXCORE_TLS_CERT"))
 	keyFile := strings.TrimSpace(os.Getenv("MUXCORE_TLS_KEY"))
 	caFile := strings.TrimSpace(os.Getenv("MUXCORE_TLS_CA"))
@@ -50,7 +59,7 @@ func meshGRPCDialOptions() ([]grpc.DialOption, error) {
 		}
 		tlsConfig.RootCAs = pool
 	}
-	return []grpc.DialOption{grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig))}, nil
+	return tlsConfig, nil
 }
 
 func dialMeshGRPC(addr string) (*grpc.ClientConn, error) {

@@ -12,7 +12,7 @@ require (
 	github.com/Muxcore-Media/contracts-scanner v0.2.0
 	github.com/Muxcore-Media/core v0.6.15
 	github.com/Muxcore-Media/core/sdk/go/client v0.6.1
-	github.com/Muxcore-Media/core/sdk/go/module v0.6.5
+	github.com/Muxcore-Media/core/sdk/go/module v0.6.6
 	github.com/Muxcore-Media/jellyfin v0.3.5
 	github.com/Muxcore-Media/media-custom-formats v0.1.15
 	github.com/Muxcore-Media/media-ffprobe v0.1.13

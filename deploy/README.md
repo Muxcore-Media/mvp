@@ -76,3 +76,9 @@ When `acquisition.enabled=true`, the chart deploys `indexer-torznab`, `downloade
 ## Operator (CRDs)
 
 Early scaffold: [`Muxcore-Media/muxcore-operator`](https://github.com/Muxcore-Media/muxcore-operator) **v0.1.0** — `MuxCorePlatform` CR reconciles muxcored + sidecar Deployments/Services. Install CRD/RBAC/manager from that repo’s `config/`; sample CR mirrors this minimal platform module set. GHCR operator image publish still P0-blocked.
+
+## Media confinement
+
+The scanner gets `SCANNER_ALLOWED_ROOTS` (`media.scannerAllowedRoots` in Helm); match these to your mounted library and download paths. Helm's native torrent sidecar exposes `acquisition.downloaderIndexerHosts`, empty by default (public targets only), for explicitly trusted LAN indexer hosts.
+
+These scaffolds do not deploy media-transcoder, media-root-folders, media-rename, media-subtitles or qBittorrent. The BFF therefore disables transcoding with an empty `TRANSCODER_HTTP_URL`; adding an external transcoder requires its HTTPS URL and the BFF's mesh certificate/CA, or a shared dev token for plaintext. Complete media persistence and household mesh enrollment remain prerequisites for a production Kubernetes deployment. The compose and host launchers wire the guards for their deployed modules to actual media mounts.

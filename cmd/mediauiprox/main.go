@@ -62,7 +62,7 @@ func main() {
 	booksGRPC := flag.String("books-grpc", envOr("BOOKS_GRPC_CLIENT_ADDR", "127.0.0.1:9650"), "media-books gRPC (optional household author history)")
 	comicsHTTP := flag.String("comics-http", envOr("COMICS_HTTP_URL", "http://127.0.0.1:9661"), "media-comics HTTP (optional library-plus)")
 	audiobooksHTTP := flag.String("audiobooks-http", envOr("AUDIOBOOKS_HTTP_URL", "http://127.0.0.1:9671"), "media-audiobooks HTTP (optional library-plus)")
-	transcoderHTTP := flag.String("transcoder-http", envOr("TRANSCODER_HTTP_URL", "http://127.0.0.1:9526"), "media-transcoder playback HTTP (on-the-fly transcode)")
+	transcoderHTTP := flag.String("transcoder-http", defaultTranscoderURL(), "media-transcoder playback HTTP (on-the-fly transcode)")
 	debridHTTP := flag.String("debrid-http", envOr("DEBRID_HTTP_URL", "http://127.0.0.1:9631"), "downloader-debrid health HTTP (optional)")
 	indexerPiratebayHTTP := flag.String("indexer-piratebay-http", envOr("INDEXER_PIRATEBAY_HTTP_URL", "http://127.0.0.1:9487"), "indexer-piratebay health HTTP (optional)")
 	indexerGRPC := flag.String("indexer-grpc", envOr("INDEXER_TORZNAB_GRPC_CLIENT_ADDR", "127.0.0.1:9486"), "indexer-torznab gRPC (optional Prowlarr/Jackett catalog)")
@@ -328,36 +328,43 @@ func main() {
 		}
 	}
 
+	transcoderURL := optionalURL(*transcoderHTTP)
+	transcoderTransport, err := newTranscoderTransport(transcoderURL)
+	if err != nil {
+		log.Fatalf("transcoder transport: %v", err)
+	}
 	authPublic := strings.TrimRight(*authHTTP, "/")
 	authInt := strings.TrimRight(*authInternal, "/")
 	if authInt == "" {
 		authInt = authPublic
 	}
 	s := &server{
-		movies:           mgmntv1.NewMovieManagementServiceClient(moviesConn),
-		moviesAdmin:      mediaadminv1.NewMediaAdminServiceClient(moviesConn),
-		tv:               tvmgmtv1.NewTvManagementServiceClient(tvConn),
-		tvAdmin:          mediaadminv1.NewMediaAdminServiceClient(tvConn),
-		music:            musicClient,
-		musicAdmin:       musicAdminClient,
-		booksAdmin:       booksAdminClient,
-		jellyfin:         jellyfinv1.NewJellyfinBridgeClient(jellyfinConn),
-		plex:             plexClient,
-		notify:           notifyClient,
-		backup:           backupClient,
-		maintainer:       maintainerClient,
-		playbackGuard:    playbackGuardClient,
-		backupRestoreDir: strings.TrimSpace(*backupRestoreDir),
-		indexer:          indexerClient,
-		moviesHTTP:       mustURL(*moviesHTTP),
-		tvHTTP:           mustURL(*tvHTTP),
-		requestHTTP:      mustURL(*requestHTTP),
-		musicHTTP:        mustURL(*musicHTTP),
-		booksHTTP:        mustURL(*booksHTTP),
-		comicsHTTP:       mustURL(*comicsHTTP),
-		audiobooksHTTP:   mustURL(*audiobooksHTTP),
-		transcoderHTTP:   optionalURL(*transcoderHTTP),
-		debridHTTP:       optionalURL(*debridHTTP),
+		movies:              mgmntv1.NewMovieManagementServiceClient(moviesConn),
+		moviesAdmin:         mediaadminv1.NewMediaAdminServiceClient(moviesConn),
+		tv:                  tvmgmtv1.NewTvManagementServiceClient(tvConn),
+		tvAdmin:             mediaadminv1.NewMediaAdminServiceClient(tvConn),
+		music:               musicClient,
+		musicAdmin:          musicAdminClient,
+		booksAdmin:          booksAdminClient,
+		jellyfin:            jellyfinv1.NewJellyfinBridgeClient(jellyfinConn),
+		plex:                plexClient,
+		notify:              notifyClient,
+		backup:              backupClient,
+		maintainer:          maintainerClient,
+		playbackGuard:       playbackGuardClient,
+		backupRestoreDir:    strings.TrimSpace(*backupRestoreDir),
+		indexer:             indexerClient,
+		moviesHTTP:          mustURL(*moviesHTTP),
+		tvHTTP:              mustURL(*tvHTTP),
+		requestHTTP:         mustURL(*requestHTTP),
+		musicHTTP:           mustURL(*musicHTTP),
+		booksHTTP:           mustURL(*booksHTTP),
+		comicsHTTP:          mustURL(*comicsHTTP),
+		audiobooksHTTP:      mustURL(*audiobooksHTTP),
+		transcoderHTTP:      transcoderURL,
+		transcoderTransport: transcoderTransport,
+		transcoderToken:     strings.TrimSpace(os.Getenv("TRANSCODER_HTTP_TOKEN")),
+		debridHTTP:          optionalURL(*debridHTTP),
 		acquisitionPeers: []acquisitionPeerDef{
 			optionalAcquisitionPeer("indexer-piratebay", "indexer", "Pirate Bay indexer", *indexerPiratebayHTTP),
 			optionalAcquisitionPeer("downloader-native-torrent", "downloader", "Native torrent", *downloaderTorrentHTTP),
@@ -759,6 +766,8 @@ type server struct {
 	comicsHTTP           *url.URL
 	audiobooksHTTP       *url.URL
 	transcoderHTTP       *url.URL
+	transcoderTransport  http.RoundTripper
+	transcoderToken      string
 	debridHTTP           *url.URL
 	acquisitionPeers     []acquisitionPeerDef
 	graphHTTP            *url.URL

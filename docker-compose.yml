@@ -568,6 +568,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: downloader-native-torrent
+      DOWNLOADER_INDEXER_HOSTS: ${DOWNLOADER_INDEXER_HOSTS:-}
       DOWNLOADER_GRPC_ADDR: ":9461"
       DOWNLOADER_ENGINE: ${DOWNLOADER_ENGINE:-fixture}
       DOWNLOAD_DIR: /downloads
@@ -592,6 +593,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: downloader-qbittorrent
+      QBIT_DOWNLOAD_ROOTS: ${QBIT_DOWNLOAD_ROOTS:-/downloads}
+      DOWNLOADER_INDEXER_HOSTS: ${DOWNLOADER_INDEXER_HOSTS:-}
       QBIT_GRPC_ADDR: ":9462"
       QBIT_HTTP_ADDR: ":9463"
       DOWNLOADER_ENGINE: ${DOWNLOADER_ENGINE:-fixture}
@@ -732,6 +735,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-scanner
+      SCANNER_ALLOWED_ROOTS: /library:/downloads
       SCANNER_DB_PATH: /data/scanner.db
       SCANNER_LIBRARY_ROOT: /library
       SCANNER_TV_LIBRARY_ROOT: /library/tv
@@ -756,6 +760,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-root-folders
+      ROOTS_ALLOWED_PREFIXES: /library
       ROOTS_DB_PATH: /data/roots.db
     volumes:
       - roots-data:/data
@@ -858,6 +863,10 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-rename
+      RENAME_ALLOWED_ROOTS: /library:/downloads
+    volumes:
+      - library-data:/library
+      - downloads-data:/downloads
 
   media-ffprobe:
     <<: *module
@@ -878,6 +887,9 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-subtitles
+      SUBS_MEDIA_ROOTS: /library
+    volumes:
+      - library-data:/library:ro
 
   # Optional Jellyfin playback bridge — compose profile: jellyfin
   #   docker compose --profile jellyfin up -d
@@ -998,6 +1010,10 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-transcoder
+      TRANSCODER_HTTP_TOKEN: ${TRANSCODER_HTTP_TOKEN:?set a random dev transcoder token in .env}
+      TRANSCODER_URL_SOURCE_HOSTS: media-movies:9430,media-tvshows:9450
+      TRANSCODER_ALLOW_URL_SOURCES: "1"
+      TRANSCODER_MEDIA_ROOTS: /library
       TRANSCODER_DB_PATH: /data/transcoder.db
       TRANSCODER_GRPC_ADDR: ":9525"
       TRANSCODER_HTTP_ADDR: ":9526"
@@ -1007,6 +1023,7 @@ services:
       - "${TRANSCODER_GRPC_PORT:-9525}:9525"
       - "${TRANSCODER_HTTP_PORT:-9526}:9526"
     volumes:
+      - library-data:/library:ro
       - transcoder-data:/data
     profiles: ["transcoder"]
 
@@ -1138,6 +1155,8 @@ services:
       context: ..
       dockerfile: mvp/dockerfiles/media-ui.Dockerfile
     environment:
+      MUXCORE_INSECURE_DISABLE_TLS: "true"
+      TRANSCODER_HTTP_TOKEN: ${TRANSCODER_HTTP_TOKEN:?set a random dev transcoder token in .env}
       MOVIES_GRPC_CLIENT_ADDR: media-movies:9420
       TVSHOWS_GRPC_CLIENT_ADDR: media-tvshows:9440
       MOVIES_HTTP_URL: http://media-movies:9430
@@ -1148,7 +1167,7 @@ services:
       FORMATS_GRPC_CLIENT_ADDR: media-custom-formats:9490
       AUTH_HTTP_URL: http://auth-local:9401
       USERDATA_LOCAL_URL: http://userdata-local:9672
-      TRANSCODER_HTTP_URL: http://media-transcoder:9526
+      TRANSCODER_HTTP_URL: ${TRANSCODER_HTTP_URL-http://media-transcoder:9526}
       LISTSYNC_GRPC_CLIENT_ADDR: media-list-sync:9530
       MUSIC_GRPC_CLIENT_ADDR: media-music:9640
       NOTIFY_GRPC_CLIENT_ADDR: notification-default:9441

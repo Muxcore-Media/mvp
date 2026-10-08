@@ -27,10 +27,16 @@ jobs:
       # Umbrella-only checks (proto drift) are skipped automatically when
       # ../scripts is absent.
       - run: bash scripts/run-script-tests.sh
-      # Household install path (ADR-0007): the registry compose must parse.
+      # Household and dev install paths (ADR-0007): both compose files must parse.
       - name: Compose config
         # Required secrets have no defaults (NFR-SEC-001); CI only parses the file.
         env:
           MVP_ADMIN_PASSWORD: ci-parse-only
           HEALTH_MONITOR_HTTP_TOKEN: ci-parse-only
-        run: docker compose -f docker-compose.registry.yml config -q
+          TRANSCODER_HTTP_TOKEN: ci-parse-only
+        run: |
+          enrollment_env="$(mktemp "$RUNNER_TEMP/muxcore-compose.XXXXXX.env")"
+          trap 'rm -f "$enrollment_env"' EXIT
+          bash scripts/gen-enrollment.sh --env-file "$enrollment_env"
+          docker compose --env-file "$enrollment_env" -f docker-compose.registry.yml config -q
+          docker compose --env-file "$enrollment_env" -f docker-compose.registry.yml -f docker-compose.dev.yml config -q

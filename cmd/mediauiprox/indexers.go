@@ -92,8 +92,8 @@ func writeIndexerRPCError(w http.ResponseWriter, err error) {
 }
 
 func (s *server) requireIndexerWrite(w http.ResponseWriter, r *http.Request) bool {
-	if !s.sessionHasPrivilegedRole(r) {
-		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin or manager role required", "code": "indexers.forbidden"})
+	if !s.sessionHasAdminRole(r) {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin role required", "code": "indexers.forbidden"})
 		return false
 	}
 	if s.indexer == nil {
