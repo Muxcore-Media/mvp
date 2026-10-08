@@ -19,7 +19,9 @@ grep -Fq '(dict "name" "AUTH_GRPC_CLIENT_ADDR" "value" "auth-local:9403")' "$ROO
 # shellcheck disable=SC2016
 grep -Fq 'AUTH_GRPC_CLIENT_ADDR="${AUTH_GRPC_CLIENT_ADDR:-127.0.0.1:9403}"' "$ROOT/run-host.sh"
 if command -v helm >/dev/null; then
-  addr="$(helm template fixture "$ROOT/deploy/helm/muxcore" --set media.enabled=true | yq "${yq_flags[@]}" -r 'select(.kind == "Deployment" and .metadata.name == "media-ui") | .spec.template.spec.containers[] | select(.name == "media-ui") | .env[] | select(.name == "AUTH_GRPC_CLIENT_ADDR") | .value')"
+  # The chart requires an explicit health bearer even for offline rendering.
+  # This literal is a fixture only; the output is never applied to a cluster.
+  addr="$(helm template fixture "$ROOT/deploy/helm/muxcore" --set media.enabled=true --set-string healthMonitor.token=session-provider-fixture-only | yq "${yq_flags[@]}" -r 'select(.kind == "Deployment" and .metadata.name == "media-ui") | .spec.template.spec.containers[] | select(.name == "media-ui") | .env[] | select(.name == "AUTH_GRPC_CLIENT_ADDR") | .value')"
   [[ "$addr" == auth-local:9403 ]] || { echo "FAIL: rendered Helm BFF provider=$addr" >&2; exit 1; }
 else
   echo "skip: Helm render (helm not found); source wiring checked"
