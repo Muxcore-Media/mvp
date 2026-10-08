@@ -25,6 +25,7 @@ import (
 	metadatav1 "github.com/Muxcore-Media/contracts-metadata/muxcore/metadata/v1"
 	notifyv1 "github.com/Muxcore-Media/contracts-notification/muxcore/notification/v1"
 	scannerv1 "github.com/Muxcore-Media/contracts-scanner/muxcore/scanner/v1"
+	authv1 "github.com/Muxcore-Media/core/proto/gen/muxcore/auth/v1"
 	jellyfinv1 "github.com/Muxcore-Media/jellyfin/proto/jellyfinv1"
 	formatsv1 "github.com/Muxcore-Media/media-custom-formats/proto/formatsv1"
 	ffprobev1 "github.com/Muxcore-Media/media-ffprobe/proto/ffprobev1"
@@ -86,6 +87,7 @@ func main() {
 	playbackMonitorHTTP := flag.String("playback-monitor-http", envOr("PLAYBACK_MONITOR_HTTP_URL", "http://127.0.0.1:8560"), "playback-monitor HTTP (optional native session ingest)")
 	playbackMonitorToken := flag.String("playback-monitor-token", envOr("PLAYBACK_MONITOR_HTTP_TOKEN", ""), "operator token for playback-monitor POST /ingest")
 	taggingHTTP := flag.String("tagging-http", envOr("TAGGING_HTTP_URL", "http://127.0.0.1:9741"), "media-tagging HTTP (optional Arr auto-tag rules)")
+	authGRPC := flag.String("auth-grpc", envOr("AUTH_GRPC_CLIENT_ADDR", "127.0.0.1:9403"), "auth provider gRPC (session revalidation)")
 	authHTTP := flag.String("auth-http", envOr("AUTH_HTTP_URL", "http://127.0.0.1:9401"), "browser-facing auth-local URL (login redirects)")
 	authInternal := flag.String("auth-http-internal", envOr("AUTH_HTTP_INTERNAL_URL", ""), "server-side auth-local URL for code exchange (defaults to auth-http)")
 	publicURL := flag.String("public-url", envOr("MEDIA_UI_PUBLIC_URL", ""), "public origin for OAuth callbacks (e.g. https://media.gringotts)")
@@ -328,6 +330,17 @@ func main() {
 		}
 	}
 
+	var authClient sessionValidator
+	if addr := strings.TrimSpace(*authGRPC); addr != "" {
+		authConn, err := dialMeshGRPC(addr)
+		if err != nil {
+			log.Printf("warn: auth session validation unavailable: %v", err)
+		} else {
+			defer func() { _ = authConn.Close() }()
+			authClient = authv1.NewAuthServiceClient(authConn)
+		}
+	}
+
 	transcoderURL := optionalURL(*transcoderHTTP)
 	transcoderTransport, err := newTranscoderTransport(transcoderURL)
 	if err != nil {
@@ -389,6 +402,7 @@ func main() {
 		formats:              formatsClient,
 		roots:                rootsClient,
 		rename:               renameClient,
+		auth:                 authClient,
 		authHTTP:             authPublic,
 		authInternal:         authInt,
 		publicURL:            strings.TrimRight(*publicURL, "/"),
@@ -407,8 +421,7 @@ func main() {
 		together:             newWatchTogetherStore(*userdataDir),
 		parental:             newParentalGate(os.Getenv("USERDATA_LOCAL_URL")),
 	}
-	// Classification comes only from the owning media modules (ADR-0031 §2).
-	s.parental.classifier = newMediaClassifier(s)
+	s.parental.classifier = newCatalogClassifier(s, time.Now)
 	// ADR-0031: there is no switch that disables parental enforcement. Only a
 	// dev stack without auth serves requests that carry no session.
 	if !s.requireAuth {
@@ -421,10 +434,7 @@ func main() {
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 
-	handler := http.Handler(mux)
-	if s.requireAuth {
-		handler = s.withAuth(mux)
-	}
+	handler := s.withSessionValidation(mux, s.requireAuth)
 	handler = s.hardenHandler(handler)
 
 	log.Printf("media-ui proxy listening on %s (dist=%s auth=%v auth_http=%s auth_internal=%s public=%s)",
@@ -806,6 +816,7 @@ type server struct {
 	formats              formatsv1.FormatServiceClient
 	roots                rootsv1.RootFolderServiceClient
 	rename               renamev1.RenameServiceClient
+	auth                 sessionValidator
 	authHTTP             string   // browser redirects
 	authInternal         string   // server-side code exchange
 	publicURL            string   // optional fixed public origin
@@ -823,50 +834,6 @@ type server struct {
 	issues               *mediaIssueStore
 	together             *watchTogetherStore
 	parental             *parentalGate // ADR-0031 enforcement; nil fails closed
-}
-
-func (s *server) withAuth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/healthz", "/login", "/auth/callback", "/logout", "/api/quickconnect", "/api/tv/login", "/api/tv/login/totp",
-			"/api/mobile/auth/login", "/api/mobile/auth/done", "/api/mobile/session",
-			"/api/invite/peek", "/api/invite/redeem":
-			next.ServeHTTP(w, r)
-			return
-		}
-		if r.URL.Path == "/api/password-reset" && r.Method == http.MethodPost {
-			next.ServeHTTP(w, r)
-			return
-		}
-		if strings.HasPrefix(r.URL.Path, "/invite/") {
-			next.ServeHTTP(w, r)
-			return
-		}
-		// Poster/backdrop URLs are loaded via <img>; allow after login path rewrite
-		// without forcing a login redirect (cookies are still preferred for /api).
-		if strings.HasPrefix(r.URL.Path, "/images/") {
-			next.ServeHTTP(w, r)
-			return
-		}
-		c, err := r.Cookie("session")
-		if err == nil && s.sessions.Valid(c.Value) {
-			next.ServeHTTP(w, r)
-			return
-		}
-		if tok := bearerSessionToken(r); tok != "" && s.sessions.Valid(tok) {
-			next.ServeHTTP(w, r)
-			return
-		}
-		if wantsJSON(r) || strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/stream/") {
-			if strings.HasPrefix(r.URL.Path, "/api/") {
-				writeAPIUnauthorized(w)
-				return
-			}
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		s.redirectLogin(w, r)
-	})
 }
 
 func wantsJSON(r *http.Request) bool {
@@ -971,17 +938,30 @@ func (s *server) handleListMovies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page, pageSize := pageParams(r)
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-	resp, err := s.movies.ListMovies(ctx, listMoviesRequest(ctx, &mgmntv1.ListMoviesRequest{Page: page, PageSize: pageSize}))
-	if err != nil {
-		writeListGatewayError(w, ctx, err, "movies.gateway_error")
+	if _, restricted := restrictedBrowsePolicy(r.Context()); restricted && s.movies == nil {
+		writeParentalError(w, errParentalClassif, "")
 		return
 	}
-	shown := visibleMovies(ctx, resp.GetMovies())
-	items := make([]map[string]any, 0, len(shown))
-	for _, m := range shown {
-		items = append(items, movieJSON(m))
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	resp, err := s.movies.ListMovies(ctx, &mgmntv1.ListMoviesRequest{Page: page, PageSize: pageSize, ClassificationFilter: movieClassificationFilter(ctx)})
+	if err != nil {
+		writeBrowseFailure(w, r, err, "movies.gateway_error")
+		return
+	}
+	if _, restricted := restrictedBrowsePolicy(ctx); restricted && resp == nil {
+		writeParentalError(w, errParentalClassif, "")
+		return
+	}
+	items := make([]map[string]any, 0, len(resp.GetMovies()))
+	for _, m := range resp.GetMovies() {
+		if movieVisible(ctx, m) {
+			items = append(items, movieJSON(m))
+		}
+	}
+	if len(items) != len(resp.GetMovies()) {
+		writeParentalError(w, errParentalClassif, "")
+		return
 	}
 	writeJSON(w, map[string]any{
 		"items":     items,
@@ -1002,11 +982,18 @@ func (s *server) handleMovieByID(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if _, restricted := restrictedBrowsePolicy(r.Context()); restricted && s.movies == nil {
+		writeParentalError(w, errParentalClassif, "")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	resp, err := s.movies.GetMovie(ctx, &mgmntv1.GetMovieRequest{MovieId: id})
 	if err != nil {
-		writeAPIError(w, http.StatusBadGateway, err.Error(), "movies.gateway_error")
+		writeItemBrowseFailure(w, r, err, "movies.gateway_error")
+		return
+	}
+	if !checkMovieResponse(w, r, id, resp.GetMovie()) {
 		return
 	}
 	writeJSON(w, map[string]any{"movie": movieJSON(resp.GetMovie())})
@@ -1018,21 +1005,30 @@ func (s *server) handleListTV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page, pageSize := pageParams(r)
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-	req := &tvmgmtv1.ListTVShowsRequest{Page: page, PageSize: pageSize}
-	if restr, ok := parentalRestrictionFrom(ctx); ok {
-		req.ClassificationFilter = restr.tvFilter()
-	}
-	resp, err := s.tv.ListTVShows(ctx, req)
-	if err != nil {
-		writeListGatewayError(w, ctx, err, "tv.gateway_error")
+	if _, restricted := restrictedBrowsePolicy(r.Context()); restricted && s.tv == nil {
+		writeParentalError(w, errParentalClassif, "")
 		return
 	}
-	shown := visibleSeries(ctx, resp.GetSeries())
-	items := make([]map[string]any, 0, len(shown))
-	for _, m := range shown {
-		items = append(items, tvJSON(m))
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	resp, err := s.tv.ListTVShows(ctx, &tvmgmtv1.ListTVShowsRequest{Page: page, PageSize: pageSize, ClassificationFilter: tvClassificationFilter(ctx)})
+	if err != nil {
+		writeBrowseFailure(w, r, err, "tv.gateway_error")
+		return
+	}
+	if _, restricted := restrictedBrowsePolicy(ctx); restricted && resp == nil {
+		writeParentalError(w, errParentalClassif, "")
+		return
+	}
+	items := make([]map[string]any, 0, len(resp.GetSeries()))
+	for _, m := range resp.GetSeries() {
+		if seriesVisible(ctx, m) {
+			items = append(items, tvJSON(m))
+		}
+	}
+	if len(items) != len(resp.GetSeries()) {
+		writeParentalError(w, errParentalClassif, "")
+		return
 	}
 	writeJSON(w, map[string]any{
 		"items":     items,
@@ -1053,11 +1049,18 @@ func (s *server) handleTVByID(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if _, restricted := restrictedBrowsePolicy(r.Context()); restricted && s.tv == nil {
+		writeParentalError(w, errParentalClassif, "")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	resp, err := s.tv.GetTVShow(ctx, &tvmgmtv1.GetTVShowRequest{SeriesId: id})
 	if err != nil {
-		writeAPIError(w, http.StatusBadGateway, err.Error(), "tv.gateway_error")
+		writeItemBrowseFailure(w, r, err, "tv.gateway_error")
+		return
+	}
+	if !checkSeriesResponse(w, r, id, resp.GetSeries()) {
 		return
 	}
 	show := tvJSON(resp.GetSeries())
@@ -1135,23 +1138,26 @@ func movieJSON(m *mgmntv1.MovieItem) map[string]any {
 		genres = []string{}
 	}
 	out := map[string]any{
-		"id":                 m.GetId(),
-		"tmdb_id":            m.GetTmdbId(),
-		"title":              m.GetTitle(),
-		"year":               m.GetYear(),
-		"overview":           m.GetOverview(),
-		"runtime":            m.GetRuntime(),
-		"vote_average":       m.GetVoteAverage(),
-		"genres":             genres,
-		"poster_url":         consumerImageURL("movies", firstNonEmpty(m.GetPosterUrl(), m.GetPosterPath())),
-		"backdrop_url":       consumerImageURL("movies", firstNonEmpty(m.GetBackdropUrl(), m.GetBackdropPath())),
-		"has_file":           m.GetHasFile(),
-		"status":             m.GetStatus(),
-		"tagline":            m.GetTagline(),
-		"created_at":         m.GetCreatedAt(),
-		"root_folder_path":   m.GetRootFolderPath(),
-		"monitored":          m.GetMonitored(),
-		"quality_profile_id": m.GetQualityProfileId(),
+		"id":                    m.GetId(),
+		"tmdb_id":               m.GetTmdbId(),
+		"title":                 m.GetTitle(),
+		"year":                  m.GetYear(),
+		"overview":              m.GetOverview(),
+		"runtime":               m.GetRuntime(),
+		"vote_average":          m.GetVoteAverage(),
+		"content_rating":        m.GetContentRating(),
+		"content_rating_source": m.GetContentRatingSource(),
+		"tag_labels":            append([]string{}, m.GetTagLabels()...),
+		"genres":                genres,
+		"poster_url":            consumerImageURL("movies", firstNonEmpty(m.GetPosterUrl(), m.GetPosterPath())),
+		"backdrop_url":          consumerImageURL("movies", firstNonEmpty(m.GetBackdropUrl(), m.GetBackdropPath())),
+		"has_file":              m.GetHasFile(),
+		"status":                m.GetStatus(),
+		"tagline":               m.GetTagline(),
+		"created_at":            m.GetCreatedAt(),
+		"root_folder_path":      m.GetRootFolderPath(),
+		"monitored":             m.GetMonitored(),
+		"quality_profile_id":    m.GetQualityProfileId(),
 	}
 	if m.GetHasFile() && m.GetId() != "" {
 		out["stream_url"] = "/stream/movies/" + url.PathEscape(m.GetId())
@@ -1213,24 +1219,27 @@ func tvJSON(m *tvmgmtv1.TVSeries) map[string]any {
 		})
 	}
 	return map[string]any{
-		"id":                 m.GetId(),
-		"tmdb_id":            m.GetTmdbId(),
-		"title":              m.GetName(),
-		"name":               m.GetName(),
-		"year":               m.GetYear(),
-		"overview":           m.GetOverview(),
-		"vote_average":       m.GetVoteAverage(),
-		"genres":             genres,
-		"poster_url":         consumerImageURL("tv", firstNonEmpty(m.GetPosterUrl(), m.GetPosterPath())),
-		"backdrop_url":       consumerImageURL("tv", firstNonEmpty(m.GetBackdropUrl(), m.GetBackdropPath())),
-		"has_file":           hasFile,
-		"stream_url":         streamURL,
-		"status":             m.GetStatus(),
-		"created_at":         m.GetCreatedAt(),
-		"seasons":            seasons,
-		"monitored":          m.GetMonitored(),
-		"quality_profile_id": m.GetQualityProfileId(),
-		"root_folder_path":   m.GetRootFolderPath(),
+		"id":                    m.GetId(),
+		"tmdb_id":               m.GetTmdbId(),
+		"title":                 m.GetName(),
+		"name":                  m.GetName(),
+		"year":                  m.GetYear(),
+		"overview":              m.GetOverview(),
+		"vote_average":          m.GetVoteAverage(),
+		"content_rating":        m.GetContentRating(),
+		"content_rating_source": m.GetContentRatingSource(),
+		"tag_labels":            append([]string{}, m.GetTagLabels()...),
+		"genres":                genres,
+		"poster_url":            consumerImageURL("tv", firstNonEmpty(m.GetPosterUrl(), m.GetPosterPath())),
+		"backdrop_url":          consumerImageURL("tv", firstNonEmpty(m.GetBackdropUrl(), m.GetBackdropPath())),
+		"has_file":              hasFile,
+		"stream_url":            streamURL,
+		"status":                m.GetStatus(),
+		"created_at":            m.GetCreatedAt(),
+		"seasons":               seasons,
+		"monitored":             m.GetMonitored(),
+		"quality_profile_id":    m.GetQualityProfileId(),
+		"root_folder_path":      m.GetRootFolderPath(),
 	}
 }
 

@@ -110,12 +110,9 @@ func TestParentalHLSKeyBinding(t *testing.T) {
 		t.Fatal("refused HLS assets reached the transcoder")
 	}
 
-	// The bound item is re-evaluated on every asset request; the classification
-	// behind it is cached for at most 30 s (ADR-0031 §4).
-	h.clock.Advance(playbackClassificationTTL + time.Second)
+	// The bound item is re-evaluated on every asset request.
 	fc.set("movie/ok", parental.Classification{State: parental.Rated, Rating: "PG-13", TagsKnown: true})
 	assertParentalError(t, "GET /stream/hls/{key}/{file}", hlsGet(h, "/stream/hls/"+okKey+"/seg_00003.ts", kid), http.StatusForbidden, parentalCodeBlocked)
-	h.clock.Advance(playbackClassificationTTL + time.Second)
 	fc.mu.Lock()
 	fc.err = errors.New("media module down")
 	fc.mu.Unlock()

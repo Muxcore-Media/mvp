@@ -45,33 +45,47 @@ func publicCollectionPrefs(prefs *mgmntv1.CollectionPrefs) map[string]any {
 
 func (s *server) handleListCollections(w http.ResponseWriter, r *http.Request) {
 	if s.movies == nil {
+		if _, restricted := restrictedBrowsePolicy(r.Context()); restricted {
+			writeParentalError(w, errParentalClassif, "")
+			return
+		}
 		writeJSON(w, map[string]any{"items": []any{}, "total": 0, "available": false, "source": "media-movies"})
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	if restr, ok := parentalRestrictionFrom(ctx); ok {
-		// ListCollections counts hidden movies and names collections after
-		// them; a restricted principal's list is derived from visible movies.
-		items, err := s.restrictedCollections(ctx, restr)
-		if err != nil {
-			writeListGatewayError(w, ctx, err, "collections.gateway_error")
-			return
-		}
-		writeJSON(w, map[string]any{"items": items, "total": len(items), "available": true, "source": "media-movies"})
-		return
-	}
 	resp, err := s.movies.ListCollections(ctx, &mgmntv1.ListCollectionsRequest{})
 	if err != nil {
-		writeAPIError(w, http.StatusBadGateway, err.Error(), "collections.gateway_error")
+		writeBrowseFailure(w, r, err, "collections.gateway_error")
+		return
+	}
+	if _, restricted := restrictedBrowsePolicy(ctx); restricted && resp == nil {
+		writeParentalError(w, errParentalClassif, "")
 		return
 	}
 	items := make([]map[string]any, 0, len(resp.GetCollections()))
 	for _, c := range resp.GetCollections() {
+		count := c.GetMovieCount()
+		if _, restricted := restrictedBrowsePolicy(ctx); restricted {
+			members, err := s.movies.GetCollectionMovies(ctx, &mgmntv1.GetCollectionMoviesRequest{CollectionId: c.GetCollectionId()})
+			if err != nil || members == nil || members.GetCollectionId() != c.GetCollectionId() {
+				writeParentalError(w, errParentalClassif, "")
+				return
+			}
+			count = 0
+			for _, m := range members.GetMovies() {
+				if movieVisible(ctx, m) {
+					count++
+				}
+			}
+			if count == 0 {
+				continue
+			}
+		}
 		items = append(items, map[string]any{
 			"id":          strconv.Itoa(int(c.GetCollectionId())),
 			"name":        c.GetName(),
-			"movie_count": c.GetMovieCount(),
+			"movie_count": count,
 			"monitored":   c.GetMonitored(),
 		})
 	}
@@ -94,6 +108,10 @@ func (s *server) handleCollectionByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.movies == nil {
+		if _, restricted := restrictedBrowsePolicy(r.Context()); restricted {
+			writeParentalError(w, errParentalClassif, "")
+			return
+		}
 		writeJSON(w, map[string]any{"available": false, "id": idStr, "movies": []any{}})
 		return
 	}
@@ -101,27 +119,26 @@ func (s *server) handleCollectionByID(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	resp, err := s.movies.GetCollectionMovies(ctx, &mgmntv1.GetCollectionMoviesRequest{CollectionId: id})
 	if err != nil {
-		writeListGatewayError(w, ctx, err, "collections.gateway_error")
+		writeBrowseFailure(w, r, err, "collections.gateway_error")
 		return
 	}
-	name := resp.GetName()
-	shown := visibleMovies(ctx, resp.GetMovies())
-	if _, restricted := parentalRestrictionFrom(ctx); restricted {
-		if len(shown) == 0 {
-			// Same answer for an absent collection and one with no visible
-			// movie; the name and size of a hidden collection stay hidden.
-			writeAPIError(w, http.StatusNotFound, "collection not found", "collections.not_found")
-			return
-		}
-		name = shown[0].GetCollectionName()
+	if _, restricted := restrictedBrowsePolicy(ctx); restricted && (resp == nil || resp.GetCollectionId() != id) {
+		writeParentalError(w, errParentalClassif, "")
+		return
 	}
-	movies := make([]map[string]any, 0, len(shown))
-	for _, m := range shown {
-		movies = append(movies, movieJSON(m))
+	movies := make([]map[string]any, 0, len(resp.GetMovies()))
+	for _, m := range resp.GetMovies() {
+		if movieVisible(ctx, m) {
+			movies = append(movies, movieJSON(m))
+		}
+	}
+	if _, restricted := restrictedBrowsePolicy(ctx); restricted && len(movies) == 0 {
+		writeJSON(w, map[string]any{"id": idStr, "movies": movies, "total": 0, "available": true})
+		return
 	}
 	out := map[string]any{
 		"id":        idStr,
-		"name":      name,
+		"name":      resp.GetName(),
 		"movies":    movies,
 		"total":     len(movies),
 		"available": true,

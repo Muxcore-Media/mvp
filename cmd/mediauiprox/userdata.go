@@ -60,11 +60,9 @@ func newServerUserdata(dir string) *serverUserdata {
 func (u *serverUserdata) scopeFromRequest(r *http.Request, sessions *sessionStore, allowClientOverride bool) store.Scope {
 	userID := "anonymous"
 	sessionTenant := ""
-	if tok := sessionTokenFromRequest(r); tok != "" && sessions != nil {
-		if uid, _, tid, ok := sessions.LookupTenant(tok); ok && uid != "" {
-			userID = uid
-			sessionTenant = tid
-		}
+	if e, ok := requestSession(r, sessions); ok && e.userID != "" {
+		userID = e.userID
+		sessionTenant = e.tenantID
 	}
 	if allowClientOverride {
 		if h := strings.TrimSpace(r.Header.Get(muxcoreUserIDHeader)); h != "" {
@@ -294,8 +292,6 @@ func writeUserdataJSON(w http.ResponseWriter, scope store.Scope, blob store.Blob
 // sessionAuthToken returns the signed-in user's auth-local token ("" without a
 // session or when the session was created without one).
 func (s *server) sessionAuthToken(r *http.Request) string {
-	if s.sessions == nil {
-		return ""
-	}
-	return s.sessions.LookupAuthToken(sessionTokenFromRequest(r))
+	e, _ := requestSession(r, s.sessions)
+	return e.authToken
 }

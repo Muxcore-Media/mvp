@@ -144,7 +144,7 @@ func TestSidecarOwnership(t *testing.T) {
 }
 
 // The MF1 reproduction through the HTTP routes: two items share a flat folder.
-func TestS5bSidecarOwnershipFlatFolderOverHTTP(t *testing.T) {
+func TestSidecarOwnershipFlatFolderOverHTTP(t *testing.T) {
 	f := newSubtitleFixture(t)
 	flat := filepath.Join(f.dir, "flat")
 	writeFixtureFile(t, filepath.Join(flat, "Alien.mkv"), "video")
@@ -153,9 +153,10 @@ func TestS5bSidecarOwnershipFlatFolderOverHTTP(t *testing.T) {
 	writeFixtureFile(t, filepath.Join(flat, "Alien.Resurrection.en.srt"), fmt.Sprintf(srtBody, "Hello Resurrection"))
 	writeFixtureFile(t, filepath.Join(flat, "Alien 2.srt"), fmt.Sprintf(srtBody, "Hello Alien 2"))
 	// m-g is allowed for the kid; m-r is denied.
-	f.cat.files["m-g"] = filepath.Join(flat, "Alien.mkv")
-	f.cat.files["m-r"] = filepath.Join(flat, "Alien.Resurrection.mkv")
-	kid := f.kid(policyJSON(true, "", false, nil, nil))
+	files := f.s.movies.(*subtitleMovies).files
+	files["m-g"] = filepath.Join(flat, "Alien.mkv")
+	files["m-r"] = filepath.Join(flat, "Alien.Resurrection.mkv")
+	kid := f.kid
 
 	tracks := f.tracks(t, "/stream/movies/m-g", kid)
 	var sidecars []string
@@ -167,9 +168,9 @@ func TestS5bSidecarOwnershipFlatFolderOverHTTP(t *testing.T) {
 	if len(sidecars) != 1 || sidecars[0] != "Alien.en.srt" {
 		t.Fatalf("allowed item's sidecars = %v", sidecars)
 	}
-	if res := f.get("/api/playback/subtitles/"+sidecarTrackID(filepath.Join(flat, "Alien.en.srt")), kid); res.status != http.StatusOK || !strings.Contains(res.body, "Hello Alien") {
-		t.Fatalf("own sidecar: %d %s", res.status, res.body)
-	}
+	// Fetching stays denied for a restricted principal (nothing authorizes a
+	// track id), so ownership is proved by the listing above.
+	assertBlocked(t, "own sidecar fetch", f.get("/api/playback/subtitles/"+sidecarTrackID(filepath.Join(flat, "Alien.en.srt")), kid))
 	for _, other := range []string{"Alien.Resurrection.en.srt", "Alien 2.srt"} {
 		assertBlocked(t, "foreign sidecar "+other, f.get("/api/playback/subtitles/"+url.PathEscape(sidecarTrackID(filepath.Join(flat, other))), kid))
 	}
@@ -187,14 +188,14 @@ func TestS5bSidecarOwnershipFlatFolderOverHTTP(t *testing.T) {
 
 // R1: the subtitle service names the media file of every row. A restricted
 // listing offers and binds only rows that name the file it asked about.
-func TestS5bModuleSubtitleRowOfAnotherFileIsNotOffered(t *testing.T) {
+func TestModuleSubtitleRowOfAnotherFileIsNotOffered(t *testing.T) {
 	f := newSubtitleFixture(t)
 	f.subs.rows["file-m-pg"] = []*subtv1.SubtitleFile{
 		{Id: "sub-pg-1", MediaFileId: "file-m-pg", Language: "eng"},
 		{Id: "sub-wrong", MediaFileId: "file-m-r", Language: "eng"},
 		{Id: "sub-nofile", Language: "eng"},
 	}
-	kid := f.kid(policyJSON(true, "", false, nil, nil))
+	kid := f.kid
 
 	ids := trackIDs(f.tracks(t, "/stream/movies/m-pg", kid))
 	has := func(id string) bool {
@@ -208,15 +209,8 @@ func TestS5bModuleSubtitleRowOfAnotherFileIsNotOffered(t *testing.T) {
 	if !has("sub-pg-1") || has("sub-wrong") || has("sub-nofile") {
 		t.Fatalf("restricted tracks = %v", ids)
 	}
-	sid := sessionID(kid)
 	for _, id := range []string{"sub-wrong", "sub-nofile"} {
-		if _, ok := f.s.parental.subtitles.lookup(sid, id, f.clock.Now()); ok {
-			t.Errorf("%s was bound", id)
-		}
 		assertBlocked(t, "row of another file "+id, f.get("/api/playback/subtitles/"+id, kid))
-	}
-	if _, ok := f.s.parental.subtitles.lookup(sid, "sub-pg-1", f.clock.Now()); !ok {
-		t.Error("the correct row was not bound")
 	}
 
 	// Unrestricted behaviour is unchanged: the row is still offered.

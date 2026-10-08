@@ -3,11 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -238,19 +238,13 @@ func libraryTagLabels(lib string) []string {
 	return nil
 }
 
-// resolveLibraryTagID finds the library's tag. The error is the tag lookup
-// failing; callers that must not return a partial list (restricted principals)
-// act on it, the rest treat it as "no tag".
-func (s *server) resolveLibraryTagID(ctx context.Context, lib string) (string, error) {
+func (s *server) resolveLibraryTagID(ctx context.Context, lib string) string {
 	if s.movies == nil {
-		return "", nil
+		return ""
 	}
 	resp, err := s.movies.ListTags(ctx, &mgmntv1.ListTagsRequest{})
-	if err != nil {
-		return "", err
-	}
-	if resp == nil {
-		return "", errors.New("media-movies returned no tag list")
+	if err != nil || resp == nil {
+		return ""
 	}
 	want := map[string]bool{}
 	for _, l := range libraryTagLabels(lib) {
@@ -258,13 +252,16 @@ func (s *server) resolveLibraryTagID(ctx context.Context, lib string) (string, e
 	}
 	for _, t := range resp.GetTags() {
 		if want[strings.ToLower(strings.TrimSpace(t.GetLabel()))] {
-			return t.GetId(), nil
+			return t.GetId()
 		}
 	}
-	return "", nil
+	return ""
 }
 
 func (s *server) collectMoviesForLibrary(ctx context.Context, lib string) ([]*mgmntv1.MovieItem, error) {
+	if _, restricted := restrictedBrowsePolicy(ctx); restricted {
+		return s.collectRestrictedLibraryMovies(ctx)
+	}
 	byID := map[string]*mgmntv1.MovieItem{}
 	add := func(list []*mgmntv1.MovieItem) {
 		for _, m := range list {
@@ -275,40 +272,24 @@ func (s *server) collectMoviesForLibrary(ctx context.Context, lib string) ([]*mg
 		}
 	}
 
-	// For a restricted principal a failed call is an error, never a partial 200
-	// (ADR-0031 §3): the tag lookup and the tag pass are required calls for it.
-	// Everyone else keeps the best-effort tag pass. This is not a completeness
-	// guarantee: the tag pass reads only the first 100 tagged movies and the
-	// scan below stops after 10 pages (1000 movies), so a larger library is
-	// truncated silently for every principal (known residual, not part of S5b).
-	_, restricted := parentalRestrictionFrom(ctx)
-	tagID, tagErr := s.resolveLibraryTagID(ctx, lib)
-	if tagErr != nil && restricted {
-		return nil, tagErr
-	}
-	if tagID != "" {
-		resp, err := s.movies.ListMovies(ctx, listMoviesRequest(ctx, &mgmntv1.ListMoviesRequest{
+	if tagID := s.resolveLibraryTagID(ctx, lib); tagID != "" {
+		resp, err := s.movies.ListMovies(ctx, &mgmntv1.ListMoviesRequest{
 			Page: 1, PageSize: 100, TagId: tagID,
-		}))
-		switch {
-		case err == nil && resp != nil:
-			add(visibleMovies(ctx, resp.GetMovies()))
-		case restricted && err != nil:
-			return nil, err
-		case restricted:
-			return nil, errors.New("media-movies returned no tag page")
+		})
+		if err == nil && resp != nil {
+			add(resp.GetMovies())
 		}
 	}
 
 	// Scan library pages for path / genre / heuristic matches.
 	for page := int32(1); page <= 10; page++ {
-		resp, err := s.movies.ListMovies(ctx, listMoviesRequest(ctx, &mgmntv1.ListMoviesRequest{
+		resp, err := s.movies.ListMovies(ctx, &mgmntv1.ListMoviesRequest{
 			Page: page, PageSize: 100,
-		}))
+		})
 		if err != nil {
 			return nil, err
 		}
-		add(visibleMovies(ctx, resp.GetMovies()))
+		add(resp.GetMovies())
 		if int(page)*100 >= int(resp.GetTotal()) || len(resp.GetMovies()) == 0 {
 			break
 		}
@@ -338,7 +319,7 @@ func (s *server) handleLibraryMovies(w http.ResponseWriter, r *http.Request, lib
 
 	all, err := s.collectMoviesForLibrary(ctx, lib)
 	if err != nil {
-		writeListGatewayError(w, ctx, err, "movies.gateway_error")
+		writeBrowseFailure(w, r, err, "movies.gateway_error")
 		return
 	}
 
@@ -377,4 +358,52 @@ func (s *server) handleLibraryMovies(w http.ResponseWriter, r *http.Request, lib
 		"library":     lib,
 		"filter_mode": filterMode,
 	})
+}
+
+// Companion libraries require a complete set before local matching/pagination.
+// The narrowed catalogue scan subsumes the legacy tag-selected first page.
+// A bound, repeated IDs, changing totals or incomplete pages fail the request;
+// none can become a successful response with a misleading partial total.
+func (s *server) collectRestrictedLibraryMovies(ctx context.Context) ([]*mgmntv1.MovieItem, error) {
+	if s.movies == nil {
+		return nil, errParentalClassif
+	}
+	const pageSize int32 = 100
+	const maxPages int32 = 1000
+	seen := make(map[string]bool)
+	var out []*mgmntv1.MovieItem
+	var total int32 = -1
+	for page := int32(1); page <= maxPages; page++ {
+		resp, err := s.movies.ListMovies(ctx, &mgmntv1.ListMoviesRequest{Page: page, PageSize: pageSize, SortBy: "title", SortOrder: "asc", ClassificationFilter: movieClassificationFilter(ctx)})
+		if err != nil {
+			return nil, err
+		}
+		if resp == nil || resp.GetPage() != page || resp.GetPageSize() != pageSize || resp.GetTotal() < 0 || resp.GetTotal() > maxPages*pageSize {
+			return nil, errParentalClassif
+		}
+		if total < 0 {
+			total = resp.GetTotal()
+		} else if total != resp.GetTotal() {
+			return nil, errParentalClassif
+		}
+		remaining := total - int32(len(seen))
+		want := min(pageSize, remaining)
+		if int32(len(resp.GetMovies())) != want {
+			return nil, errParentalClassif
+		}
+		for _, m := range resp.GetMovies() {
+			if m.GetId() == "" || seen[m.GetId()] {
+				return nil, errParentalClassif
+			}
+			seen[m.GetId()] = true
+			if movieVisible(ctx, m) {
+				out = append(out, m)
+			}
+		}
+		if int32(len(seen)) == total {
+			sort.Slice(out, func(i, j int) bool { return out[i].GetId() < out[j].GetId() })
+			return out, nil
+		}
+	}
+	return nil, errParentalClassif
 }

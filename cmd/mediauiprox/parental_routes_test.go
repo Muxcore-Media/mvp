@@ -312,8 +312,6 @@ func TestParentalPolicyChangeWithinTTL(t *testing.T) {
 
 // Negative test 2: request fields, client identity/tenant headers and the
 // userdata blob never influence a decision, and their absence unlocks nothing.
-// C-LIST filters instead of denying; its inputs are covered in
-// parental_classify_test.go.
 func TestParentalIgnoresClientInputsAndBlob(t *testing.T) {
 	t.Setenv("USERDATA_PREFER_MESH", "0")
 	t.Setenv("TENANT_MODE", "1")
@@ -346,7 +344,7 @@ func TestParentalIgnoresClientInputsAndBlob(t *testing.T) {
 	})
 	kid := h.session("kid", "", "bearer-kid")
 	adult := h.session("adult", "", "bearer-adult")
-	for _, p := range patternsOfClass(classPlay, classDeny, classItem) {
+	for _, p := range patternsOfClass(classPlay, classDeny) {
 		code := parentalCodeBlocked
 		if parentalRouteClasses[p].class == classDeny {
 			code = parentalCodeRestrictedRoute
