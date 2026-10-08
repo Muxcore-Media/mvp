@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -40,22 +41,45 @@ func newTranscoderTransport(target *url.URL) (http.RoundTripper, error) {
 	return transport, nil
 }
 
+// transcoderProxy returns a reverse proxy to the transcoder module.
+//
+// It uses Rewrite only: NewSingleHostReverseProxy also sets the deprecated
+// Director, and a proxy with both set fails every request. Rewrite runs after
+// hop-by-hop headers are removed, so a client "Connection: Authorization"
+// cannot strip the operator token set below.
 func (s *server) transcoderProxy(target *url.URL) *httputil.ReverseProxy {
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	proxy.Transport = s.transcoderTransport
-	director := proxy.Director
-	proxy.Director = func(r *http.Request) {
-		director(r)
-		for key := range r.Header {
-			if isClientIdentityHeader(key) {
-				r.Header.Del(key)
+	return &httputil.ReverseProxy{
+		Transport: s.transcoderTransport,
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			// Same scheme/host/path-join/query-merge the single-host Director
+			// applied; also points Host at the target rather than the browser.
+			pr.SetURL(target)
+			for key := range pr.Out.Header {
+				if isClientIdentityHeader(key) {
+					delete(pr.Out.Header, key)
+				}
 			}
-		}
-		// The certificate identifies the BFF in household. Dev containers use
-		// the operator's shared token; browser credentials never cross here.
-		if s.transcoderToken != "" {
-			r.Header.Set("Authorization", "Bearer "+s.transcoderToken)
-		}
+			// Rewrite strips client Forwarded/X-Forwarded-*. Keep the prior
+			// X-Forwarded-For chain and append the peer, as Director did.
+			appendForwardedFor(pr)
+			// The certificate identifies the BFF in household. Dev containers use
+			// the operator's shared token; browser credentials never cross here.
+			if s.transcoderToken != "" {
+				pr.Out.Header.Set("Authorization", "Bearer "+s.transcoderToken)
+			}
+		},
 	}
-	return proxy
+}
+
+// appendForwardedFor reproduces ReverseProxy's Director-mode X-Forwarded-For:
+// the inbound chain (if any) followed by the immediate peer address.
+func appendForwardedFor(pr *httputil.ProxyRequest) {
+	clientIP, _, err := net.SplitHostPort(pr.In.RemoteAddr)
+	if err != nil {
+		return
+	}
+	if prior := pr.In.Header["X-Forwarded-For"]; len(prior) > 0 {
+		clientIP = strings.Join(prior, ", ") + ", " + clientIP
+	}
+	pr.Out.Header.Set("X-Forwarded-For", clientIP)
 }
