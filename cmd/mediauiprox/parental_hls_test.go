@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -182,8 +183,7 @@ func TestHLSKeyFromRedirect(t *testing.T) {
 func TestHLSKeyBindingsUnit(t *testing.T) {
 	now := time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)
 	b := newHLSKeyBindings()
-	b.max = 2
-	key1, key2, key3 := strings.Repeat("1", 32), strings.Repeat("2", 32), strings.Repeat("3", 32)
+	key1, key2 := strings.Repeat("1", 32), strings.Repeat("2", 32)
 	item := parentalItem{Kind: "movie", ID: "ok"}
 	if b.bind("", key1, item, now) || b.bind("s1", "not-a-key", item, now) {
 		t.Fatal("bound without a session or with an invalid key")
@@ -191,19 +191,16 @@ func TestHLSKeyBindingsUnit(t *testing.T) {
 	if !b.bind("s1", key1, item, now) || !b.bind("s1", key2, item, now) {
 		t.Fatal("bind failed")
 	}
-	if b.bind("s1", key3, item, now) {
-		t.Fatal("bound past capacity with live entries")
-	}
 	if got, ok := b.lookup("s1", key1, now); !ok || got != item {
 		t.Fatal("lookup of a bound key failed")
 	}
 	if _, ok := b.lookup("s2", key1, now); ok {
 		t.Fatal("another session used the key")
 	}
-	later := now.Add(hlsBindingTTL + time.Second)
-	if !b.bind("s1", key3, item, later) {
-		t.Fatal("expired entries were not reclaimed")
+	if _, ok := b.lookup("s1", key1, now.Add(hlsBindingTTL)); ok {
+		t.Fatal("expired binding served")
 	}
+	assertBindingIndex(t, b)
 	var nilB *hlsKeyBindings
 	if nilB.bind("s1", key1, item, now) {
 		t.Fatal("nil table bound a key")
@@ -211,4 +208,95 @@ func TestHLSKeyBindingsUnit(t *testing.T) {
 	if _, ok := nilB.lookup("s1", key1, now); ok {
 		t.Fatal("nil table found a key")
 	}
+}
+
+func hlsTestKey(i int) string { return fmt.Sprintf("%032x", i) }
+
+// assertBindingIndex checks the per-session index matches the table.
+func assertBindingIndex(t *testing.T, b *hlsKeyBindings) {
+	t.Helper()
+	n := 0
+	for sid, ids := range b.bySession {
+		if len(ids) == 0 {
+			t.Fatalf("empty index for session %q", sid)
+		}
+		for id := range ids {
+			if e, ok := b.byID[id]; !ok || e.sessionID != sid {
+				t.Fatalf("index entry %q for %q not in table", id, sid)
+			}
+			n++
+		}
+	}
+	if n != len(b.byID) {
+		t.Fatalf("index holds %d bindings, table %d", n, len(b.byID))
+	}
+}
+
+// One session at its cap evicts only its own least recently used binding; it
+// cannot push another session's playback out of the table.
+func TestHLSKeyBindingsPerSessionCap(t *testing.T) {
+	now := time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)
+	b := newHLSKeyBindings()
+	item := parentalItem{Kind: "movie", ID: "ok"}
+	victimKey := strings.Repeat("f", 32)
+	if !b.bind("victim", victimKey, item, now) {
+		t.Fatal("victim bind failed")
+	}
+	for i := range hlsBindingPerSession * 4 {
+		now = now.Add(time.Second)
+		if !b.bind("attacker", hlsTestKey(i), item, now) {
+			t.Fatalf("attacker bind %d refused", i)
+		}
+		if i == 0 {
+			// Keep the first key in use: it must survive as most recently used.
+			continue
+		}
+		if _, ok := b.lookup("attacker", hlsTestKey(0), now); !ok {
+			t.Fatalf("recently used key evicted at bind %d", i)
+		}
+	}
+	if got := len(b.bySession["attacker"]); got != hlsBindingPerSession {
+		t.Fatalf("attacker holds %d bindings, cap %d", got, hlsBindingPerSession)
+	}
+	if _, ok := b.lookup("attacker", hlsTestKey(1), now); ok {
+		t.Fatal("least recently used attacker binding was not evicted")
+	}
+	if _, ok := b.lookup("victim", victimKey, now); !ok {
+		t.Fatal("another session's binding was evicted")
+	}
+	assertBindingIndex(t, b)
+}
+
+// A full table never refuses a new binding: the least recently used binding
+// in the whole table goes, and expired ones go first.
+func TestHLSKeyBindingsGlobalCap(t *testing.T) {
+	now := time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)
+	b := newHLSKeyBindings()
+	b.max, b.perSession = 4, 4
+	item := parentalItem{Kind: "movie", ID: "ok"}
+	for i := range 4 {
+		now = now.Add(time.Second)
+		if !b.bind(fmt.Sprintf("s%d", i), hlsTestKey(i), item, now) {
+			t.Fatal("bind failed")
+		}
+	}
+	now = now.Add(time.Second)
+	if _, ok := b.lookup("s0", hlsTestKey(0), now); !ok { // s0 is now the most recently used
+		t.Fatal("lookup failed")
+	}
+	if !b.bind("s9", hlsTestKey(9), item, now) {
+		t.Fatal("full table refused a new binding")
+	}
+	if _, ok := b.lookup("s1", hlsTestKey(1), now); ok {
+		t.Fatal("least recently used binding survived a full table")
+	}
+	for _, sid := range []int{0, 2, 3, 9} {
+		if _, ok := b.lookup(fmt.Sprintf("s%d", sid), hlsTestKey(sid), now); !ok {
+			t.Fatalf("binding s%d evicted", sid)
+		}
+	}
+	if len(b.byID) != 4 {
+		t.Fatalf("table size %d", len(b.byID))
+	}
+	assertBindingIndex(t, b)
 }
