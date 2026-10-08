@@ -58,6 +58,9 @@ for services in (household, load("docker-compose.yml")["services"]):
     assert services["media-ui"]["environment"]["USERDATA_LOCAL_URL"] == "http://userdata-local:9672"
     assert services["userdata-local"]["environment"]["USERDATA_LOCAL_HTTP_ADDR"] == ":9672"
     assert "${USERDATA_LOCAL_PORT:-9672}:9672" in services["userdata-local"]["ports"]
+    # userdata-local validates bearers against auth-local; the localhost default
+    # is the container itself, which made /api/parental-policy answer 503.
+    assert services["userdata-local"]["environment"]["AUTH_LOCAL_GRPC_ADDR"] == "auth-local:9403"
 assert "USERDATA_LOCAL_URL" not in (dev["media-ui"].get("environment") or {})
 run_host = (root / "run-host.sh").read_text()
 media_ui_start = run_host[run_host.index("maybe_start media-ui env"):]
