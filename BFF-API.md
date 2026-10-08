@@ -239,7 +239,7 @@ Household Prowlarr/Jackett catalog from `indexer-torznab` `ListIndexers`. `{ ava
 
 ### `POST /api/indexers` / `PATCH /api/indexers/{id}` / `DELETE /api/indexers/{id}`
 
-Admin/manager. Proxies Prowlarr Torznab/Newznab CRUD (`name`, `base_url`, `api_key`, `implementation`, `enable`). `api_key` is write-only; responses use `has_api_key`. Direct Torznab/Jackett (no `PROWLARR_URL`) returns `indexers.unsupported`.
+Admin only. Proxies Prowlarr Torznab/Newznab CRUD (`name`, `base_url`, `api_key`, `implementation`, `enable`). `api_key` is write-only; responses use `has_api_key`. Direct Torznab/Jackett (no `PROWLARR_URL`) returns `indexers.unsupported`.
 
 `GET /api/capabilities` includes `features.acquisition` when `ready` is true.
 

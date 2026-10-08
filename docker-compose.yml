@@ -162,10 +162,11 @@ services:
     volumes:
       - secrets-data:/data
 
-  # Optional Vault/OpenBao/cloud secrets sidecar — compose profile: secrets-vault
-  #   docker compose --profile secrets-vault up -d
+  # Optional Vault/OpenBao/cloud secrets sidecar — append the selection overlay:
+  #   docker compose -f docker-compose.yml -f docker-compose.secrets-vault.yml up -d
   # run-host equivalent: MVP_ENABLE_SECRETS_VAULT=1
-  # Mutually exclusive with secrets-file (both advertise capability "secrets").
+  # Stop the old provider first. Raw --profile secrets-vault is unsupported:
+  # profiles are additive and would also select secrets-file.
   # Fail-closed: module Init() refuses to start without SECRETS_BACKEND + provider env.
   secrets-vault:
     <<: *module
