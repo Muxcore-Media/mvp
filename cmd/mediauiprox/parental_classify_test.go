@@ -751,7 +751,14 @@ func TestS5bPerItemReadsEnforceClassification(t *testing.T) {
 			t.Errorf("%s: allowed item refused: %d %s", p, res.status, res.body)
 		}
 	}
-	// A path that does not name exactly one item is unavailable.
+	// A path that does not name exactly one item is unavailable, and no module
+	// is asked about an id that cannot exist.
+	h.cat.resetCalls()
+	defer func() {
+		if n := h.cat.total(); n != 0 {
+			t.Errorf("non-item paths caused %d module lookups", n)
+		}
+	}()
 	for _, p := range []string{"/api/movies/m-pg/extra", "/api/movies/m-pg%2F..%2Fm-r", "/api/tv/s-ok/seasons/1"} {
 		if res := h.get(p, kid); !gateDenied(res) {
 			t.Errorf("%s: not an item path but passed the gate: %d %s", p, res.status, res.body)
