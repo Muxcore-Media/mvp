@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	introoutrov1 "github.com/Muxcore-Media/media-intro-outro/proto/gen/muxcore/introoutro/v1"
 )
@@ -364,6 +364,10 @@ func (s *server) handleTranscodeStream(w http.ResponseWriter, r *http.Request) {
 		writePlaybackError(w, newPlaybackErr(http.StatusBadRequest, "src required", "playback.src_required"))
 		return
 	}
+	if parsePlaybackSource(src) == nil {
+		writePlaybackError(w, newPlaybackErr(http.StatusBadRequest, "invalid stream source", "playback.invalid_source"))
+		return
+	}
 	pol := loadPlaybackPolicy()
 	if !pol.EnableTranscode {
 		http.Redirect(w, r, src, http.StatusTemporaryRedirect)
@@ -375,11 +379,15 @@ func (s *server) handleTranscodeStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sourceURL := s.playbackSourceURL(src)
+	if sourceURL == "" {
+		writePlaybackError(w, newPlaybackErr(http.StatusServiceUnavailable, "media source unavailable", "playback.source_unavailable"))
+		return
+	}
 	upstream := *s.transcoderHTTP
 	upstream.Path = ""
 	upstream.RawPath = ""
 	upstream.Fragment = ""
-	proxy := httputil.NewSingleHostReverseProxy(&upstream)
+	proxy := s.transcoderProxy(&upstream)
 
 	q := url.Values{}
 	q.Set("src", sourceURL)
@@ -420,6 +428,10 @@ func (s *server) handleHLSIndex(w http.ResponseWriter, r *http.Request) {
 		writePlaybackError(w, newPlaybackErr(http.StatusBadRequest, "src required", "playback.src_required"))
 		return
 	}
+	if parsePlaybackSource(src) == nil {
+		writePlaybackError(w, newPlaybackErr(http.StatusBadRequest, "invalid stream source", "playback.invalid_source"))
+		return
+	}
 	pol := loadPlaybackPolicy()
 	if !pol.EnableTranscode {
 		http.Redirect(w, r, src, http.StatusTemporaryRedirect)
@@ -431,11 +443,15 @@ func (s *server) handleHLSIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sourceURL := s.playbackSourceURL(src)
+	if sourceURL == "" {
+		writePlaybackError(w, newPlaybackErr(http.StatusServiceUnavailable, "media source unavailable", "playback.source_unavailable"))
+		return
+	}
 	upstream := *s.transcoderHTTP
 	upstream.Path = ""
 	upstream.RawPath = ""
 	upstream.Fragment = ""
-	proxy := httputil.NewSingleHostReverseProxy(&upstream)
+	proxy := s.transcoderProxy(&upstream)
 
 	q := url.Values{}
 	q.Set("src", sourceURL)
@@ -512,7 +528,7 @@ func (s *server) handleHLSAsset(w http.ResponseWriter, r *http.Request) {
 	upstream.Path = ""
 	upstream.RawPath = ""
 	upstream.Fragment = ""
-	proxy := httputil.NewSingleHostReverseProxy(&upstream)
+	proxy := s.transcoderProxy(&upstream)
 	r2 := r.Clone(r.Context())
 	r2.URL.Scheme = upstream.Scheme
 	r2.URL.Host = upstream.Host
@@ -535,17 +551,25 @@ func (s *server) handleTrickplaySprite(w http.ResponseWriter, r *http.Request) {
 		writePlaybackError(w, newPlaybackErr(http.StatusBadRequest, "src required", "playback.src_required"))
 		return
 	}
+	if parsePlaybackSource(src) == nil {
+		writePlaybackError(w, newPlaybackErr(http.StatusBadRequest, "invalid stream source", "playback.invalid_source"))
+		return
+	}
 	if s.transcoderHTTP == nil {
 		writePlaybackError(w, newPlaybackErr(http.StatusServiceUnavailable, "transcoder unavailable", "playback.transcoder_unavailable"))
 		return
 	}
 
 	sourceURL := s.playbackSourceURL(src)
+	if sourceURL == "" {
+		writePlaybackError(w, newPlaybackErr(http.StatusServiceUnavailable, "media source unavailable", "playback.source_unavailable"))
+		return
+	}
 	upstream := *s.transcoderHTTP
 	upstream.Path = ""
 	upstream.RawPath = ""
 	upstream.Fragment = ""
-	proxy := httputil.NewSingleHostReverseProxy(&upstream)
+	proxy := s.transcoderProxy(&upstream)
 
 	q := url.Values{}
 	q.Set("src", sourceURL)
@@ -564,15 +588,44 @@ func (s *server) handleTrickplaySprite(w http.ResponseWriter, r *http.Request) {
 	proxy.ServeHTTP(w, r2)
 }
 
+// parsePlaybackSource accepts only relative movie/TV stream routes. Decode once
+// and reject percent signs in decoded segments so a second parser cannot turn
+// an accepted source into traversal or an alternate URL.
+func parsePlaybackSource(src string) *url.URL {
+	u, err := url.Parse(src)
+	if err != nil || u.IsAbs() || u.Host != "" || u.User != nil || u.Opaque != "" || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.Contains(src, "#") {
+		return nil
+	}
+	parts := strings.Split(u.Path, "/")
+	if len(parts) < 4 || parts[0] != "" || parts[1] != "stream" || (parts[2] != "movies" && parts[2] != "tv") {
+		return nil
+	}
+	for _, part := range parts[3:] {
+		if part == "" || part == "." || part == ".." || strings.ContainsAny(part, "%\\") || strings.IndexFunc(part, unicode.IsControl) >= 0 {
+			return nil
+		}
+	}
+	// An encoded separator changes the path's routing structure after parsing.
+	if strings.Contains(strings.ToLower(u.EscapedPath()), "%2f") {
+		return nil
+	}
+	return u
+}
+
 func (s *server) playbackSourceURL(src string) string {
-	if strings.HasPrefix(src, "http://") || strings.HasPrefix(src, "https://") {
-		return src
+	u := parsePlaybackSource(src)
+	if u == nil {
+		return ""
 	}
-	if strings.HasPrefix(src, "/stream/movies/") {
-		return strings.TrimRight(s.moviesHTTP.String(), "/") + src
+	base := s.moviesHTTP
+	if strings.HasPrefix(u.Path, "/stream/tv/") {
+		base = s.tvHTTP
 	}
-	if strings.HasPrefix(src, "/stream/tv/") {
-		return strings.TrimRight(s.tvHTTP.String(), "/") + src
+	if base == nil {
+		return ""
 	}
-	return src
+	out := *base
+	out.Path = strings.TrimRight(base.Path, "/") + u.Path
+	out.RawPath, out.RawQuery, out.Fragment = "", "", ""
+	return out.String()
 }

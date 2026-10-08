@@ -479,6 +479,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: downloader-native-torrent
+      DOWNLOADER_INDEXER_HOSTS: ${DOWNLOADER_INDEXER_HOSTS:-}
       MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_DOWNLOADER_NATIVE_TORRENT:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
       MUXCORE_ENROLL_DNS_NAMES: downloader-native-torrent
       DOWNLOADER_GRPC_ADDR: downloader-native-torrent:9461
@@ -511,6 +512,8 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: downloader-qbittorrent
+      QBIT_DOWNLOAD_ROOTS: ${QBIT_DOWNLOAD_ROOTS:-/data/downloads}
+      DOWNLOADER_INDEXER_HOSTS: ${DOWNLOADER_INDEXER_HOSTS:-}
       MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_DOWNLOADER_QBITTORRENT:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
       MUXCORE_ENROLL_DNS_NAMES: downloader-qbittorrent
       QBIT_GRPC_ADDR: downloader-qbittorrent:9462
@@ -678,6 +681,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-scanner
+      SCANNER_ALLOWED_ROOTS: /data/movies:/data/shows:/data/downloads
       MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_SCANNER:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
       MUXCORE_ENROLL_DNS_NAMES: media-scanner
       SCANNER_GRPC_ADDR: media-scanner:9470
@@ -768,11 +772,15 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-rename
+      RENAME_ALLOWED_ROOTS: /data/movies:/data/shows:/data/downloads
       MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_RENAME:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
       MUXCORE_ENROLL_DNS_NAMES: media-rename
       RENAME_DB_PATH: /data/rename.db
       RENAME_GRPC_ADDR: media-rename:9510
     volumes:
+      - movies:/data/movies
+      - shows:/data/shows
+      - downloads:/data/downloads
       - media-rename-data:/data
       - media-rename-id:/data/mesh-id
       - mesh-ca:/data/mesh-ca:ro
@@ -804,12 +812,15 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-subtitles
+      SUBS_MEDIA_ROOTS: /data/movies:/data/shows
       MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_SUBTITLES:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
       MUXCORE_ENROLL_DNS_NAMES: media-subtitles
       SUBS_GRPC_ADDR: media-subtitles:9520
       SUBS_DB_PATH: /data/subtitles.db
       SUBS_DIR: /data/files
     volumes:
+      - movies:/data/movies:ro
+      - shows:/data/shows:ro
       - media-subtitles-data:/data
       - media-subtitles-id:/data/mesh-id
       - mesh-ca:/data/mesh-ca:ro
@@ -823,6 +834,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-root-folders
+      ROOTS_ALLOWED_PREFIXES: /data/movies,/data/shows
       MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_ROOT_FOLDERS:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
       MUXCORE_ENROLL_DNS_NAMES: media-root-folders
       ROOTS_GRPC_ADDR: media-root-folders:9540
@@ -1238,6 +1250,9 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-transcoder
+      TRANSCODER_URL_SOURCE_HOSTS: media-movies:9430,media-tvshows:9450
+      TRANSCODER_ALLOW_URL_SOURCES: "1"
+      TRANSCODER_MEDIA_ROOTS: /data/movies:/data/shows
       MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_TRANSCODER:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
       MUXCORE_ENROLL_DNS_NAMES: media-transcoder
       TRANSCODER_DB_PATH: /data/transcoder/transcoder.db
@@ -1348,6 +1363,7 @@ services:
     environment:
       <<: *module_env
       MUXCORE_MODULE_ID: media-ui
+      TRANSCODER_HTTP_URL: ${TRANSCODER_HTTP_URL-https://media-transcoder:9526}
       MUXCORE_BOOTSTRAP_TOKEN: ${MUXCORE_ENROLL_TOKEN_MEDIA_UI:?run scripts/gen-enrollment.sh (mesh enrollment tokens in .env)}
       MUXCORE_ENROLL_DNS_NAMES: media-ui
       MEDIA_UI_LISTEN: ":5173"

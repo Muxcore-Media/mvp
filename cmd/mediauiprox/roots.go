@@ -181,8 +181,8 @@ func (s *server) handleCreateRoot(w http.ResponseWriter, r *http.Request) {
 		writeAPIMethodNotAllowed(w)
 		return
 	}
-	if !s.sessionHasPrivilegedRole(r) {
-		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin or manager role required", "code": "roots.forbidden"})
+	if !s.sessionHasAdminRole(r) {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin role required", "code": "roots.forbidden"})
 		return
 	}
 	if s.roots == nil {
@@ -224,8 +224,8 @@ func (s *server) handlePatchRoot(w http.ResponseWriter, r *http.Request) {
 		writeAPIMethodNotAllowed(w)
 		return
 	}
-	if !s.sessionHasPrivilegedRole(r) {
-		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin or manager role required", "code": "roots.forbidden"})
+	if !s.sessionHasAdminRole(r) {
+		writeJSONStatus(w, http.StatusForbidden, map[string]any{"error": "admin role required", "code": "roots.forbidden"})
 		return
 	}
 	id := strings.TrimSpace(r.PathValue("id"))

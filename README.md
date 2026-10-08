@@ -82,6 +82,8 @@ cp .env.example .env
 ### Docker Compose (preferred for containers)
 
 ```bash
+# Dev container playback requires a shared token; save it in .env for restarts.
+export TRANSCODER_HTTP_TOKEN="$(openssl rand -hex 32)"
 docker compose up --build -d
 ./bootstrap-auth.sh
 ./smoke.sh

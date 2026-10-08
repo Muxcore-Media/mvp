@@ -941,3 +941,11 @@ Every route registered by `registerRoutes` in `cmd/mediauiprox/main.go` (plus `r
 | `GET /api/watch-stats/stale` | Stale (unwatched) items |
 | `GET /api/watch-stats/storage` | Library storage usage |
 | `GET /api/watch-stats/storage-history` | Library storage usage over time |
+
+## Operator authorization and transcoder boundary
+
+List-source configuration, sync, testing, history and items; indexer create/update/delete; Arr migration; and root create/update require an `admin` session. A `manager` session receives HTTP 403. Other library permissions are unchanged.
+
+Transcode, HLS-index and trickplay `src` accept only relative `/stream/movies/<id>` or `/stream/tv/<id>` routes (including TV season/episode segments). Absolute URLs, local paths, query strings, fragments, traversal and encoded separators are rejected with HTTP 400, including when playback falls back to a direct stream. HLS assets use the same authenticated upstream transport.
+
+In household, `TRANSCODER_HTTP_URL` uses HTTPS and the BFF presents its enrolled `media-ui` mesh certificate. Dev containers use `TRANSCODER_HTTP_TOKEN`; browser cookies, bearer tokens and caller identity headers are stripped. An explicitly empty `TRANSCODER_HTTP_URL` disables the optional transcoder. Arr migration uses the shared netguard Integration client: LAN/loopback servers are allowed, metadata/link-local targets are rejected at dial time, and redirects are refused to protect the Arr API key.

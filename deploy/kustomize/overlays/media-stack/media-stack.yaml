@@ -219,6 +219,7 @@ spec:
           env:
             - { name: MUXCORE_GRPC_ADDR, value: muxcored:9090 }
             - { name: MUXCORE_MODULE_ID, value: media-scanner }
+            - { name: SCANNER_ALLOWED_ROOTS, value: "/data/media:/data/downloads" }
             - { name: MUXCORE_INSECURE_DISABLE_TLS, value: "true" }
           ports:
             - { name: grpc, containerPort: 9470 }
@@ -259,6 +260,8 @@ spec:
             - { name: MOVIES_HTTP_URL, value: "http://media-movies:9430" }
             - { name: TVSHOWS_HTTP_URL, value: "http://media-tvshows:9450" }
             - { name: REQUEST_MEDIA_HTTP_URL, value: "http://request-media:9380" }
+            # This scaffold does not deploy a transcoder.
+            - { name: TRANSCODER_HTTP_URL, value: "" }
           ports:
             - { name: http, containerPort: 5173 }
           readinessProbe:

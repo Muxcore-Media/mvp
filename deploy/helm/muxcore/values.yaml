@@ -44,6 +44,10 @@ resources:
 
 media:
   enabled: false
+  # These paths must match the media/download mounts supplied by the operator.
+  scannerAllowedRoots: "/data/media:/data/downloads"
+  # No transcoder is deployed by this scaffold; direct playback only by default.
+  transcoderHttpUrl: ""
   images:
     metadataTmdb: localhost:5000/muxcore/metadata-tmdb:v0.6.15
     mediaMovies: localhost:5000/muxcore/media-movies:v0.6.15
@@ -60,6 +64,8 @@ media:
 
 acquisition:
   enabled: false
+  # Comma-separated trusted LAN indexer host[:port] entries; empty is public-only.
+  downloaderIndexerHosts: ""
   images:
     indexerTorznab: localhost:5000/muxcore/indexer-torznab:v0.6.15
     downloaderNativeTorrent: localhost:5000/muxcore/downloader-native-torrent:v0.6.15
