@@ -407,6 +407,7 @@ func main() {
 		together:             newWatchTogetherStore(*userdataDir),
 		parental:             newParentalGate(os.Getenv("USERDATA_LOCAL_URL")),
 	}
+	s.parental.classifier = newCatalogClassifier(s, time.Now)
 	// ADR-0031: there is no switch that disables parental enforcement. Only a
 	// dev stack without auth serves requests that carry no session.
 	if !s.requireAuth {
@@ -969,16 +970,30 @@ func (s *server) handleListMovies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page, pageSize := pageParams(r)
+	if _, restricted := restrictedBrowsePolicy(r.Context()); restricted && s.movies == nil {
+		writeParentalError(w, errParentalClassif, "")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	resp, err := s.movies.ListMovies(ctx, &mgmntv1.ListMoviesRequest{Page: page, PageSize: pageSize})
+	resp, err := s.movies.ListMovies(ctx, &mgmntv1.ListMoviesRequest{Page: page, PageSize: pageSize, ClassificationFilter: movieClassificationFilter(ctx)})
 	if err != nil {
-		writeAPIError(w, http.StatusBadGateway, err.Error(), "movies.gateway_error")
+		writeBrowseFailure(w, r, err, "movies.gateway_error")
+		return
+	}
+	if _, restricted := restrictedBrowsePolicy(ctx); restricted && resp == nil {
+		writeParentalError(w, errParentalClassif, "")
 		return
 	}
 	items := make([]map[string]any, 0, len(resp.GetMovies()))
 	for _, m := range resp.GetMovies() {
-		items = append(items, movieJSON(m))
+		if movieVisible(ctx, m) {
+			items = append(items, movieJSON(m))
+		}
+	}
+	if len(items) != len(resp.GetMovies()) {
+		writeParentalError(w, errParentalClassif, "")
+		return
 	}
 	writeJSON(w, map[string]any{
 		"items":     items,
@@ -999,11 +1014,18 @@ func (s *server) handleMovieByID(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if _, restricted := restrictedBrowsePolicy(r.Context()); restricted && s.movies == nil {
+		writeParentalError(w, errParentalClassif, "")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	resp, err := s.movies.GetMovie(ctx, &mgmntv1.GetMovieRequest{MovieId: id})
 	if err != nil {
-		writeAPIError(w, http.StatusBadGateway, err.Error(), "movies.gateway_error")
+		writeItemBrowseFailure(w, r, err, "movies.gateway_error")
+		return
+	}
+	if !checkMovieResponse(w, r, id, resp.GetMovie()) {
 		return
 	}
 	writeJSON(w, map[string]any{"movie": movieJSON(resp.GetMovie())})
@@ -1015,16 +1037,30 @@ func (s *server) handleListTV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page, pageSize := pageParams(r)
+	if _, restricted := restrictedBrowsePolicy(r.Context()); restricted && s.tv == nil {
+		writeParentalError(w, errParentalClassif, "")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	resp, err := s.tv.ListTVShows(ctx, &tvmgmtv1.ListTVShowsRequest{Page: page, PageSize: pageSize})
+	resp, err := s.tv.ListTVShows(ctx, &tvmgmtv1.ListTVShowsRequest{Page: page, PageSize: pageSize, ClassificationFilter: tvClassificationFilter(ctx)})
 	if err != nil {
-		writeAPIError(w, http.StatusBadGateway, err.Error(), "tv.gateway_error")
+		writeBrowseFailure(w, r, err, "tv.gateway_error")
+		return
+	}
+	if _, restricted := restrictedBrowsePolicy(ctx); restricted && resp == nil {
+		writeParentalError(w, errParentalClassif, "")
 		return
 	}
 	items := make([]map[string]any, 0, len(resp.GetSeries()))
 	for _, m := range resp.GetSeries() {
-		items = append(items, tvJSON(m))
+		if seriesVisible(ctx, m) {
+			items = append(items, tvJSON(m))
+		}
+	}
+	if len(items) != len(resp.GetSeries()) {
+		writeParentalError(w, errParentalClassif, "")
+		return
 	}
 	writeJSON(w, map[string]any{
 		"items":     items,
@@ -1045,11 +1081,18 @@ func (s *server) handleTVByID(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if _, restricted := restrictedBrowsePolicy(r.Context()); restricted && s.tv == nil {
+		writeParentalError(w, errParentalClassif, "")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	resp, err := s.tv.GetTVShow(ctx, &tvmgmtv1.GetTVShowRequest{SeriesId: id})
 	if err != nil {
-		writeAPIError(w, http.StatusBadGateway, err.Error(), "tv.gateway_error")
+		writeItemBrowseFailure(w, r, err, "tv.gateway_error")
+		return
+	}
+	if !checkSeriesResponse(w, r, id, resp.GetSeries()) {
 		return
 	}
 	show := tvJSON(resp.GetSeries())
@@ -1127,23 +1170,26 @@ func movieJSON(m *mgmntv1.MovieItem) map[string]any {
 		genres = []string{}
 	}
 	out := map[string]any{
-		"id":                 m.GetId(),
-		"tmdb_id":            m.GetTmdbId(),
-		"title":              m.GetTitle(),
-		"year":               m.GetYear(),
-		"overview":           m.GetOverview(),
-		"runtime":            m.GetRuntime(),
-		"vote_average":       m.GetVoteAverage(),
-		"genres":             genres,
-		"poster_url":         consumerImageURL("movies", firstNonEmpty(m.GetPosterUrl(), m.GetPosterPath())),
-		"backdrop_url":       consumerImageURL("movies", firstNonEmpty(m.GetBackdropUrl(), m.GetBackdropPath())),
-		"has_file":           m.GetHasFile(),
-		"status":             m.GetStatus(),
-		"tagline":            m.GetTagline(),
-		"created_at":         m.GetCreatedAt(),
-		"root_folder_path":   m.GetRootFolderPath(),
-		"monitored":          m.GetMonitored(),
-		"quality_profile_id": m.GetQualityProfileId(),
+		"id":                    m.GetId(),
+		"tmdb_id":               m.GetTmdbId(),
+		"title":                 m.GetTitle(),
+		"year":                  m.GetYear(),
+		"overview":              m.GetOverview(),
+		"runtime":               m.GetRuntime(),
+		"vote_average":          m.GetVoteAverage(),
+		"content_rating":        m.GetContentRating(),
+		"content_rating_source": m.GetContentRatingSource(),
+		"tag_labels":            append([]string{}, m.GetTagLabels()...),
+		"genres":                genres,
+		"poster_url":            consumerImageURL("movies", firstNonEmpty(m.GetPosterUrl(), m.GetPosterPath())),
+		"backdrop_url":          consumerImageURL("movies", firstNonEmpty(m.GetBackdropUrl(), m.GetBackdropPath())),
+		"has_file":              m.GetHasFile(),
+		"status":                m.GetStatus(),
+		"tagline":               m.GetTagline(),
+		"created_at":            m.GetCreatedAt(),
+		"root_folder_path":      m.GetRootFolderPath(),
+		"monitored":             m.GetMonitored(),
+		"quality_profile_id":    m.GetQualityProfileId(),
 	}
 	if m.GetHasFile() && m.GetId() != "" {
 		out["stream_url"] = "/stream/movies/" + url.PathEscape(m.GetId())
@@ -1205,24 +1251,27 @@ func tvJSON(m *tvmgmtv1.TVSeries) map[string]any {
 		})
 	}
 	return map[string]any{
-		"id":                 m.GetId(),
-		"tmdb_id":            m.GetTmdbId(),
-		"title":              m.GetName(),
-		"name":               m.GetName(),
-		"year":               m.GetYear(),
-		"overview":           m.GetOverview(),
-		"vote_average":       m.GetVoteAverage(),
-		"genres":             genres,
-		"poster_url":         consumerImageURL("tv", firstNonEmpty(m.GetPosterUrl(), m.GetPosterPath())),
-		"backdrop_url":       consumerImageURL("tv", firstNonEmpty(m.GetBackdropUrl(), m.GetBackdropPath())),
-		"has_file":           hasFile,
-		"stream_url":         streamURL,
-		"status":             m.GetStatus(),
-		"created_at":         m.GetCreatedAt(),
-		"seasons":            seasons,
-		"monitored":          m.GetMonitored(),
-		"quality_profile_id": m.GetQualityProfileId(),
-		"root_folder_path":   m.GetRootFolderPath(),
+		"id":                    m.GetId(),
+		"tmdb_id":               m.GetTmdbId(),
+		"title":                 m.GetName(),
+		"name":                  m.GetName(),
+		"year":                  m.GetYear(),
+		"overview":              m.GetOverview(),
+		"vote_average":          m.GetVoteAverage(),
+		"content_rating":        m.GetContentRating(),
+		"content_rating_source": m.GetContentRatingSource(),
+		"tag_labels":            append([]string{}, m.GetTagLabels()...),
+		"genres":                genres,
+		"poster_url":            consumerImageURL("tv", firstNonEmpty(m.GetPosterUrl(), m.GetPosterPath())),
+		"backdrop_url":          consumerImageURL("tv", firstNonEmpty(m.GetBackdropUrl(), m.GetBackdropPath())),
+		"has_file":              hasFile,
+		"stream_url":            streamURL,
+		"status":                m.GetStatus(),
+		"created_at":            m.GetCreatedAt(),
+		"seasons":               seasons,
+		"monitored":             m.GetMonitored(),
+		"quality_profile_id":    m.GetQualityProfileId(),
+		"root_folder_path":      m.GetRootFolderPath(),
 	}
 }
 

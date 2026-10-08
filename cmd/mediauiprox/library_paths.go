@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -258,6 +259,9 @@ func (s *server) resolveLibraryTagID(ctx context.Context, lib string) string {
 }
 
 func (s *server) collectMoviesForLibrary(ctx context.Context, lib string) ([]*mgmntv1.MovieItem, error) {
+	if _, restricted := restrictedBrowsePolicy(ctx); restricted {
+		return s.collectRestrictedLibraryMovies(ctx)
+	}
 	byID := map[string]*mgmntv1.MovieItem{}
 	add := func(list []*mgmntv1.MovieItem) {
 		for _, m := range list {
@@ -315,7 +319,7 @@ func (s *server) handleLibraryMovies(w http.ResponseWriter, r *http.Request, lib
 
 	all, err := s.collectMoviesForLibrary(ctx, lib)
 	if err != nil {
-		writeAPIError(w, http.StatusBadGateway, err.Error(), "movies.gateway_error")
+		writeBrowseFailure(w, r, err, "movies.gateway_error")
 		return
 	}
 
@@ -354,4 +358,52 @@ func (s *server) handleLibraryMovies(w http.ResponseWriter, r *http.Request, lib
 		"library":     lib,
 		"filter_mode": filterMode,
 	})
+}
+
+// Companion libraries require a complete set before local matching/pagination.
+// The narrowed catalogue scan subsumes the legacy tag-selected first page.
+// A bound, repeated IDs, changing totals or incomplete pages fail the request;
+// none can become a successful response with a misleading partial total.
+func (s *server) collectRestrictedLibraryMovies(ctx context.Context) ([]*mgmntv1.MovieItem, error) {
+	if s.movies == nil {
+		return nil, errParentalClassif
+	}
+	const pageSize int32 = 100
+	const maxPages int32 = 1000
+	seen := make(map[string]bool)
+	var out []*mgmntv1.MovieItem
+	var total int32 = -1
+	for page := int32(1); page <= maxPages; page++ {
+		resp, err := s.movies.ListMovies(ctx, &mgmntv1.ListMoviesRequest{Page: page, PageSize: pageSize, SortBy: "title", SortOrder: "asc", ClassificationFilter: movieClassificationFilter(ctx)})
+		if err != nil {
+			return nil, err
+		}
+		if resp == nil || resp.GetPage() != page || resp.GetPageSize() != pageSize || resp.GetTotal() < 0 || resp.GetTotal() > maxPages*pageSize {
+			return nil, errParentalClassif
+		}
+		if total < 0 {
+			total = resp.GetTotal()
+		} else if total != resp.GetTotal() {
+			return nil, errParentalClassif
+		}
+		remaining := total - int32(len(seen))
+		want := min(pageSize, remaining)
+		if int32(len(resp.GetMovies())) != want {
+			return nil, errParentalClassif
+		}
+		for _, m := range resp.GetMovies() {
+			if m.GetId() == "" || seen[m.GetId()] {
+				return nil, errParentalClassif
+			}
+			seen[m.GetId()] = true
+			if movieVisible(ctx, m) {
+				out = append(out, m)
+			}
+		}
+		if int32(len(seen)) == total {
+			sort.Slice(out, func(i, j int) bool { return out[i].GetId() < out[j].GetId() })
+			return out, nil
+		}
+	}
+	return nil, errParentalClassif
 }
