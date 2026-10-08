@@ -97,6 +97,9 @@ func (s *server) handlePatchMovie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.syncWantedFromLibraryPatch(ctx, id, body)
+	if !checkMovieResponse(w, r, id, resp.GetMovie()) {
+		return
+	}
 	out := map[string]any{"movie": movieJSON(resp.GetMovie())}
 	if body.Monitored != nil {
 		out["monitored"] = *body.Monitored
@@ -146,6 +149,9 @@ func (s *server) handlePatchTV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.syncWantedFromLibraryPatch(ctx, id, body)
+	if !checkSeriesResponse(w, r, id, resp.GetSeries()) {
+		return
+	}
 	out := map[string]any{"show": tvJSON(resp.GetSeries())}
 	if body.Monitored != nil {
 		out["monitored"] = *body.Monitored
