@@ -65,8 +65,8 @@ func classificationFromFields(rating, source string, tagLabels []string) parenta
 		return c
 	}
 	token := strings.ToUpper(strings.TrimSpace(rating))
-	switch {
-	case token == "NR" || token == "UR":
+	switch token {
+	case "NR", "UR":
 		c.State = parental.Unrated
 	default:
 		if _, ok := parental.RatingLevel(token); ok {

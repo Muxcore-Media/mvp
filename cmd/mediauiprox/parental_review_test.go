@@ -599,8 +599,10 @@ func TestSubtitleTrackBindingsTable(t *testing.T) {
 	if b.bind("s", "t", parentalItem{ID: "a"}, now) {
 		t.Error("an item with no kind bound")
 	}
-	if !b.bind("s", "t", movie("a"), now) || !b.bind("s", "t", movie("a"), now) {
-		t.Fatal("bind failed")
+	for i := 0; i < 2; i++ { // the second bind is a duplicate claim of the same item
+		if !b.bind("s", "t", movie("a"), now) {
+			t.Fatalf("bind %d failed", i+1)
+		}
 	}
 	if items, ok := b.lookup("s", "t", now); !ok || len(items) != 1 {
 		t.Fatalf("duplicate claim must not grow the binding: %v", items)
