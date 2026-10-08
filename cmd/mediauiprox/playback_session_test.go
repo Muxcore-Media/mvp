@@ -136,7 +136,7 @@ func TestHandlePlaybackSessionForwardsToMonitor(t *testing.T) {
 	if got.EventType != "playback.progress" || got.ServerType != "native" || got.SourceModule != "media-ui" {
 		t.Fatalf("event %+v", got)
 	}
-	if got.UserID != "alice" || got.UserName != "Alice" || got.ExternalSessionID != "web-1" {
+	if got.UserID != "alice" || got.UserName != "Alice" || got.ExternalSessionID != "native::alice:web-1" {
 		t.Fatalf("identity %+v", got)
 	}
 	if got.ItemID != "m1" || got.Title != "Dune" || got.PositionSeconds != 42 || !got.IsTranscode {

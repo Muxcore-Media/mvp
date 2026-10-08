@@ -8,8 +8,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // nativePlaybackSession is the household player payload for POST /api/playback/session.
@@ -49,6 +52,44 @@ type monitorSessionEvent struct {
 	Device            string `json:"Device"`
 	Player            string `json:"Player"`
 	IPAddress         string `json:"IPAddress"`
+}
+
+// maxNativeSessionIDBytes bounds the client-chosen session_id (UTF-8 bytes,
+// after trimming). media-ui-app sends a UUID, or web:<media id> when
+// sessionStorage is unavailable.
+const maxNativeSessionIDBytes = 256
+
+// nativeSessionKey is the playback-monitor external_session_id for a native
+// session: the client's session_id inside the namespace of the verified BFF
+// principal (T-M5-13). playback-monitor keys sessions by (server_id,
+// external_session_id), and a "started" event for an active key rewrites the
+// row's user_id. If the client id were forwarded as is, any member could
+// address another member's session by reusing its id. With the principal in
+// the key, a member can only ever reach keys in their own namespace.
+//
+// Tenant and user are query-escaped, so neither contains ':' and the key is
+// injective in (tenant, user, client id). The binding is derived, not stored:
+// no per-session state, and the same user's session continues across a BFF
+// restart.
+func nativeSessionKey(tenantID, userID, clientSessionID string) string {
+	return "native:" + url.QueryEscape(tenantID) + ":" + url.QueryEscape(userID) + ":" + clientSessionID
+}
+
+// validNativeSessionID accepts at most maxNativeSessionIDBytes of printable
+// text (letters, marks, numbers, punctuation, symbols, ASCII space). Control
+// characters, invisible format characters (bidi overrides, zero-width) and
+// other separators are rejected. The id is otherwise opaque. It is never used
+// in a path or URL.
+func validNativeSessionID(id string) bool {
+	if id == "" || len(id) > maxNativeSessionIDBytes || !utf8.ValidString(id) {
+		return false
+	}
+	for _, r := range id {
+		if !unicode.IsPrint(r) {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizePlaybackEventType(raw string) string {
@@ -103,13 +144,17 @@ func (s *server) handlePlaybackSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, username, _, _, _ := s.sessionPrincipal(r)
+	clientSessionID := strings.TrimSpace(in.SessionID)
+	if clientSessionID == "" {
+		clientSessionID = "media:" + mediaID
+	} else if !validNativeSessionID(clientSessionID) {
+		writeAPIError(w, http.StatusBadRequest, "session_id must be at most 256 bytes of printable text", "playback.session_id_invalid")
+		return
+	}
+
+	userID, username, tenantID, _, _ := s.sessionPrincipal(r)
 	if userID == "" {
 		userID = "anonymous"
-	}
-	sessionID := strings.TrimSpace(in.SessionID)
-	if sessionID == "" {
-		sessionID = userID + ":" + mediaID
 	}
 	player := strings.TrimSpace(in.Player)
 	if player == "" {
@@ -125,7 +170,7 @@ func (s *server) handlePlaybackSession(w http.ResponseWriter, r *http.Request) {
 		SourceModule:      "media-ui",
 		ServerID:          "muxcore-native",
 		ServerType:        "native",
-		ExternalSessionID: sessionID,
+		ExternalSessionID: nativeSessionKey(tenantID, userID, clientSessionID),
 		UserID:            userID,
 		UserName:          username,
 		ItemID:            mediaID,
