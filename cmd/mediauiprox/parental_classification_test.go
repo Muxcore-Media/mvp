@@ -44,6 +44,8 @@ type classificationMovies struct {
 	collections  map[int32][]*mgmntv1.MovieItem
 	update       *mgmntv1.MovieItem
 	updates      int
+
+	collectionLists, collectionReads, collectionPrefsReads int
 }
 
 func (f *classificationMovies) GetMovie(_ context.Context, r *mgmntv1.GetMovieRequest, _ ...grpc.CallOption) (*mgmntv1.GetMovieResponse, error) {
@@ -84,6 +86,7 @@ func (f *classificationMovies) ListTags(context.Context, *mgmntv1.ListTagsReques
 	return &mgmntv1.ListTagsResponse{}, nil
 }
 func (f *classificationMovies) ListCollections(context.Context, *mgmntv1.ListCollectionsRequest, ...grpc.CallOption) (*mgmntv1.ListCollectionsResponse, error) {
+	f.collectionLists++
 	var out []*mgmntv1.CollectionSummary
 	for id, items := range f.collections {
 		out = append(out, &mgmntv1.CollectionSummary{CollectionId: id, Name: fmt.Sprint("collection-", id), MovieCount: int32(len(items))})
@@ -92,9 +95,11 @@ func (f *classificationMovies) ListCollections(context.Context, *mgmntv1.ListCol
 	return &mgmntv1.ListCollectionsResponse{Collections: out}, f.listErr
 }
 func (f *classificationMovies) GetCollectionMovies(_ context.Context, r *mgmntv1.GetCollectionMoviesRequest, _ ...grpc.CallOption) (*mgmntv1.GetCollectionMoviesResponse, error) {
+	f.collectionReads++
 	return &mgmntv1.GetCollectionMoviesResponse{CollectionId: r.CollectionId, Name: fmt.Sprint("collection-", r.CollectionId), Movies: f.collections[r.CollectionId]}, f.listErr
 }
 func (f *classificationMovies) GetCollectionPrefs(context.Context, *mgmntv1.GetCollectionPrefsRequest, ...grpc.CallOption) (*mgmntv1.GetCollectionPrefsResponse, error) {
+	f.collectionPrefsReads++
 	return &mgmntv1.GetCollectionPrefsResponse{}, nil
 }
 func (f *classificationMovies) UpdateMovie(context.Context, *mgmntv1.UpdateMovieRequest, ...grpc.CallOption) (*mgmntv1.UpdateMovieResponse, error) {
@@ -666,5 +671,140 @@ func TestParentalCatalogTVPatchChecksBothVersions(t *testing.T) {
 	assertParentalError(t, "PATCH /api/tv/{id}", patch(), 403, parentalCodeBlocked)
 	if tv.updates != 1 {
 		t.Fatal("allowed preflight missed mutation")
+	}
+}
+
+func TestParentalCatalogAllowedTagsWithoutCeiling(t *testing.T) {
+	h, m, tv, kid := classificationFixture(t)
+	policy := `{"version":1,"mode":"restricted","rules":{"kids_mode":false,"max_rating":"","blocked_tags":[" GoRe "],"allowed_tags":[" FaMiLy "," KIDS "],"allow_unrated":false}}`
+	h.provider.doc(func(user string) string { return configuredDoc(user, "", 1, policy) })
+	// A high-rated item with an allowed label is visible when there is no
+	// ceiling. The other fixture items have no matching allowed tag.
+	m.items["m1"].ContentRating = "NC-17"
+	m.items["m1"].TagLabels = []string{" Family "}
+	tv.series["series1"].ContentRating = "NC-17"
+	tv.series["series1"].TagLabels = []string{" KIDS "}
+	for _, tc := range []struct{ path, id string }{{"/api/movies", "m1"}, {"/api/tv", "series1"}} {
+		body := requireBody(t, classificationRequest(h, kid, tc.path))
+		items := body["items"].([]any)
+		if body["total"] != float64(1) || len(items) != 1 || items[0].(map[string]any)["id"] != tc.id {
+			t.Fatalf("%s: allowed-tag list=%v", tc.path, body)
+		}
+	}
+	if len(m.requests) != 1 || len(tv.requests) != 1 {
+		t.Fatalf("list calls: movie=%d tv=%d", len(m.requests), len(tv.requests))
+	}
+	mf, tf := m.requests[0].GetClassificationFilter(), tv.requests[0].GetClassificationFilter()
+	for name, got := range map[string]struct {
+		enabled          bool
+		max              string
+		unrated          bool
+		blocked, allowed []string
+	}{
+		"movie": {mf.GetEnabled(), mf.GetMaxRating(), mf.GetAllowUnrated(), mf.GetBlockedTags(), mf.GetAllowedTags()},
+		"tv":    {tf.GetEnabled(), tf.GetMaxRating(), tf.GetAllowUnrated(), tf.GetBlockedTags(), tf.GetAllowedTags()},
+	} {
+		if !got.enabled || got.max != "" || got.unrated || !reflect.DeepEqual(got.blocked, []string{"gore"}) || !reflect.DeepEqual(got.allowed, []string{"family", "kids"}) {
+			t.Errorf("%s filter=%+v", name, got)
+		}
+	}
+	if m.calls != 0 || tv.calls != 0 || tv.episodeCalls != 0 {
+		t.Fatal("allowed-tag lists made item classification lookups")
+	}
+	for _, path := range []string{"/api/movies/m1", "/api/tv/series1", "/stream/movies/m1", "/stream/tv/e1"} {
+		got := classificationRequest(h, kid, path)
+		if got.panic != "" || got.status != http.StatusOK {
+			t.Errorf("%s: allowed no-ceiling item=%+v", path, got)
+		}
+	}
+	for _, path := range []string{"/api/movies/id1", "/api/tv/id1", "/stream/movies/id1"} {
+		assertParentalError(t, path, classificationRequest(h, kid, path), http.StatusForbidden, parentalCodeBlocked)
+	}
+}
+
+func TestParentalCatalogPerItemReadsBypassWarmPlaybackCache(t *testing.T) {
+	h, m, tv, kid := classificationFixture(t)
+	for _, path := range []string{"/stream/movies/m1", "/stream/tv/e1"} {
+		got := classificationRequest(h, kid, path)
+		if got.panic != "" || got.status != http.StatusOK {
+			t.Fatalf("warm %s: %+v", path, got)
+		}
+	}
+	movieCalls, seriesCalls, episodeCalls := m.calls, tv.calls, tv.episodeCalls
+	upstreamHits := h.upHits.Load()
+	m.items["m1"].ContentRating = "R"
+	tv.series["series1"].ContentRating = "R"
+	for _, path := range []string{"/api/movies/m1/tags", "/api/movies/m1/history", "/api/tv/series1/tags", "/api/tv/series1/history", "/api/episodes/e1/file"} {
+		assertParentalError(t, path, classificationRequest(h, kid, path), http.StatusForbidden, parentalCodeBlocked)
+	}
+	if m.calls-movieCalls != 2 || tv.calls-seriesCalls != 3 || tv.episodeCalls-episodeCalls != 1 {
+		t.Fatalf("fresh item reads: movies=%d series=%d episodes=%d", m.calls-movieCalls, tv.calls-seriesCalls, tv.episodeCalls-episodeCalls)
+	}
+	if h.upHits.Load() != upstreamHits {
+		t.Fatal("denied item read reached downstream")
+	}
+	// No clock advance: the two playback entries are still warm. These checks
+	// ensure the preceding denials came from fresh C-ITEM reads.
+	for _, path := range []string{"/stream/movies/m1", "/stream/tv/e1"} {
+		got := classificationRequest(h, kid, path)
+		if got.panic != "" || got.status != http.StatusOK {
+			t.Fatalf("warm playback %s: %+v", path, got)
+		}
+	}
+	if m.calls != movieCalls+2 || tv.calls != seriesCalls+3 || tv.episodeCalls != episodeCalls+1 {
+		t.Fatal("item reads invalidated or reused the playback cache")
+	}
+}
+
+func TestParentalCatalogPopulatedUnrestrictedParity(t *testing.T) {
+	h, m, tv, adult := classificationFixture(t)
+	h.provider.doc(func(user string) string { return configuredDoc(user, "", 1, unrestrictedPolicyJSON) })
+	m.items["m1"].ContentRating = "R"
+	tv.series["series1"].ContentRating = "R"
+	m.collections = map[int32][]*mgmntv1.MovieItem{1: {m.items["m1"], m.items["id1"]}, 2: {m.items["item1"]}}
+	counts := func() [8]int {
+		return [8]int{m.calls, len(m.requests), tv.calls, tv.episodeCalls, len(tv.requests), m.collectionLists, m.collectionReads, m.collectionPrefsReads}
+	}
+	delta := func(after, before [8]int) [8]int {
+		for i := range after {
+			after[i] -= before[i]
+		}
+		return after
+	}
+	for _, path := range []string{"/api/movies", "/api/tv", "/api/movies/m1", "/api/tv/series1", "/api/collections", "/api/collections/1", "/stream/movies/m1", "/stream/tv/e1"} {
+		t.Run(path, func(t *testing.T) {
+			before := counts()
+			got := classificationRequest(h, adult, path)
+			gatedCalls := delta(counts(), before)
+			before = counts()
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			req.AddCookie(&http.Cookie{Name: "session", Value: adult})
+			want := serve(h.baseline, req)
+			baselineCalls := delta(counts(), before)
+			if got.panic != "" || want.panic != "" || got.status != http.StatusOK || want.status != http.StatusOK {
+				t.Fatalf("gated=%+v baseline=%+v", got, want)
+			}
+			if got.body != want.body {
+				t.Errorf("gated body=%s baseline body=%s", got.body, want.body)
+			}
+			for _, key := range []string{"Content-Type", "Cache-Control"} {
+				if got.header.Get(key) != want.header.Get(key) {
+					t.Errorf("%s gated=%q baseline=%q", key, got.header.Get(key), want.header.Get(key))
+				}
+			}
+			if gatedCalls != baselineCalls {
+				t.Errorf("RPC deltas gated=%v baseline=%v", gatedCalls, baselineCalls)
+			}
+		})
+	}
+	for _, req := range m.requests {
+		if req.ClassificationFilter != nil {
+			t.Fatal("unrestricted movie list carried narrowing filter")
+		}
+	}
+	for _, req := range tv.requests {
+		if req.ClassificationFilter != nil {
+			t.Fatal("unrestricted TV list carried narrowing filter")
+		}
 	}
 }
