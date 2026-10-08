@@ -1365,6 +1365,7 @@ services:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/media-ui:${MUXCORE_IMAGE_TAG:-v0.6.15}
     environment:
+      AUTH_GRPC_CLIENT_ADDR: auth-local:9403
       <<: *module_env
       MUXCORE_MODULE_ID: media-ui
       TRANSCODER_HTTP_URL: ${TRANSCODER_HTTP_URL-https://media-transcoder:9526}

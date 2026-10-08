@@ -536,19 +536,16 @@ func (s *server) parentalCheck(r *http.Request) (pol parentalPolicy, pr parental
 // sessionParentalPrincipal reads the BFF session. Client identity headers, query
 // parameters and tenant headers are never consulted.
 func (s *server) sessionParentalPrincipal(r *http.Request) (parentalPrincipal, bool) {
-	if s.sessions == nil {
-		return parentalPrincipal{}, false
-	}
 	tok := sessionTokenFromRequest(r)
-	userID, _, tenantID, _, ok := s.sessions.LookupRoles(tok)
+	e, ok := requestSession(r, s.sessions)
 	if !ok {
 		return parentalPrincipal{}, false
 	}
 	return parentalPrincipal{
 		sessionID: sessionID(tok),
-		userID:    userID,
-		tenantID:  tenantID,
-		bearer:    s.sessions.LookupAuthToken(tok),
+		userID:    e.userID,
+		tenantID:  e.tenantID,
+		bearer:    e.authToken,
 	}, true
 }
 
