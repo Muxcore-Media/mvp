@@ -46,8 +46,8 @@ github.com/Muxcore-Media/playback-guard v0.1.2 h1:CqKCSVkVtHf4pVW+jXpgQVNxEwHvTc
 github.com/Muxcore-Media/playback-guard v0.1.2/go.mod h1:9cpeEEoekOcXjhkP7mqnV9Lq5fAQRtVKDVorMmhNbNM=
 github.com/Muxcore-Media/plex v0.1.5 h1:2GOPkVTsXyiGID5/d6v0IZaayl34RaRj/u1VY38nLmY=
 github.com/Muxcore-Media/plex v0.1.5/go.mod h1:EDg7m9+TJadn+Pg4tSgCuqO/liTA+PtJeL5vuz5eAuY=
-github.com/Muxcore-Media/userdata-local v0.1.3 h1:mCmjoBqEylysI/1PJ/P/Q1QIiua6GCdGthpN16Iqjpw=
-github.com/Muxcore-Media/userdata-local v0.1.3/go.mod h1:dYq3AyPmIz98+uukYk/ZFhGLLfJO1o1e98qS9wkrNQw=
+github.com/Muxcore-Media/userdata-local v0.1.5 h1:ebFvjvvi1QU9JLSYE/df6RXTENDs0tc545OdMPYrb4o=
+github.com/Muxcore-Media/userdata-local v0.1.5/go.mod h1:dYq3AyPmIz98+uukYk/ZFhGLLfJO1o1e98qS9wkrNQw=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/go-logr/logr v1.4.3 h1:CjnDlHq8ikf6E492q6eKboGOC0T8CDaOvkHCIg8idEI=
