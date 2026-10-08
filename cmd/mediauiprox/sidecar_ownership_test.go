@@ -168,9 +168,9 @@ func TestSidecarOwnershipFlatFolderOverHTTP(t *testing.T) {
 	if len(sidecars) != 1 || sidecars[0] != "Alien.en.srt" {
 		t.Fatalf("allowed item's sidecars = %v", sidecars)
 	}
-	// Fetching stays denied for a restricted principal (nothing authorizes a
-	// track id), so ownership is proved by the listing above.
-	assertBlocked(t, "own sidecar fetch", f.get("/api/playback/subtitles/"+sidecarTrackID(filepath.Join(flat, "Alien.en.srt")), kid))
+	if res := f.get("/api/playback/subtitles/"+sidecarTrackID(filepath.Join(flat, "Alien.en.srt")), kid); res.status != http.StatusOK || !strings.Contains(res.body, "Hello Alien") {
+		t.Fatalf("own sidecar: %d %s", res.status, res.body)
+	}
 	for _, other := range []string{"Alien.Resurrection.en.srt", "Alien 2.srt"} {
 		assertBlocked(t, "foreign sidecar "+other, f.get("/api/playback/subtitles/"+url.PathEscape(sidecarTrackID(filepath.Join(flat, other))), kid))
 	}
@@ -209,8 +209,15 @@ func TestModuleSubtitleRowOfAnotherFileIsNotOffered(t *testing.T) {
 	if !has("sub-pg-1") || has("sub-wrong") || has("sub-nofile") {
 		t.Fatalf("restricted tracks = %v", ids)
 	}
+	sid := sessionID(kid)
 	for _, id := range []string{"sub-wrong", "sub-nofile"} {
+		if _, ok := f.s.parental.subtitles.lookup(sid, id, f.clock.Now()); ok {
+			t.Errorf("%s was bound", id)
+		}
 		assertBlocked(t, "row of another file "+id, f.get("/api/playback/subtitles/"+id, kid))
+	}
+	if _, ok := f.s.parental.subtitles.lookup(sid, "sub-pg-1", f.clock.Now()); !ok {
+		t.Error("the correct row was not bound")
 	}
 
 	// Unrestricted behaviour is unchanged: the row is still offered.

@@ -283,6 +283,7 @@ func (s *server) handlePlaybackSubtitlesList(w http.ResponseWriter, r *http.Requ
 	absPath, fileID := s.resolvePlaybackMediaFile(ctx, kind, mediaID)
 	tracks := discoverSidecarSubtitles(absPath, restricted)
 	tracks = append(tracks, s.moduleSubtitleTracks(ctx, fileID, restricted)...)
+	tracks = s.parental.bindSubtitleTracks(grant, restricted, tracks)
 
 	writeJSONStatus(w, http.StatusOK, playbackSubtitlesResponse{Tracks: tracks})
 }
@@ -292,13 +293,7 @@ func (s *server) handlePlaybackSubtitleServe(w http.ResponseWriter, r *http.Requ
 		writeAPIMethodNotAllowed(w)
 		return
 	}
-	id := strings.TrimSpace(r.PathValue("id"))
-	if id == "" {
-		id = strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/playback/subtitles/"), "/")
-		if u, err := url.PathUnescape(id); err == nil {
-			id = u
-		}
-	}
+	id := subtitleTrackIDFromRequest(r)
 	if id == "" {
 		writeAPIError(w, http.StatusBadRequest, "subtitle id required", "subtitles.id_required")
 		return

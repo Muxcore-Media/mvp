@@ -159,7 +159,7 @@ func TestParentalRouteClassesCoverEveryRoute(t *testing.T) {
 		switch route.class {
 		case classList, classItem, classDeny, classExempt:
 		case classPlay:
-			if route.item == nil && !route.hlsAsset {
+			if route.item == nil && !route.hlsAsset && !route.subtitleTrack {
 				t.Errorf("C-PLAY pattern %q cannot locate its item", p)
 			}
 		default:
