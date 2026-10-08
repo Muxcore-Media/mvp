@@ -552,20 +552,24 @@ The BFF is the single server-side parental enforcement point (FR-PLAY-007, ADR-0
 
 Inputs that never influence a decision: query `tags`, `parental_rating`, `unrated`, `user_id`, `tenant_id`; headers `X-MuxCore-User-Id`, `X-Tenant-ID`, `X-Caller-Id`; the userdata blob `prefs.parental`; the local userdata store. There is no switch that disables enforcement. With `MEDIA_UI_REQUIRE_AUTH=0` (dev only) a request **without** a session is not gated and the BFF logs a startup warning; a request with a session is always gated. Without `USERDATA_LOCAL_URL` every gated request from a session returns `503 parental.policy_unavailable`.
 
-| Condition | C-PLAY / C-DENY | C-LIST / C-ITEM | C-EXEMPT |
-|---|---|---|---|
-| Configured `unrestricted` | Unchanged (no classification lookup) | Unchanged | Unchanged |
-| Configured `restricted` | C-PLAY: item evaluated; denied → **403 `parental.blocked`** (resolve: `code: "playback.parental_blocked"`, `parental_code: "parental.blocked"`). C-DENY: **403 `parental.restricted_route`** | Not yet enforced (T-M4-01 S5b) | Unchanged |
-| `unconfigured` | **403 `parental.policy_unconfigured`** | Not yet enforced (S5b) | Unchanged |
-| Session without an auth-local bearer (Quick Connect, legacy) | **403 `parental.policy_unverifiable`** | Not yet enforced (S5b) | Unchanged |
-| No session while auth is required | **401 `parental.session_invalid`** | — | — |
-| Provider `401` | **401 `parental.session_invalid`** (cache entry evicted) | Not yet enforced (S5b) | Unchanged |
-| Provider `403`/`404`/`409`/`413`/`5xx`, redirect, timeout, connection error, bad or oversized JSON, envelope or scope mismatch, unknown state | **503 `parental.policy_unavailable`** — no local/blob fallback, never cached | Not yet enforced (S5b) | Unchanged |
-| Media classification lookup fails | **503 `parental.classification_unavailable`** | — | n/a |
+| Condition | C-LIST / C-ITEM / C-PLAY / C-DENY | C-EXEMPT |
+|---|---|---|
+| Configured `unrestricted` | Existing behavior, without added classification lookups or narrowing filters | Unchanged |
+| Configured `restricted` | C-LIST filters visible items; C-ITEM and C-PLAY deny disallowed items with **403 `parental.blocked`** (resolve retains `playback.parental_blocked` with `parental_code: "parental.blocked"`). C-DENY returns **403 `parental.restricted_route`** | Unchanged |
+| `unconfigured` | **403 `parental.policy_unconfigured`** | Unchanged |
+| Session without an auth-local bearer (Quick Connect, legacy) | **403 `parental.policy_unverifiable`** | Unchanged |
+| No session while auth is required | **401 `parental.session_invalid`** | Existing authentication applies |
+| Provider `401` | **401 `parental.session_invalid`** (cache entry evicted) | Unchanged |
+| Provider `403`/`404`/`409`/`413`/`5xx`, redirect, timeout, connection error, bad or oversized JSON, envelope or scope mismatch, unknown state | **503 `parental.policy_unavailable`** — no local/blob fallback, never cached | Unchanged |
+| Media classification lookup fails or returns an invalid item identity | **503 `parental.classification_unavailable`** | n/a |
 
-Gate responses carry `Cache-Control: no-store` and a body of only `{ "error", "code" }` (plus `parental_code` on resolve); never item metadata.
+Gate errors carry `Cache-Control: no-store` and only `{ "error", "code" }` (plus `parental_code` on resolve); never item metadata.
 
-**Classification in this release:** media modules do not publish content ratings yet, so every item's rating is *unavailable* and a `restricted` principal is denied every C-PLAY route (safe but coarse). S5b supplies the media-module classifier; the gate already evaluates through it.
+**Classification:** media-movies and media-tvshows v0.1.23 supply `content_rating`, `content_rating_source` and `tag_labels`, exposed on movie/series JSON. Only `operator` classification is accepted in this slice. Empty/unknown ratings and missing/unsupported sources remain unavailable even with `allow_unrated`; explicit `NR`/`UR` follows that setting. Tags are exact normalized labels and blocked tags win. Episodes inherit their series through `GetEpisode`; wrong or missing response identities fail closed. Per-item reads use fresh classifications, and detail/PATCH responses are checked before their fields are returned. Genuine gRPC `NotFound` is blocked; legacy movie/series providers return `Unknown` for missing items, which remains a generic lookup-failure 503 rather than relying on error-string matching.
+
+**Lists and totals:** restricted movie/TV requests send the policy's narrowing filter to the owning module (kids mode defaults to PG unless an explicit ceiling is set), then re-evaluate every returned row. Under [ADR-0032](../docs/adr/0032-fail-closed-paginated-classification.md), an inconsistent already-paginated response fails with generic no-store 503 and returns neither rows nor total. Consistent responses retain the provider's visible total. Collection summaries count visible members and omit wholly hidden collections; a wholly hidden collection detail returns an empty movie list/zero total without its name or preferences. Companion movie libraries enumerate the narrowed catalogue completely before filtering/counting/local pagination, sort by item ID, and fail with the same 503 if pages are incomplete, duplicate IDs or changing totals prevent completeness, or the 100,000-item / 15-second bound is exceeded. Unrestricted catalogue behavior retains the prior queries.
+
+**Playback cache:** trusted classifications are cached only for C-PLAY, keyed by kind and ID, for at most 30 seconds from lookup start. An episode mapping and its series classification share one expiry. Lookup errors and unavailable classifications are not cached, and every request evaluates its current policy against the classification. Bare `media_id` on `/api/playback/segments` and opaque `/api/playback/subtitles/{id}` references do not establish an owning movie/episode and remain denied to restricted principals. Subtitle path confinement is separate T-M3-10 work. This fixture-backed wiring does not establish authenticated provider transport, live rollout, profiles/PIN, public-image protection or native-client acceptance; FR-PLAY-007 remains partial.
 
 **HLS keys:** `media-transcoder` derives `/stream/hls/{key}/…` deterministically from the source, so a key proves nothing. When a restricted principal's authorized `GET /stream/hls` is proxied, the BFF binds the key from the transcoder's playlist redirect to that BFF session and item (sliding 4 h; at most 256 bindings per session and 8192 overall, least recently used evicted first, so one session cannot push other users out). `GET /stream/hls/{key}/{file}` from a restricted principal is served only for a key bound to the same session, and the bound item is re-evaluated on each request. Unrestricted principals are unchanged.
 

@@ -107,7 +107,7 @@ func (p parentalPolicy) unrestricted() bool {
 // parentalItem identifies the catalogue item behind a C-PLAY request. An empty
 // ID means the item could not be identified, which classifies as unavailable.
 type parentalItem struct {
-	Kind string // "movie" | "episode" | "" (unknown)
+	Kind string // "movie" | "series" | "episode" | "" (unknown)
 	ID   string
 }
 
@@ -118,9 +118,8 @@ type parentalClassifier interface {
 	Classify(ctx context.Context, item parentalItem) (parental.Classification, error)
 }
 
-// unavailableClassifier is used until the media modules publish content
-// ratings (roadmap T-M4-01 S5b): every rating is unavailable, so a restricted
-// policy denies every C-PLAY request while an unrestricted one never asks.
+// unavailableClassifier is the fail-closed default for an unwired classifier.
+// Production installs catalogClassifier after constructing the server.
 type unavailableClassifier struct{}
 
 func (unavailableClassifier) Classify(context.Context, parentalItem) (parental.Classification, error) {
