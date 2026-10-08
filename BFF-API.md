@@ -97,6 +97,8 @@ Backend/gRPC failures return JSON (not silent empty lists):
 
 Typical HTTP status: `400` / `401` / `404` / `502` / `503` from gRPC code mapping.
 
+Parental enforcement adds `401 parental.session_invalid`, `403 parental.blocked` / `parental.restricted_route` / `parental.policy_unconfigured` / `parental.policy_unverifiable` and `503 parental.policy_unavailable` / `parental.classification_unavailable` (see [Parental enforcement](#parental-enforcement-adr-0031)).
+
 ## Jellyfin play deep-link
 
 ### `GET /api/jellyfin/play?mux_id=`
@@ -131,6 +133,8 @@ Reads shared admin playback policy (`ADMIN_UI_PLAYBACK_FILE`) and returns the st
 ```
 
 When transcoding is enabled and direct play is not preferred, `mode` is `transcode` and `stream_url` is `/stream/hls?src=…` (BFF proxies a seekable HLS playlist from `media-transcoder`). `/stream/transcode` remains the piped fMP4 fallback.
+
+Resolve is a C-PLAY route (see [Parental enforcement](#parental-enforcement-adr-0031)). Only `src` is read; the former `tags`, `parental_rating` and `unrated` query parameters and the blob `prefs.parental` check are removed and ignored. A parental denial returns `403 { "code": "playback.parental_blocked", "parental_code": "parental.blocked" }`.
 
 ## Optional library-plus sections
 
@@ -535,6 +539,135 @@ Sessions persist across BFF restarts (NFR-REL-003) in `MEDIA_UI_USERDATA_DIR/ses
 - **Headers:** every response sets `Content-Security-Policy` (`script-src 'self'`; TMDB/remote https images, YouTube trailer frames, same-origin reader iframes; override with `MEDIA_UI_CSP`), `X-Frame-Options: SAMEORIGIN` (the book/comic readers iframe `/stream/`), `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`.
 - **Timeouts:** `ReadHeaderTimeout` 10s, `ReadTimeout`/`WriteTimeout` 2m, `IdleTimeout` 2m. `/stream/*`, `/api/sessions/events` and `/api/debrid/stream` clear the read/write deadlines per request.
 - **Identity to modules (ADR-0019):** proxied requests never carry the client's `Cookie`, `Authorization`, `X-Caller-Id`, `X-MuxCore-*`, `X-Tenant-ID`, `X-Auth-Claims-Tenant`, `X-User-ID` or `X-Auth-Token`. request-media gets `Authorization: Bearer <auth-local token>` and, for one release, `X-Caller-Id=<user id>`; userdata-local and the Jellyfin push get the bearer plus `X-MuxCore-User-Id`.
+
+## Parental enforcement (ADR-0031)
+
+The BFF is the single server-side parental enforcement point (FR-PLAY-007, ADR-0031). For each gated request it reads the signed-in principal's policy from userdata-local `GET {USERDATA_LOCAL_URL}/api/parental-policy` (ADR-0030) with exactly one `Authorization: Bearer <session auth-local token>` and `X-MuxCore-User-Id: <session user>`, no query string and no client-supplied identity or tenant. The response envelope is validated strictly: `state` is `configured` (revision > 0, policy decoded by userdata-local `parental.DecodePolicy`) or `unconfigured` (revision 0, `policy: null`); unknown or duplicate fields are rejected; `user_id` and `tenant_id` must equal the session's (an empty session tenant is the household scope and is never rebound to `TENANT_MODE`'s `"default"`). Validated documents are cached for at most 30 s per SHA-256(bearer) + user + tenant; errors are never cached and a provider `401` evicts the entry. Items are evaluated with userdata-local `parental.Evaluate`.
+
+Inputs that never influence a decision: query `tags`, `parental_rating`, `unrated`, `user_id`, `tenant_id`; headers `X-MuxCore-User-Id`, `X-Tenant-ID`, `X-Caller-Id`; the userdata blob `prefs.parental`; the local userdata store. There is no switch that disables enforcement. With `MEDIA_UI_REQUIRE_AUTH=0` (dev only) a request **without** a session is not gated and the BFF logs a startup warning; a request with a session is always gated. Without `USERDATA_LOCAL_URL` every gated request from a session returns `503 parental.policy_unavailable`.
+
+| Condition | C-PLAY / C-DENY | C-LIST / C-ITEM | C-EXEMPT |
+|---|---|---|---|
+| Configured `unrestricted` | Unchanged (no classification lookup) | Unchanged | Unchanged |
+| Configured `restricted` | C-PLAY: item evaluated; denied → **403 `parental.blocked`** (resolve: `code: "playback.parental_blocked"`, `parental_code: "parental.blocked"`). C-DENY: **403 `parental.restricted_route`** | Not yet enforced (T-M4-01 S5b) | Unchanged |
+| `unconfigured` | **403 `parental.policy_unconfigured`** | Not yet enforced (S5b) | Unchanged |
+| Session without an auth-local bearer (Quick Connect, legacy) | **403 `parental.policy_unverifiable`** | Not yet enforced (S5b) | Unchanged |
+| No session while auth is required | **401 `parental.session_invalid`** | — | — |
+| Provider `401` | **401 `parental.session_invalid`** (cache entry evicted) | Not yet enforced (S5b) | Unchanged |
+| Provider `403`/`404`/`409`/`413`/`5xx`, redirect, timeout, connection error, bad or oversized JSON, envelope or scope mismatch, unknown state | **503 `parental.policy_unavailable`** — no local/blob fallback, never cached | Not yet enforced (S5b) | Unchanged |
+| Media classification lookup fails | **503 `parental.classification_unavailable`** | — | n/a |
+
+Gate responses carry `Cache-Control: no-store` and a body of only `{ "error", "code" }` (plus `parental_code` on resolve); never item metadata.
+
+**Classification in this release:** media modules do not publish content ratings yet, so every item's rating is *unavailable* and a `restricted` principal is denied every C-PLAY route (safe but coarse). S5b supplies the media-module classifier; the gate already evaluates through it.
+
+**HLS keys:** `media-transcoder` derives `/stream/hls/{key}/…` deterministically from the source, so a key proves nothing. When a restricted principal's authorized `GET /stream/hls` is proxied, the BFF binds the key from the transcoder's playlist redirect to that BFF session and item (sliding 4 h). `GET /stream/hls/{key}/{file}` from a restricted principal is served only for a key bound to the same session, and the bound item is re-evaluated on each request. Unrestricted principals are unchanged.
+
+## Parental route classes
+
+Every pattern registered by `registerRoutes` has a class in `cmd/mediauiprox/parental_routes.go` (`parentalRouteClasses`, keyed by the exact registered pattern). Registration panics on an unclassified pattern, and `routes_inventory_test.go` fails when a registered pattern has no class or when this table differs from the code. Routes not listed below are **C-EXEMPT**: no catalogue content in the response (session, auth, health, SPA, `/api/userdata`, playback telemetry, item mutations that return only status), operator routes whose handlers already reject non-admin/manager sessions (proved per route by `TestParentalOperatorExemptionsAreRoleGated`), and `/images/*` (public; out of scope per ADR-0031 §6).
+
+| Route | Class |
+|-------|-------|
+| `ANY /stream/movies/` | C-PLAY |
+| `ANY /stream/tv/` | C-PLAY |
+| `GET /api/playback/analysis` | C-PLAY |
+| `GET /api/playback/chapters` | C-PLAY |
+| `GET /api/playback/resolve` | C-PLAY |
+| `GET /api/playback/segments` | C-PLAY |
+| `GET /api/playback/subtitles` | C-PLAY |
+| `GET /api/playback/subtitles/{id}` | C-PLAY |
+| `GET /stream/hls` | C-PLAY |
+| `GET /stream/hls/{key}/{file}` | C-PLAY |
+| `GET /stream/transcode` | C-PLAY |
+| `GET /stream/trickplay` | C-PLAY |
+| `ANY /api/discover/` | C-DENY |
+| `ANY /api/jellyfin/play` | C-DENY |
+| `ANY /api/media-issues` | C-DENY |
+| `ANY /api/plex/play` | C-DENY |
+| `ANY /api/request` | C-DENY |
+| `ANY /api/request-policy` | C-DENY |
+| `ANY /api/requests` | C-DENY |
+| `ANY /api/requests/` | C-DENY |
+| `ANY /api/search` | C-DENY |
+| `ANY /api/watch-together` | C-DENY |
+| `ANY /api/watch-together/` | C-DENY |
+| `ANY /api/watchlist` | C-DENY |
+| `GET /api/activity` | C-DENY |
+| `GET /api/audiobooks` | C-DENY |
+| `GET /api/audiobooks/` | C-DENY |
+| `GET /api/audiobooks/{id}/artwork` | C-DENY |
+| `GET /api/audiobooks/{id}/history` | C-DENY |
+| `GET /api/blocklist` | C-DENY |
+| `GET /api/books` | C-DENY |
+| `GET /api/books/` | C-DENY |
+| `GET /api/books/{id}/artwork` | C-DENY |
+| `GET /api/books/{id}/history` | C-DENY |
+| `GET /api/books/{id}/tags` | C-DENY |
+| `GET /api/calendar` | C-DENY |
+| `GET /api/comics` | C-DENY |
+| `GET /api/comics/` | C-DENY |
+| `GET /api/comics/{id}/artwork` | C-DENY |
+| `GET /api/comics/{id}/history` | C-DENY |
+| `GET /api/debrid/stream` | C-DENY |
+| `GET /api/debrid/vfs` | C-DENY |
+| `GET /api/graph/related` | C-DENY |
+| `GET /api/history` | C-DENY |
+| `GET /api/import/candidates` | C-DENY |
+| `GET /api/jellyfin/link` | C-DENY |
+| `GET /api/livetv` | C-DENY |
+| `GET /api/missing` | C-DENY |
+| `GET /api/music` | C-DENY |
+| `GET /api/music/` | C-DENY |
+| `GET /api/music/tracks/{id}/lyrics` | C-DENY |
+| `GET /api/music/{id}/artwork` | C-DENY |
+| `GET /api/music/{id}/files` | C-DENY |
+| `GET /api/music/{id}/history` | C-DENY |
+| `GET /api/music/{id}/tags` | C-DENY |
+| `GET /api/playback/segments/media` | C-DENY |
+| `GET /api/plex/sync-lists` | C-DENY |
+| `GET /api/releases/search` | C-DENY |
+| `GET /api/releases/upgrades` | C-DENY |
+| `GET /api/rename/preview` | C-DENY |
+| `GET /api/sessions` | C-DENY |
+| `GET /api/sessions/events` | C-DENY |
+| `GET /api/subtitles/search` | C-DENY |
+| `GET /api/wanted` | C-DENY |
+| `GET /api/watch-stats` | C-DENY |
+| `GET /api/watch-stats/duplicates` | C-DENY |
+| `GET /api/watch-stats/item` | C-DENY |
+| `GET /api/watch-stats/stale` | C-DENY |
+| `GET /stream/audiobooks/` | C-DENY |
+| `GET /stream/books/` | C-DENY |
+| `GET /stream/comics/` | C-DENY |
+| `GET /stream/music/` | C-DENY |
+| `POST /api/debrid/add` | C-DENY |
+| `POST /api/livetv/timers` | C-DENY |
+| `POST /api/releases/grab` | C-DENY |
+| `POST /api/rename` | C-DENY |
+| `POST /api/subtitles/download` | C-DENY |
+| `POST /api/wanted` | C-DENY |
+| `ANY /api/movies` | C-LIST |
+| `ANY /api/tv` | C-LIST |
+| `GET /api/collections` | C-LIST |
+| `GET /api/collections/` | C-LIST |
+| `GET /api/collections/{id}` | C-LIST |
+| `ANY /api/movies/` | C-ITEM |
+| `ANY /api/tv/` | C-ITEM |
+| `GET /api/episodes/{id}/file` | C-ITEM |
+| `GET /api/movies/{id}/artwork` | C-ITEM |
+| `GET /api/movies/{id}/files` | C-ITEM |
+| `GET /api/movies/{id}/history` | C-ITEM |
+| `GET /api/movies/{id}/subtitles` | C-ITEM |
+| `GET /api/movies/{id}/tags` | C-ITEM |
+| `GET /api/movies/{id}/titles` | C-ITEM |
+| `GET /api/tv/{id}/artwork` | C-ITEM |
+| `GET /api/tv/{id}/history` | C-ITEM |
+| `GET /api/tv/{id}/subtitles` | C-ITEM |
+| `GET /api/tv/{id}/tags` | C-ITEM |
+| `GET /api/tv/{id}/titles` | C-ITEM |
+| `PATCH /api/movies/{id}` | C-ITEM |
+| `PATCH /api/tv/{id}` | C-ITEM |
 
 ## Route inventory
 

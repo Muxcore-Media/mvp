@@ -209,3 +209,54 @@ func TestParentalGateOnlyThroughRegisterRoutes(t *testing.T) {
 		t.Fatalf("registerClassifiedRoutes( appears %d times in production code, want 2", calls)
 	}
 }
+
+var parentalDocRow = regexp.MustCompile("^\\|\\s*`([A-Z]+ /[^`]*)`\\s*\\|\\s*(C-[A-Z]+)\\s*\\|")
+
+// TestParentalRouteClassesMatchBFFAPIDoc keeps the BFF-API.md "Parental route
+// classes" table equal to the non-exempt rows of parentalRouteClasses.
+func TestParentalRouteClassesMatchBFFAPIDoc(t *testing.T) {
+	f, err := os.Open(filepath.Join("..", "..", "BFF-API.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	docs := map[string]string{}
+	in := false
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	for sc.Scan() {
+		line := sc.Text()
+		if strings.HasPrefix(line, "## ") {
+			in = strings.TrimSpace(strings.TrimPrefix(line, "## ")) == "Parental route classes"
+			continue
+		}
+		if m := parentalDocRow.FindStringSubmatch(line); in && m != nil {
+			if _, dup := docs[m[1]]; dup {
+				t.Errorf("BFF-API.md documents %q twice", m[1])
+			}
+			docs[m[1]] = m[2]
+		}
+	}
+	if err := sc.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(docs) == 0 {
+		t.Fatal(`BFF-API.md has no "## Parental route classes" rows`)
+	}
+	want := map[string]string{}
+	for p, route := range parentalRouteClasses {
+		if route.class != classExempt {
+			want[normalizeRoute(p)] = string(route.class)
+		}
+	}
+	for r, class := range want {
+		if docs[r] != class {
+			t.Errorf("BFF-API.md class for %s = %q, want %s", r, docs[r], class)
+		}
+	}
+	for r := range docs {
+		if _, ok := want[r]; !ok {
+			t.Errorf("BFF-API.md lists %s, which is C-EXEMPT or unregistered", r)
+		}
+	}
+}
