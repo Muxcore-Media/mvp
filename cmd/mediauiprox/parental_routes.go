@@ -13,14 +13,13 @@ import (
 // parentalRegistrar panics at startup on an unclassified pattern and
 // routes_inventory_test.go fails on one.
 //
-// Wired in this slice: C-PLAY and C-DENY. C-LIST and C-ITEM are recorded here
-// and enforced with media classification in roadmap T-M4-01 S5b; until then
-// they pass through unchanged.
+// All content-bearing classes enforce the authoritative policy. Browse handlers
+// evaluate inline classification; playback resolves it from the owning module.
 type routeClass string
 
 const (
-	classList   routeClass = "C-LIST"   // filter items; policy failure fails the response (S5b)
-	classItem   routeClass = "C-ITEM"   // check one item; deny the whole response (S5b)
+	classList   routeClass = "C-LIST"   // filter items; policy failure fails the response
+	classItem   routeClass = "C-ITEM"   // check one item; deny the whole response
 	classPlay   routeClass = "C-PLAY"   // check the item behind src or the path
 	classDeny   routeClass = "C-DENY"   // no trusted classification: restricted principals get 403
 	classExempt routeClass = "C-EXEMPT" // no catalogue content, or already admin/manager-gated
@@ -29,6 +28,8 @@ const (
 // parentalRoute is one row of the route-class table.
 type parentalRoute struct {
 	class routeClass
+	// Detail handlers evaluate the actual response fields instead of a preflight lookup.
+	itemInResponse bool
 	// item locates the catalogue item behind a C-PLAY request.
 	item func(*http.Request) parentalItem
 	// hlsAsset marks GET /stream/hls/{key}/{file}: the item comes from the
@@ -97,16 +98,16 @@ var parentalRouteClasses = map[string]parentalRoute{
 	"GET /api/playback/chapters": cPlaySrc,
 	"GET /api/playback/analysis": cPlaySrc,
 
-	// --- C-LIST (recorded; S5b) ---
+	// --- C-LIST ---
 	"/api/movies":               cList, // includes ?library=
 	"/api/tv":                   cList,
 	"GET /api/collections":      cList,
 	"GET /api/collections/{id}": cList,
 	"GET /api/collections/":     cList,
 
-	// --- C-ITEM (recorded; S5b) ---
-	"/api/movies/":                   cItem,
-	"/api/tv/":                       cItem, // episodes are classified by their series
+	// --- C-ITEM ---
+	"/api/movies/":                   {class: classItem, itemInResponse: true},
+	"/api/tv/":                       {class: classItem, itemInResponse: true}, // episodes are classified by their series
 	"GET /api/movies/{id}/tags":      cItem,
 	"GET /api/tv/{id}/tags":          cItem,
 	"GET /api/movies/{id}/titles":    cItem,
@@ -497,6 +498,8 @@ func (s *server) parentalWrap(pattern string, h http.Handler) http.Handler {
 		gated = s.parentalPlayGate(route, h)
 	case classDeny:
 		gated = s.parentalDenyGate(h)
+	case classList, classItem:
+		gated = s.parentalBrowseGate(route, h)
 	default:
 		gated = h
 	}

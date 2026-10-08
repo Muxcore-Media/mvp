@@ -19,12 +19,12 @@ require (
 	github.com/Muxcore-Media/media-intro-outro v0.2.3
 	github.com/Muxcore-Media/media-library-maintainer v0.1.15
 	github.com/Muxcore-Media/media-list-sync v0.1.12
-	github.com/Muxcore-Media/media-movies v0.1.20
+	github.com/Muxcore-Media/media-movies v0.1.23
 	github.com/Muxcore-Media/media-music v0.3.2
 	github.com/Muxcore-Media/media-rename v0.2.11
 	github.com/Muxcore-Media/media-root-folders v0.1.11
 	github.com/Muxcore-Media/media-subtitles v0.5.4
-	github.com/Muxcore-Media/media-tvshows v0.1.18
+	github.com/Muxcore-Media/media-tvshows v0.1.23
 	github.com/Muxcore-Media/playback-guard v0.1.2
 	github.com/Muxcore-Media/plex v0.1.5
 	github.com/Muxcore-Media/userdata-local v0.1.5

@@ -41,7 +41,7 @@ func TestParentalUnrestrictedMatchesUngatedBaseline(t *testing.T) {
 	h := newParentalHarness(t)
 	h.provider.doc(func(u string) string { return configuredDoc(u, "", 1, unrestrictedPolicyJSON) })
 	adult := h.session("adult", "", "bearer-adult")
-	for _, p := range patternsOfClass(classPlay, classDeny) {
+	for _, p := range patternsOfClass(classPlay, classDeny, classList, classItem) {
 		got := serve(h.gated, routeRequest(p, h.tokFor(p, adult)))
 		want := serve(h.baseline, routeRequest(p, h.tokFor(p, adult)))
 		if got.panic != want.panic || got.status != want.status || got.body != want.body {
@@ -142,7 +142,7 @@ func TestParentalProviderFailuresFailClosed(t *testing.T) {
 			p.set(http.StatusOK, configuredDoc("kid", "", 1, unrestrictedPolicyJSON)+strings.Repeat(" ", parentalPolicyMaxBody))
 		}},
 	}
-	gated := patternsOfClass(classPlay, classDeny)
+	gated := patternsOfClass(classPlay, classDeny, classList, classItem)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newParentalHarness(t)
@@ -173,7 +173,7 @@ func TestParentalProviderDownAndTimeout(t *testing.T) {
 		h := newParentalHarness(t)
 		h.provider.srv.Close()
 		kid := h.session("kid", "", "bearer-kid")
-		for _, p := range patternsOfClass(classPlay, classDeny) {
+		for _, p := range patternsOfClass(classPlay, classDeny, classList, classItem) {
 			assertParentalError(t, p, serve(h.gated, routeRequest(p, h.tokFor(p, kid))), http.StatusServiceUnavailable, parentalCodeUnavailable)
 		}
 	})
@@ -217,7 +217,7 @@ func TestParentalSessionAndConfigurationStates(t *testing.T) {
 		}
 		h.clock.Advance(parentalPolicyTTL)
 		h.provider.set(http.StatusUnauthorized, `{"code":"policy.unauthenticated"}`)
-		for _, p := range patternsOfClass(classPlay, classDeny) {
+		for _, p := range patternsOfClass(classPlay, classDeny, classList, classItem) {
 			assertParentalError(t, p, serve(h.gated, routeRequest(p, h.tokFor(p, kid))), http.StatusUnauthorized, parentalCodeSessionInvalid)
 		}
 		h.s.parental.mu.Lock()
@@ -231,7 +231,7 @@ func TestParentalSessionAndConfigurationStates(t *testing.T) {
 		h := newParentalHarness(t)
 		h.provider.doc(func(u string) string { return unconfiguredDoc(u, "") })
 		kid := h.session("kid", "", "bearer-kid")
-		for _, p := range patternsOfClass(classPlay, classDeny) {
+		for _, p := range patternsOfClass(classPlay, classDeny, classList, classItem) {
 			assertParentalError(t, p, serve(h.gated, routeRequest(p, h.tokFor(p, kid))), http.StatusForbidden, parentalCodeUnconfigured)
 		}
 		if n := h.provider.count(); n != 1 {
@@ -246,7 +246,7 @@ func TestParentalSessionAndConfigurationStates(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, p := range patternsOfClass(classPlay, classDeny) {
+		for _, p := range patternsOfClass(classPlay, classDeny, classList, classItem) {
 			assertParentalError(t, p, serve(h.gated, routeRequest(p, h.tokFor(p, qc))), http.StatusForbidden, parentalCodeUnverifiable)
 		}
 		if h.provider.count() != 0 {
