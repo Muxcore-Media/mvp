@@ -275,10 +275,12 @@ func (s *server) collectMoviesForLibrary(ctx context.Context, lib string) ([]*mg
 		}
 	}
 
-	// A restricted principal's list must be complete or fail (ADR-0031 §3):
-	// the tag lookup and the tag pass are required calls for it, so a failure
-	// of either is an error, never a partial 200. Everyone else keeps the
-	// best-effort tag pass.
+	// For a restricted principal a failed call is an error, never a partial 200
+	// (ADR-0031 §3): the tag lookup and the tag pass are required calls for it.
+	// Everyone else keeps the best-effort tag pass. This is not a completeness
+	// guarantee: the tag pass reads only the first 100 tagged movies and the
+	// scan below stops after 10 pages (1000 movies), so a larger library is
+	// truncated silently for every principal (known residual, not part of S5b).
 	_, restricted := parentalRestrictionFrom(ctx)
 	tagID, tagErr := s.resolveLibraryTagID(ctx, lib)
 	if tagErr != nil && restricted {

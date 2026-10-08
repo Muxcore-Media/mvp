@@ -540,43 +540,37 @@ func TestS5bSubtitleBindingExpiryEvictionAndRestartFailClosed(t *testing.T) {
 	}
 }
 
-// Two videos in one directory can both claim a sidecar. The id is then bound
-// to both, and a fetch needs both authorized: it is only as visible as the more
-// restricted item.
+// A track ID that two items bind (the same sidecar path claimed by both) is
+// only as visible as the more restricted claimant. Sidecar ownership no longer
+// lets two videos of one folder claim a file at listing time, so the claims are
+// made through the binder directly: the rule is defense in depth.
 func TestS5bSubtitleIDCollisionIsConservative(t *testing.T) {
 	f := newSubtitleFixture(t)
-	g, pg := filepath.Join(f.dir, "shared", "Show.mkv"), filepath.Join(f.dir, "shared", "Show.en.mkv")
-	writeFixtureFile(t, g, "video")
-	writeFixtureFile(t, pg, "video")
 	shared := filepath.Join(f.dir, "shared", "Show.en.srt")
 	writeFixtureFile(t, shared, fmt.Sprintf(srtBody, "Hello shared"))
-	f.cat.files["m-g"], f.cat.files["m-pg"] = g, pg
 	kid := f.kid(policyJSON(true, "", false, nil, nil))
-
-	forG, forPG := f.tracks(t, "/stream/movies/m-g", kid), f.tracks(t, "/stream/movies/m-pg", kid)
 	id := sidecarTrackID(shared)
-	has := func(ts []playbackSubtitleTrack) bool {
-		for _, tr := range ts {
-			if tr.ID == id {
-				return true
-			}
-		}
-		return false
+	track := []playbackSubtitleTrack{{ID: id}}
+	sid := sessionID(kid)
+	g := parentalGrant{sessionID: sid, item: parentalItem{Kind: kindMovie, ID: "m-g"}}
+	pg := parentalGrant{sessionID: sid, item: parentalItem{Kind: kindMovie, ID: "m-pg"}}
+	if got := f.s.parental.bindSubtitleTracks(g, true, track); len(got) != 1 {
+		t.Fatalf("first claim: %v", got)
 	}
-	if !has(forG) || !has(forPG) {
-		t.Fatalf("fixture must make both items claim the sidecar: %v %v", trackIDs(forG), trackIDs(forPG))
+	if got := f.s.parental.bindSubtitleTracks(pg, true, track); len(got) != 1 {
+		t.Fatalf("second claim: %v", got)
+	}
+	items, ok := f.s.parental.subtitles.lookup(sid, id, f.clock.Now())
+	if !ok || len(items) != 2 {
+		t.Fatalf("both claimants must be bound: %v", items)
 	}
 	if res := f.get("/api/playback/subtitles/"+id, kid); res.status != http.StatusOK {
-		t.Fatalf("both items allowed: %d %s", res.status, res.body)
+		t.Fatalf("both items allowed: %d %s bound=%v", res.status, res.body, items)
 	}
 	// Only G stays allowed: the PG claim now blocks the shared id.
 	f.setPolicy("kid", policyJSON(false, "G", false, nil, nil))
 	f.clock.Advance(parentalPolicyTTL + time.Second)
 	assertBlocked(t, "shared id with one denied claimant", f.get("/api/playback/subtitles/"+id, kid))
-	// m-g's own listing still works, so the denial is the binding rule, not the item.
-	if len(f.tracks(t, "/stream/movies/m-g", kid)) == 0 {
-		t.Fatal("m-g should still list its tracks")
-	}
 }
 
 func TestSubtitleTrackBindingsTable(t *testing.T) {
