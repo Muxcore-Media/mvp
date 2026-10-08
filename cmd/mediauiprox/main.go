@@ -405,6 +405,15 @@ func main() {
 		passwordResets:       newPasswordResetStore(*passwordResetFile, *userdataDir),
 		issues:               newMediaIssueStore(*userdataDir),
 		together:             newWatchTogetherStore(*userdataDir),
+		parental:             newParentalGate(os.Getenv("USERDATA_LOCAL_URL")),
+	}
+	// ADR-0031: there is no switch that disables parental enforcement. Only a
+	// dev stack without auth serves requests that carry no session.
+	if !s.requireAuth {
+		log.Printf("warn: MEDIA_UI_REQUIRE_AUTH=0 (dev only): requests without a BFF session bypass parental enforcement (ADR-0031)")
+	}
+	if !s.parental.hasProvider() {
+		log.Printf("warn: USERDATA_LOCAL_URL unset or invalid: parental policy unavailable; playback and restricted-class routes return 503 parental.policy_unavailable for signed-in users")
 	}
 
 	mux := http.NewServeMux()
@@ -432,7 +441,16 @@ type routeRegistrar interface {
 }
 
 // registerRoutes registers every BFF route. Keep BFF-API.md "Route inventory" in sync.
+// Every pattern passes through the ADR-0031 route-class table
+// (parental_routes.go); an unclassified pattern panics here.
 func (s *server) registerRoutes(mux routeRegistrar) {
+	s.registerClassifiedRoutes(parentalRegistrar{s: s, next: mux})
+}
+
+// registerClassifiedRoutes is the route list. Production reaches it only
+// through registerRoutes, which applies the parental gate by route class;
+// tests call it directly for the ungated baseline.
+func (s *server) registerClassifiedRoutes(mux routeRegistrar) {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
@@ -802,6 +820,7 @@ type server struct {
 	passwordResets       *passwordResetStore
 	issues               *mediaIssueStore
 	together             *watchTogetherStore
+	parental             *parentalGate // ADR-0031 enforcement; nil fails closed
 }
 
 func (s *server) withAuth(next http.Handler) http.Handler {

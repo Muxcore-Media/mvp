@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Offline: in docker-compose.registry.yml every module gRPC listen address
-# (*_GRPC_ADDR, excluding *_CLIENT_ADDR and MUXCORE_GRPC_ADDR, which are dial
+# (*_GRPC_ADDR, excluding *_CLIENT_ADDR, MUXCORE_GRPC_ADDR and AUTH_LOCAL_GRPC_ADDR, which are dial
 # targets) names the service itself ("<service>:<port>"). In the insecure dev
 # profile modules rewrite a host-less or 0.0.0.0 bind to 127.0.0.1 and advertise
 # that address to core, so core and peers in other containers cannot reach them
@@ -26,7 +26,7 @@ fi
 binds="$(yq "${yq_flags[@]}" -o=json 'explode(.)' "$COMPOSE" | jq -r '
   .services | to_entries[] | select(.key != "media-ui") | .key as $svc | (.value.network_mode // "-") as $nm
   | (.value.environment // {}) | to_entries[]
-  | select(.key | test("_GRPC_ADDR$")) | select(.key | test("_CLIENT_ADDR$|^MUXCORE_GRPC_ADDR$") | not)
+  | select(.key | test("_GRPC_ADDR$")) | select(.key | test("_CLIENT_ADDR$|^MUXCORE_GRPC_ADDR$|^AUTH_LOCAL_GRPC_ADDR$") | not)
   | "\($svc)\t\($nm)\t\(.key)\t\(.value)"')"
 
 fail=0
