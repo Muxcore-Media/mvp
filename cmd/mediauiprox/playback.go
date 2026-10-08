@@ -101,17 +101,6 @@ func (s *server) handlePlaybackResolve(w http.ResponseWriter, r *http.Request) {
 		writePlaybackError(w, newPlaybackErr(http.StatusBadRequest, "src required", "playback.src_required"))
 		return
 	}
-	if s.userdata != nil {
-		scope := s.userdata.scopeFromRequest(r, s.sessions, s.sessionHasPrivilegedRole(r))
-		blob := s.userdata.load(scope, s.sessionAuthToken(r))
-		tags := strings.TrimSpace(r.URL.Query().Get("tags"))
-		rating := strings.TrimSpace(r.URL.Query().Get("parental_rating"))
-		unrated := r.URL.Query().Get("unrated") == "1" || strings.EqualFold(r.URL.Query().Get("unrated"), "true")
-		if parentalBlocksPlayback(blob.Prefs, tags, rating, unrated) {
-			writePlaybackError(w, newPlaybackErr(http.StatusForbidden, "blocked by parental controls", "playback.parental_blocked"))
-			return
-		}
-	}
 	pol := loadPlaybackPolicy()
 	transcoderAvail := s.transcoderHTTP != nil && strings.TrimSpace(s.transcoderHTTP.String()) != ""
 	mode := "direct"
@@ -452,6 +441,15 @@ func (s *server) handleHLSIndex(w http.ResponseWriter, r *http.Request) {
 	upstream.RawPath = ""
 	upstream.Fragment = ""
 	proxy := s.transcoderProxy(&upstream)
+	// ADR-0031: bind the playlist key to the session and authorized item so
+	// GET /stream/hls/{key}/{file} can refuse unbound keys for restricted
+	// principals (parental_hls.go).
+	if grant, ok := parentalGrantFrom(r.Context()); ok {
+		proxy.ModifyResponse = func(resp *http.Response) error {
+			s.parental.bindHLSRedirect(grant, resp)
+			return nil
+		}
+	}
 
 	q := url.Values{}
 	q.Set("src", sourceURL)

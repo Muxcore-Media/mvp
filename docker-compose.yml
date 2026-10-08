@@ -834,6 +834,9 @@ services:
       MUXCORE_MODULE_ID: userdata-local
       USERDATA_LOCAL_HTTP_ADDR: ":9672"
       USERDATA_LOCAL_GRPC_ADDR: ":9673"
+      # Bearer validation for /api/parental-policy and the guarded userdata routes
+      # (default localhost:9403 is wrong inside this container).
+      AUTH_LOCAL_GRPC_ADDR: auth-local:9403
       USERDATA_LOCAL_DB_PATH: /data/userdata.db
     ports:
       - "${USERDATA_LOCAL_PORT:-9672}:9672"

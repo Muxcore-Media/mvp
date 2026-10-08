@@ -27,7 +27,7 @@ require (
 	github.com/Muxcore-Media/media-tvshows v0.1.18
 	github.com/Muxcore-Media/playback-guard v0.1.2
 	github.com/Muxcore-Media/plex v0.1.5
-	github.com/Muxcore-Media/userdata-local v0.1.3
+	github.com/Muxcore-Media/userdata-local v0.1.5
 	google.golang.org/grpc v1.83.2
 	google.golang.org/protobuf v1.36.11
 )

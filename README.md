@@ -134,7 +134,7 @@ Automation: soft queue APIs (`AddToQueue` / `GetQueue` / Search). Host stack set
 8. Scanner `ImportPath` fixture → organized library file under `data/library/Movies/...`  
 9. Automation queue soft (`AddToQueue` / `GetQueue`)
 11. Health-monitor `ReportHealth` + HTTP `/status` + mesh fan-out of `module.degraded` (visible on admin-ui `/events?filter=health`)  
-12. Media-ui SPA (`:5173`) auth + shell + `/api/movies` / stream / `/api/tv` via mediauiprox BFF (skip if not running)  
+12. Media-ui SPA (`:5173`) auth + shell + `/api/movies` / stream / `/api/tv` via mediauiprox BFF (skip if not running). Before any stream step the smoke seeds an explicit `unrestricted` parental policy for its admin through userdata-local `PUT /api/parental-policy` (ADR-0030; host port `USERDATA_LOCAL_PORT`, default `9672`; override with `SMOKE_USERDATA_URL`), never overwriting a restricted one, and afterwards proves a fresh account with no policy gets `403 parental.policy_unconfigured` (ADR-0031; `scripts/lib/parental-smoke.sh`)  
 13. Media-ui → request-media: search + `POST /api/request` (`TMDB_FIXTURE=1` offline Fight Club hit, or live `TMDB_API_KEY`)  
 14. Soft `/api/jellyfin/play` (200 linked / 404 unlinked or unconfigured)  
 15. Optional live Jellyfin (`SMOKE_LIVE_JELLYFIN=1`, or auto when `JELLYFIN_BASE_URL` + `JELLYFIN_API_KEY` are set): Status configured + RefreshLibrary + SyncLibrary + sample PlayURL via `cmd/jellyfinlive`  
