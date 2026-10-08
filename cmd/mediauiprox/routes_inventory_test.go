@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -118,5 +119,93 @@ func TestRouteInventoryMatchesBFFAPIDoc(t *testing.T) {
 		if strings.TrimSpace(purpose) == "" {
 			t.Errorf("documented route has empty purpose: %s", d)
 		}
+	}
+}
+
+// registeredPatterns returns every pattern exactly as registerRoutes passes it
+// to the mux (the parental route-class table is keyed by these strings). A
+// pattern without a class makes registerRoutes panic; that is reported as a
+// test failure naming the pattern.
+func registeredPatterns(t *testing.T) []string {
+	t.Helper()
+	rec := &recordingMux{mux: http.NewServeMux()}
+	func() {
+		defer func() {
+			if p := recover(); p != nil {
+				t.Fatalf("registerRoutes: %v", p)
+			}
+		}()
+		(&server{}).registerRoutes(rec)
+	}()
+	return rec.patterns
+}
+
+// TestParentalRouteClassesCoverEveryRoute is the ADR-0031 inventory test
+// (required negative test 1): every registered pattern has exactly one route
+// class and the table names no pattern that is not registered.
+func TestParentalRouteClassesCoverEveryRoute(t *testing.T) {
+	patterns := registeredPatterns(t)
+	if len(patterns) < 300 {
+		t.Fatalf("only %d patterns recorded; registration did not run", len(patterns))
+	}
+	registered := map[string]bool{}
+	for _, p := range patterns {
+		registered[p] = true
+		route, ok := parentalRouteClasses[p]
+		if !ok {
+			t.Errorf("registered pattern has no parental route class: %q", p)
+			continue
+		}
+		switch route.class {
+		case classList, classItem, classDeny, classExempt:
+		case classPlay:
+			if route.item == nil && !route.hlsAsset {
+				t.Errorf("C-PLAY pattern %q cannot locate its item", p)
+			}
+		default:
+			t.Errorf("pattern %q has unknown class %q", p, route.class)
+		}
+	}
+	for p := range parentalRouteClasses {
+		if !registered[p] {
+			t.Errorf("parental route class for unregistered pattern: %q", p)
+		}
+	}
+}
+
+// TestParentalRegistrarRejectsUnclassifiedPattern proves the startup guard
+// fires: a new route without a class cannot be registered.
+func TestParentalRegistrarRejectsUnclassifiedPattern(t *testing.T) {
+	reg := parentalRegistrar{s: &server{}, next: http.NewServeMux()}
+	defer func() {
+		if p := recover(); p == nil || !strings.Contains(fmt.Sprint(p), "GET /api/unclassified") {
+			t.Fatalf("expected panic naming the pattern, got %v", p)
+		}
+	}()
+	reg.HandleFunc("GET /api/unclassified", func(http.ResponseWriter, *http.Request) {})
+}
+
+// TestParentalGateOnlyThroughRegisterRoutes keeps the ungated route list
+// (registerClassifiedRoutes) reachable from production code only via
+// registerRoutes.
+func TestParentalGateOnlyThroughRegisterRoutes(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		raw, err := os.ReadFile(f) //nolint:gosec // package source files
+		if err != nil {
+			t.Fatal(err)
+		}
+		calls += strings.Count(string(raw), "registerClassifiedRoutes(")
+	}
+	// The definition plus the single call inside registerRoutes.
+	if calls != 2 {
+		t.Fatalf("registerClassifiedRoutes( appears %d times in production code, want 2", calls)
 	}
 }
