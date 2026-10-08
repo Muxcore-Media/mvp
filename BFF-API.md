@@ -561,7 +561,7 @@ Gate responses carry `Cache-Control: no-store` and a body of only `{ "error", "c
 
 **Classification in this release:** media modules do not publish content ratings yet, so every item's rating is *unavailable* and a `restricted` principal is denied every C-PLAY route (safe but coarse). S5b supplies the media-module classifier; the gate already evaluates through it.
 
-**HLS keys:** `media-transcoder` derives `/stream/hls/{key}/…` deterministically from the source, so a key proves nothing. When a restricted principal's authorized `GET /stream/hls` is proxied, the BFF binds the key from the transcoder's playlist redirect to that BFF session and item (sliding 4 h). `GET /stream/hls/{key}/{file}` from a restricted principal is served only for a key bound to the same session, and the bound item is re-evaluated on each request. Unrestricted principals are unchanged.
+**HLS keys:** `media-transcoder` derives `/stream/hls/{key}/…` deterministically from the source, so a key proves nothing. When a restricted principal's authorized `GET /stream/hls` is proxied, the BFF binds the key from the transcoder's playlist redirect to that BFF session and item (sliding 4 h; at most 256 bindings per session and 8192 overall, least recently used evicted first, so one session cannot push other users out). `GET /stream/hls/{key}/{file}` from a restricted principal is served only for a key bound to the same session, and the bound item is re-evaluated on each request. Unrestricted principals are unchanged.
 
 ## Parental route classes
 
