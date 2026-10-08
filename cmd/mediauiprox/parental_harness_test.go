@@ -132,6 +132,8 @@ type parentalHarness struct {
 	upHits   atomic.Int64
 	// hlsKey answers the fake transcoder's playlist redirect for a src.
 	hlsKey func(src string) string
+	// operatorTwins maps a session to its manager-role twin (tokFor).
+	operatorTwins map[string]string
 }
 
 func newParentalHarness(t *testing.T) *parentalHarness {
@@ -175,6 +177,41 @@ func (h *parentalHarness) session(user, tenant, bearer string) string {
 		h.t.Fatal(err)
 	}
 	return tok
+}
+
+// sessionRoles creates a BFF session with the given roles (login path).
+func (h *parentalHarness) sessionRoles(user, tenant, bearer string, roles ...string) string {
+	h.t.Helper()
+	tok, err := h.s.sessions.CreateWithAuth(user, user, tenant, roles, bearer)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return tok
+}
+
+// tokFor returns tok for routes without the operator role gate and, for
+// routes whose table row sets requirePrivileged (T-M5-12), a manager session
+// of the same principal (user, tenant, auth-local bearer, so the same policy
+// cache entry). Parental tests use it to reach the parental gate behind the
+// role gate; the role gate itself is proved in operator_routes_test.go.
+func (h *parentalHarness) tokFor(pattern, tok string) string {
+	h.t.Helper()
+	if !parentalRouteClasses[pattern].requirePrivileged {
+		return tok
+	}
+	if twin, ok := h.operatorTwins[tok]; ok {
+		return twin
+	}
+	user, _, tenant, _, ok := h.s.sessions.LookupRoles(tok)
+	if !ok {
+		h.t.Fatalf("tokFor: unknown session for %s", pattern)
+	}
+	twin := h.sessionRoles(user, tenant, h.s.sessions.LookupAuthToken(tok), "manager")
+	if h.operatorTwins == nil {
+		h.operatorTwins = map[string]string{}
+	}
+	h.operatorTwins[tok] = twin
+	return twin
 }
 
 type serveResult struct {
