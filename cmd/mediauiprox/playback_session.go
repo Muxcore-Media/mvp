@@ -128,6 +128,21 @@ func (s *server) handlePlaybackSession(w http.ResponseWriter, r *http.Request) {
 		writeAPIMethodNotAllowed(w)
 		return
 	}
+	// The session key and the monitor row's user are the verified principal
+	// (T-M5-13). withAuth accepts a request on either its cookie or its bearer,
+	// while sessionPrincipal reads the cookie first, so a request carrying a
+	// stale cookie and a valid bearer passes withAuth with no resolvable
+	// principal. When auth is required, that and a principal without a user id
+	// are refused instead of forwarded as "anonymous". "anonymous" is only the
+	// MEDIA_UI_REQUIRE_AUTH=0 dev identity for a request with no session.
+	userID, username, tenantID, _, ok := s.sessionPrincipal(r)
+	if s.requireAuth && (!ok || strings.TrimSpace(userID) == "") {
+		writeAPIUnauthorized(w)
+		return
+	}
+	if userID == "" {
+		userID = "anonymous"
+	}
 	var in nativePlaybackSession
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
 		writeAPIError(w, http.StatusBadRequest, "invalid json", "playback.session_invalid")
@@ -152,10 +167,6 @@ func (s *server) handlePlaybackSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, username, tenantID, _, _ := s.sessionPrincipal(r)
-	if userID == "" {
-		userID = "anonymous"
-	}
 	player := strings.TrimSpace(in.Player)
 	if player == "" {
 		player = "media-ui"
