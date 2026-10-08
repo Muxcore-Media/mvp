@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -46,10 +47,17 @@ func (b libraryPatchBody) hasLibraryFields() bool {
 }
 
 func readLibraryPatch(r *http.Request) libraryPatchBody {
-	var body libraryPatchBody
-	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&body)
+	if r.Body == nil {
+		return libraryPatchBody{}
 	}
+	return decodeLibraryPatch(r.Body)
+}
+
+// decodeLibraryPatch is the single decoder for library PATCH bodies; the
+// operator role gate uses it too, so both read root_folder_path identically.
+func decodeLibraryPatch(rd io.Reader) libraryPatchBody {
+	var body libraryPatchBody
+	_ = json.NewDecoder(rd).Decode(&body)
 	return body
 }
 

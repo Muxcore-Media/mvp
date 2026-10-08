@@ -167,9 +167,9 @@ func TestParentalADRRoutesEnforcedByRequest(t *testing.T) {
 	for p, want := range expectedRouteClasses() {
 		switch want {
 		case classPlay:
-			assertParentalError(t, p, serve(h.gated, routeRequest(p, kid)), http.StatusForbidden, parentalCodeBlocked)
+			assertParentalError(t, p, serve(h.gated, routeRequest(p, h.tokFor(p, kid))), http.StatusForbidden, parentalCodeBlocked)
 		case classDeny:
-			assertParentalError(t, p, serve(h.gated, routeRequest(p, kid)), http.StatusForbidden, parentalCodeRestrictedRoute)
+			assertParentalError(t, p, serve(h.gated, routeRequest(p, h.tokFor(p, kid))), http.StatusForbidden, parentalCodeRestrictedRoute)
 		default:
 			continue
 		}

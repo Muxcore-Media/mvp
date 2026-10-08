@@ -36,10 +36,21 @@ type parentalRoute struct {
 	hlsAsset bool
 	// blockedAlias replaces parental.blocked in the response code (resolve).
 	blockedAlias string
-	// roleGated marks C-EXEMPT operator routes whose handler rejects sessions
-	// without the admin/manager (or admin) role; parental_routes_test.go
-	// proves the gate fires for every one of them.
+	// roleGated marks C-EXEMPT operator routes that reject sessions without
+	// the admin/manager (or admin) role, in the handler or through
+	// requirePrivileged; parental_routes_test.go proves the gate fires for
+	// every one of them.
 	roleGated bool
+	// requirePrivileged makes the route table itself reject sessions without
+	// the admin or manager role (sessionHasPrivilegedRole) with 403
+	// operator.forbidden. It runs before the parental gate of the route's
+	// class and before the handler (T-M5-12, C-30; operator_routes.go).
+	requirePrivileged bool
+	// rootPathAdmin additionally requires the admin role
+	// (sessionHasAdminRole) when the JSON body names root_folder_path:
+	// root-folder changes are admin-only (RULE-AUTH-3). Only meaningful with
+	// requirePrivileged.
+	rootPathAdmin bool
 }
 
 var (
@@ -50,6 +61,15 @@ var (
 	// cOperator is C-EXEMPT because the handler already rejects sessions
 	// without the admin/manager (or admin) role before touching catalogue data.
 	cOperator = parentalRoute{class: classExempt, roleGated: true}
+	// cOperatorGate is an operator route whose admin/manager check is
+	// enforced by the route table (requirePrivileged), not by the handler.
+	cOperatorGate = parentalRoute{class: classExempt, roleGated: true, requirePrivileged: true}
+	// cOperatorRootPath is cOperatorGate for an item PATCH that forwards
+	// root_folder_path: a body naming it also needs admin.
+	cOperatorRootPath = parentalRoute{class: classExempt, roleGated: true, requirePrivileged: true, rootPathAdmin: true}
+	// cDenyOperator keeps C-DENY for restricted principals and is reachable
+	// only by admin/manager.
+	cDenyOperator = parentalRoute{class: classDeny, requirePrivileged: true}
 	// cSelf is C-EXEMPT: the signed-in user's own account or session data.
 	cSelf = parentalRoute{class: classExempt}
 	// cPlaySrc checks the item named by the ?src=/stream/{movies|tv}/<id> query.
@@ -99,9 +119,11 @@ var parentalRouteClasses = map[string]parentalRoute{
 	"GET /api/movies/{id}/subtitles": cItem,
 	"GET /api/tv/{id}/subtitles":     cItem,
 	"GET /api/episodes/{id}/file":    cItem,
-	// Not in ADR-0031 §1.2: no BFF role gate and the response is the full item.
-	"PATCH /api/movies/{id}": cItem,
-	"PATCH /api/tv/{id}":     cItem,
+	// Not in ADR-0031 §1.2: the response is the full item. Operator-only
+	// (T-M5-12); root_folder_path needs admin. The role gate runs first, so
+	// the S5b item check only ever sees admin/manager principals.
+	"PATCH /api/movies/{id}": {class: classItem, requirePrivileged: true, rootPathAdmin: true},
+	"PATCH /api/tv/{id}":     {class: classItem, requirePrivileged: true, rootPathAdmin: true},
 
 	// --- C-DENY: external catalogue ---
 	"/api/discover/":               cDeny,
@@ -112,10 +134,10 @@ var parentalRouteClasses = map[string]parentalRoute{
 	"/api/request-policy":          cDeny,
 	"GET /api/graph/related":       cDeny,
 	"/api/watchlist":               cDeny,
-	"GET /api/subtitles/search":    cDeny, // not in ADR §1.2: provider search by title
-	"POST /api/subtitles/download": cDeny, // not in ADR §1.2: provider fetch for an item
-	"POST /api/wanted":             cDeny, // not in ADR §1.2: acquisition request
-	"POST /api/releases/grab":      cDeny, // not in ADR §1.2: acquisition grab
+	"GET /api/subtitles/search":    cDeny,         // not in ADR §1.2: provider search by title
+	"POST /api/subtitles/download": cDenyOperator, // not in ADR §1.2: provider fetch for an item
+	"POST /api/wanted":             cDenyOperator, // not in ADR §1.2: acquisition request
+	"POST /api/releases/grab":      cDenyOperator, // not in ADR §1.2: acquisition grab
 	// --- C-DENY: external players ---
 	"/api/jellyfin/play":       cDeny,
 	"GET /api/jellyfin/link":   cDeny, // not in ADR §1.2: returns title and path
@@ -123,10 +145,10 @@ var parentalRouteClasses = map[string]parentalRoute{
 	"GET /api/plex/sync-lists": cDeny, // not in ADR §1.2: returns titles
 	"GET /api/debrid/vfs":      cDeny,
 	"GET /api/debrid/stream":   cDeny,
-	"POST /api/debrid/add":     cDeny, // not in ADR §1.2: debrid acquisition
+	"POST /api/debrid/add":     cDenyOperator, // not in ADR §1.2: debrid acquisition
 	// --- C-DENY: live TV ---
 	"GET /api/livetv":         cDeny,
-	"POST /api/livetv/timers": cDeny, // not in ADR §1.2
+	"POST /api/livetv/timers": cDenyOperator, // not in ADR §1.2
 	// --- C-DENY: non-video libraries ---
 	"GET /api/music":                    cDeny,
 	"GET /api/books":                    cDeny,
@@ -168,7 +190,7 @@ var parentalRouteClasses = map[string]parentalRoute{
 	"GET /api/playback/segments/media": cDeny,
 	// Not in ADR §1.2: ungated feeds that list titles, file or release names.
 	"GET /api/rename/preview":         cDeny,
-	"POST /api/rename":                cDeny,
+	"POST /api/rename":                cDenyOperator,
 	"GET /api/releases/search":        cDeny,
 	"GET /api/releases/upgrades":      cDeny,
 	"GET /api/blocklist":              cDeny,
@@ -214,57 +236,68 @@ var parentalRouteClasses = map[string]parentalRoute{
 	"/images/audiobooks/": cExempt,
 	"/images/comics/":     cExempt,
 
-	// --- C-EXEMPT: no catalogue content in the response. These handlers have
-	// no BFF role gate today; that is an authorization gap, not a parental one.
+	// --- C-EXEMPT: no catalogue content in the response. No BFF role gate:
+	// reads any signed-in session may make, and formats score/parse, which
+	// only compute. The state-changing routes that used to sit here are
+	// operator routes below (T-M5-12).
 	"GET /api/roots":                       cExempt,
 	"GET /api/roots/pick":                  cExempt,
 	"GET /api/formats":                     cExempt,
 	"GET /api/formats/release-profiles":    cExempt,
 	"POST /api/formats/score":              cExempt,
 	"POST /api/formats/parse":              cExempt,
-	"POST /api/formats/sync-trash":         cExempt,
 	"GET /api/acquisition":                 cExempt,
 	"GET /api/indexers":                    cExempt,
 	"GET /api/delay-profiles":              cExempt,
-	"PUT /api/delay-profiles":              cExempt,
-	"POST /api/delay-profiles":             cExempt,
-	"POST /api/blocklist/clear":            cExempt,
-	"POST /api/releases/search-now":        cExempt,
-	"POST /api/releases/block":             cExempt,
-	"POST /api/activity/retry":             cExempt,
-	"POST /api/wanted/remove":              cExempt,
-	"POST /api/import":                     cExempt,
 	"GET /api/tags":                        cExempt, // tag vocabulary, not items
-	"DELETE /api/movies/{id}/file":         cExempt,
-	"DELETE /api/movies/{id}":              cExempt,
-	"POST /api/movies/{id}/refresh":        cExempt,
-	"PATCH /api/tv/seasons/{id}":           cExempt,
-	"DELETE /api/tv/{id}":                  cExempt,
-	"POST /api/tv/{id}/refresh":            cExempt,
 	"GET /api/tv/{id}/override":            cExempt,
-	"PUT /api/tv/{id}/override":            cExempt,
-	"POST /api/tv/{id}/override":           cExempt,
-	"DELETE /api/tv/{id}/override":         cExempt,
-	"PATCH /api/episodes/{id}":             cExempt,
-	"DELETE /api/episodes/{id}/file":       cExempt,
-	"POST /api/sessions/{id}/stop":         cExempt,
 	"GET /api/watch-stats/storage":         cExempt, // aggregates only
 	"GET /api/watch-stats/storage-history": cExempt, // aggregates only
 	"GET /api/watch-stats/charts":          cExempt, // buckets by hour/user/platform
-	"PATCH /api/music/albums/{id}":         cExempt,
-	"PATCH /api/music/{id}":                cExempt,
-	"DELETE /api/music/{id}":               cExempt,
-	"POST /api/music/{id}/refresh":         cExempt,
-	"PATCH /api/books/works/{id}":          cExempt,
-	"DELETE /api/books/works/{id}":         cExempt,
-	"PATCH /api/books/{id}":                cExempt,
-	"DELETE /api/books/{id}":               cExempt,
-	"PATCH /api/comics/issues/{id}":        cExempt,
-	"DELETE /api/comics/issues/{id}":       cExempt,
-	"PATCH /api/comics/{id}":               cExempt,
-	"DELETE /api/comics/{id}":              cExempt,
-	"PATCH /api/audiobooks/{id}":           cExempt,
-	"DELETE /api/audiobooks/{id}":          cExempt,
+
+	// --- C-EXEMPT: operator routes gated to admin/manager by this table
+	// (T-M5-12, C-30). Their handlers have no role check of their own. ---
+	// Library removal and file deletion (delete_files=1 deletes from disk;
+	// privileged like DELETE /api/movies/{id}/files/{fileId}).
+	"DELETE /api/movies/{id}":        cOperatorGate,
+	"DELETE /api/movies/{id}/file":   cOperatorGate,
+	"DELETE /api/tv/{id}":            cOperatorGate,
+	"DELETE /api/episodes/{id}/file": cOperatorGate,
+	"DELETE /api/music/{id}":         cOperatorGate,
+	"DELETE /api/books/{id}":         cOperatorGate,
+	"DELETE /api/books/works/{id}":   cOperatorGate,
+	"DELETE /api/comics/{id}":        cOperatorGate,
+	"DELETE /api/comics/issues/{id}": cOperatorGate,
+	"DELETE /api/audiobooks/{id}":    cOperatorGate,
+	"POST /api/movies/{id}/refresh":  cOperatorGate,
+	"POST /api/tv/{id}/refresh":      cOperatorGate,
+	"POST /api/music/{id}/refresh":   cOperatorGate,
+	// Monitoring and quality profile; root_folder_path needs admin.
+	"PATCH /api/tv/seasons/{id}":    cOperatorGate,
+	"PATCH /api/episodes/{id}":      cOperatorGate,
+	"PATCH /api/music/{id}":         cOperatorRootPath,
+	"PATCH /api/music/albums/{id}":  cOperatorGate,
+	"PATCH /api/books/{id}":         cOperatorRootPath,
+	"PATCH /api/books/works/{id}":   cOperatorGate,
+	"PATCH /api/comics/{id}":        cOperatorRootPath,
+	"PATCH /api/comics/issues/{id}": cOperatorGate,
+	"PATCH /api/audiobooks/{id}":    cOperatorRootPath,
+	"PUT /api/tv/{id}/override":     cOperatorGate,
+	"POST /api/tv/{id}/override":    cOperatorGate,
+	"DELETE /api/tv/{id}/override":  cOperatorGate,
+	// Acquisition.
+	"POST /api/releases/search-now": cOperatorGate,
+	"POST /api/releases/block":      cOperatorGate,
+	"POST /api/wanted/remove":       cOperatorGate,
+	"POST /api/activity/retry":      cOperatorGate,
+	"POST /api/blocklist/clear":     cOperatorGate,
+	"PUT /api/delay-profiles":       cOperatorGate,
+	"POST /api/delay-profiles":      cOperatorGate,
+	"POST /api/formats/sync-trash":  cOperatorGate, // official and non-official
+	"POST /api/import":              cOperatorGate,
+	// Stops any user's session, including Jellyfin/Plex. Ownership cannot be
+	// established from trusted data (BFF-API.md "Operator route roles").
+	"POST /api/sessions/{id}/stop": cOperatorGate,
 
 	// --- C-EXEMPT: operator routes already gated to admin/manager ---
 	"GET /api/roots/browse":                         cOperator,
@@ -458,14 +491,18 @@ func (s *server) parentalWrap(pattern string, h http.Handler) http.Handler {
 	if !ok {
 		panic(fmt.Sprintf("mediauiprox: route %q has no ADR-0031 parental route class (parental_routes.go)", pattern))
 	}
+	var gated http.Handler
 	switch route.class {
 	case classPlay:
-		return s.parentalPlayGate(route, h)
+		gated = s.parentalPlayGate(route, h)
 	case classDeny:
-		return s.parentalDenyGate(h)
+		gated = s.parentalDenyGate(h)
 	default:
-		return h
+		gated = h
 	}
+	// The role gate is outermost: a member is rejected before any parental
+	// policy lookup or handler runs.
+	return s.operatorRoleGate(route, gated)
 }
 
 // parentalCheck resolves the request's principal and policy. active is false
