@@ -7,6 +7,8 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 if [[ -f "$ROOT/.env" ]]; then source "$ROOT/.env"; fi
 # shellcheck disable=SC1091
 source "$ROOT/scripts/lib/smoke-cmd.sh"
+# shellcheck disable=SC1091
+source "$ROOT/scripts/lib/parental-smoke.sh"
 smoke_cmd_init
 
 if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
@@ -386,6 +388,22 @@ fi
 AUTOMATION_ADDR="${AUTOMATION_GRPC_CLIENT_ADDR:-127.0.0.1:9460}"
 [[ "$AUTOMATION_ADDR" == :* ]] && AUTOMATION_ADDR="127.0.0.1${AUTOMATION_ADDR}"
 MEDIA_UI_URL="${SMOKE_MEDIA_UI_URL:-http://127.0.0.1:5173}"
+# userdata-local HTTP as published on the host (run-host.sh and both compose files).
+USERDATA_HTTP="${SMOKE_USERDATA_URL:-http://127.0.0.1:${USERDATA_LOCAL_PORT:-9672}}"
+
+# Parental policy (ADR-0030/ADR-0031): the BFF denies playback to every account
+# without a configured provider policy, so seed the smoke admin as explicitly
+# unrestricted through the provider before any stream step (acquisition and
+# media-ui below stream as this admin). Required whenever media-ui is serving.
+parental_admin_token=""
+if curl -sf "${MEDIA_UI_URL}/healthz" >/dev/null 2>&1; then
+  echo "==> parental policy: ${ADMIN_USER} unrestricted via ${USERDATA_HTTP}/api/parental-policy"
+  parental_admin_login="$(parental_smoke_device_login "$AUTH_HTTP" "$ADMIN_USER" "$ADMIN_PASS")"
+  parental_admin_token="${parental_admin_login%%$'\t'*}"
+  parental_smoke_seed_unrestricted "$USERDATA_HTTP" "$parental_admin_token" "${parental_admin_login#*$'\t'}"
+else
+  echo "==> media-ui not running; parental policy seeding skipped"
+fi
 
 # Fixture acquisition (T-M2-03, ADR-0008/ADR-0014): indexer → automation → downloader
 # → scanner → media-movies → BFF stream. Runs when a fixture indexer + downloader are
@@ -568,6 +586,17 @@ for it in d.get("items") or []:
     exit 1
   }
   echo "OK media-ui auth + shell + /api/movies + stream + /api/tv"
+  # Negative gate check: a fresh account has no provider policy and must be
+  # denied the same stream (403 parental.policy_unconfigured).
+  echo "==> parental gate: account without a policy is denied playback"
+  parental_user="${SMOKE_PARENTAL_UNCONFIGURED_USER:-smoke-no-policy}"
+  parental_pass="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+  parental_smoke_create_user "$AUTH_HTTP" "$parental_admin_token" "$parental_user" "$parental_pass" >/dev/null
+  if ! parental_smoke_expect_unconfigured "$MEDIA_UI_URL" "$parental_user" "$parental_pass" "$stream_path"; then
+    parental_smoke_delete_user "$AUTH_HTTP" "$parental_admin_token" "$parental_user" || true
+    exit 1
+  fi
+  parental_smoke_delete_user "$AUTH_HTTP" "$parental_admin_token" "$parental_user"
   # Soft Jellyfin play deep-link (404 unlinked / not configured; 200 when URL available)
   jf_play_code=$(curl -s -c "$media_cj" -b "$media_cj" -o /tmp/muxcore-jellyfin-play.json -w '%{http_code}' \
     "${MEDIA_UI_URL}/api/jellyfin/play?mux_id=mv_smoke_550")
@@ -627,4 +656,4 @@ else
   echo "==> media-ui not running (set MVP_ENABLE_MEDIA_UI=1 / build dist-app); skipping"
 fi
 
-echo "PASS: MVP smoke (auth + movies + tv + admin-ui + jellyfin + ${acq_label} + scanner + automation + health-monitor + media-ui + request-media)"
+echo "PASS: MVP smoke (auth + movies + tv + admin-ui + jellyfin + ${acq_label} + scanner + automation + health-monitor + media-ui + parental + request-media)"
