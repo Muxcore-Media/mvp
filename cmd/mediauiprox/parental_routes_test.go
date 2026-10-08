@@ -21,10 +21,10 @@ func TestParentalRestrictedDeniesPlayAndDenyRoutes(t *testing.T) {
 	h.provider.doc(func(u string) string { return configuredDoc(u, "", 3, restrictedPolicyJSON) })
 	kid := h.session("kid", "", "bearer-kid")
 	for _, p := range patternsOfClass(classPlay) {
-		assertParentalError(t, p, serve(h.gated, routeRequest(p, kid)), http.StatusForbidden, parentalCodeBlocked)
+		assertParentalError(t, p, serve(h.gated, routeRequest(p, h.tokFor(p, kid))), http.StatusForbidden, parentalCodeBlocked)
 	}
 	for _, p := range patternsOfClass(classDeny) {
-		assertParentalError(t, p, serve(h.gated, routeRequest(p, kid)), http.StatusForbidden, parentalCodeRestrictedRoute)
+		assertParentalError(t, p, serve(h.gated, routeRequest(p, h.tokFor(p, kid))), http.StatusForbidden, parentalCodeRestrictedRoute)
 	}
 	if n := h.upHits.Load(); n != 0 {
 		t.Fatalf("restricted requests reached modules %d times", n)
@@ -42,8 +42,8 @@ func TestParentalUnrestrictedMatchesUngatedBaseline(t *testing.T) {
 	h.provider.doc(func(u string) string { return configuredDoc(u, "", 1, unrestrictedPolicyJSON) })
 	adult := h.session("adult", "", "bearer-adult")
 	for _, p := range patternsOfClass(classPlay, classDeny) {
-		got := serve(h.gated, routeRequest(p, adult))
-		want := serve(h.baseline, routeRequest(p, adult))
+		got := serve(h.gated, routeRequest(p, h.tokFor(p, adult)))
+		want := serve(h.baseline, routeRequest(p, h.tokFor(p, adult)))
 		if got.panic != want.panic || got.status != want.status || got.body != want.body {
 			t.Errorf("%s: gated=%d %q panic=%q baseline=%d %q panic=%q", p, got.status, got.body, got.panic, want.status, want.body, want.panic)
 			continue
@@ -149,7 +149,7 @@ func TestParentalProviderFailuresFailClosed(t *testing.T) {
 			tc.setup(h.provider)
 			kid := h.session("kid", "", "bearer-kid")
 			for _, p := range gated {
-				assertParentalError(t, p, serve(h.gated, routeRequest(p, kid)), http.StatusServiceUnavailable, parentalCodeUnavailable)
+				assertParentalError(t, p, serve(h.gated, routeRequest(p, h.tokFor(p, kid))), http.StatusServiceUnavailable, parentalCodeUnavailable)
 			}
 			// Never cached: every gated request asked the provider again.
 			if n := h.provider.count(); n != len(gated) {
@@ -174,7 +174,7 @@ func TestParentalProviderDownAndTimeout(t *testing.T) {
 		h.provider.srv.Close()
 		kid := h.session("kid", "", "bearer-kid")
 		for _, p := range patternsOfClass(classPlay, classDeny) {
-			assertParentalError(t, p, serve(h.gated, routeRequest(p, kid)), http.StatusServiceUnavailable, parentalCodeUnavailable)
+			assertParentalError(t, p, serve(h.gated, routeRequest(p, h.tokFor(p, kid))), http.StatusServiceUnavailable, parentalCodeUnavailable)
 		}
 	})
 	t.Run("timeout", func(t *testing.T) {
@@ -189,7 +189,7 @@ func TestParentalProviderDownAndTimeout(t *testing.T) {
 		})
 		kid := h.session("kid", "", "bearer-kid")
 		for _, p := range []string{"GET /api/playback/resolve", "/stream/movies/", "/api/discover/", "/api/search"} {
-			assertParentalError(t, p, serve(h.gated, routeRequest(p, kid)), http.StatusServiceUnavailable, parentalCodeUnavailable)
+			assertParentalError(t, p, serve(h.gated, routeRequest(p, h.tokFor(p, kid))), http.StatusServiceUnavailable, parentalCodeUnavailable)
 		}
 	})
 	t.Run("no provider configured", func(t *testing.T) {
@@ -218,7 +218,7 @@ func TestParentalSessionAndConfigurationStates(t *testing.T) {
 		h.clock.Advance(parentalPolicyTTL)
 		h.provider.set(http.StatusUnauthorized, `{"code":"policy.unauthenticated"}`)
 		for _, p := range patternsOfClass(classPlay, classDeny) {
-			assertParentalError(t, p, serve(h.gated, routeRequest(p, kid)), http.StatusUnauthorized, parentalCodeSessionInvalid)
+			assertParentalError(t, p, serve(h.gated, routeRequest(p, h.tokFor(p, kid))), http.StatusUnauthorized, parentalCodeSessionInvalid)
 		}
 		h.s.parental.mu.Lock()
 		cached := len(h.s.parental.cache)
@@ -232,7 +232,7 @@ func TestParentalSessionAndConfigurationStates(t *testing.T) {
 		h.provider.doc(func(u string) string { return unconfiguredDoc(u, "") })
 		kid := h.session("kid", "", "bearer-kid")
 		for _, p := range patternsOfClass(classPlay, classDeny) {
-			assertParentalError(t, p, serve(h.gated, routeRequest(p, kid)), http.StatusForbidden, parentalCodeUnconfigured)
+			assertParentalError(t, p, serve(h.gated, routeRequest(p, h.tokFor(p, kid))), http.StatusForbidden, parentalCodeUnconfigured)
 		}
 		if n := h.provider.count(); n != 1 {
 			t.Fatalf("unconfigured is a validated state and is cached: calls=%d", n)
@@ -247,7 +247,7 @@ func TestParentalSessionAndConfigurationStates(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, p := range patternsOfClass(classPlay, classDeny) {
-			assertParentalError(t, p, serve(h.gated, routeRequest(p, qc)), http.StatusForbidden, parentalCodeUnverifiable)
+			assertParentalError(t, p, serve(h.gated, routeRequest(p, h.tokFor(p, qc))), http.StatusForbidden, parentalCodeUnverifiable)
 		}
 		if h.provider.count() != 0 {
 			t.Fatal("provider contacted for a session without a bearer")
@@ -289,20 +289,20 @@ func TestParentalPolicyChangeWithinTTL(t *testing.T) {
 	h.provider.doc(func(u string) string { return configuredDoc(u, "", 1, unrestrictedPolicyJSON) })
 	kid := h.session("kid", "", "bearer-kid")
 	p := "GET /stream/trickplay"
-	if res := serve(h.gated, routeRequest(p, kid)); res.status != http.StatusOK {
+	if res := serve(h.gated, routeRequest(p, h.tokFor(p, kid))); res.status != http.StatusOK {
 		t.Fatalf("unrestricted: %d %s", res.status, res.body)
 	}
 	h.provider.doc(func(u string) string { return configuredDoc(u, "", 2, restrictedPolicyJSON) })
 	h.clock.Advance(parentalPolicyTTL - time.Second)
-	if res := serve(h.gated, routeRequest(p, kid)); res.status != http.StatusOK {
+	if res := serve(h.gated, routeRequest(p, h.tokFor(p, kid))); res.status != http.StatusOK {
 		t.Fatalf("within TTL the cached policy applies: %d %s", res.status, res.body)
 	}
 	h.clock.Advance(time.Second)
-	assertParentalError(t, p, serve(h.gated, routeRequest(p, kid)), http.StatusForbidden, parentalCodeBlocked)
+	assertParentalError(t, p, serve(h.gated, routeRequest(p, h.tokFor(p, kid))), http.StatusForbidden, parentalCodeBlocked)
 
 	h.provider.doc(func(u string) string { return configuredDoc(u, "", 3, unrestrictedPolicyJSON) })
 	h.clock.Advance(parentalPolicyTTL)
-	if res := serve(h.gated, routeRequest(p, kid)); res.status != http.StatusOK {
+	if res := serve(h.gated, routeRequest(p, h.tokFor(p, kid))); res.status != http.StatusOK {
 		t.Fatalf("lifted restriction after TTL: %d %s", res.status, res.body)
 	}
 	if n := h.provider.count(); n != 3 {
@@ -350,10 +350,10 @@ func TestParentalIgnoresClientInputsAndBlob(t *testing.T) {
 			code = parentalCodeRestrictedRoute
 		}
 		// Restricted: denied with and without the legacy inputs.
-		assertParentalError(t, p, serve(h.gated, spoof(routeRequest(p, kid))), http.StatusForbidden, code)
-		assertParentalError(t, p, serve(h.gated, routeRequest(p, kid)), http.StatusForbidden, code)
+		assertParentalError(t, p, serve(h.gated, spoof(routeRequest(p, h.tokFor(p, kid)))), http.StatusForbidden, code)
+		assertParentalError(t, p, serve(h.gated, routeRequest(p, h.tokFor(p, kid))), http.StatusForbidden, code)
 		// Unrestricted: the blocking blob and query inputs change nothing.
-		got, want := serve(h.gated, spoof(routeRequest(p, adult))), serve(h.baseline, spoof(routeRequest(p, adult)))
+		got, want := serve(h.gated, spoof(routeRequest(p, h.tokFor(p, adult)))), serve(h.baseline, spoof(routeRequest(p, h.tokFor(p, adult))))
 		if got.status != want.status || got.body != want.body || got.panic != want.panic {
 			t.Errorf("%s: unrestricted spoofed request gated=%d %q baseline=%d %q", p, got.status, got.body, want.status, want.body)
 		}

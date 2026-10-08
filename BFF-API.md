@@ -85,7 +85,7 @@ Reads durable JSON (`MEDIA_UI_LIVETV_FILE`, shared with admin `ADMIN_UI_LIVETV_F
 
 ### `POST /api/livetv/timers`
 
-Appends a timer to the same JSON file.
+Appends a timer to the same JSON file. Admin/manager only (DVR scheduling uses household storage).
 
 ## Errors
 
@@ -96,6 +96,8 @@ Backend/gRPC failures return JSON (not silent empty lists):
 ```
 
 Typical HTTP status: `400` / `401` / `404` / `502` / `503` from gRPC code mapping.
+
+Operator routes add `403 operator.forbidden` (no admin/manager role), `403 operator.admin_required` (`root_folder_path` without admin) and `413 operator.body_too_large` (see [Operator route roles](#operator-route-roles)).
 
 Parental enforcement adds `401 parental.session_invalid`, `403 parental.blocked` / `parental.restricted_route` / `parental.policy_unconfigured` / `parental.policy_unverifiable` and `503 parental.policy_unavailable` / `parental.classification_unavailable` (see [Parental enforcement](#parental-enforcement-adr-0031)).
 
@@ -274,7 +276,7 @@ Lists custom formats and quality profiles from `media-custom-formats`. `{ availa
 
 ### `POST /api/formats/sync-trash`
 
-Imports Recyclarr-compatible TRaSH packs (`SyncTrashGuides`). Body: `{ scoreSet, importProfiles, services, official }`. Default uses the bundled household fixture (or the module's `FORMATS_TRASH_GUIDES_PATH`). `{ official: true }` downloads the hardcoded TRaSH-Guides GitHub archive — admin/manager only. Client `guidesPath` is ignored except the `official` sentinel; arbitrary URLs/paths are not accepted.
+Imports Recyclarr-compatible TRaSH packs (`SyncTrashGuides`). Body: `{ scoreSet, importProfiles, services, official }`. Default uses the bundled household fixture (or the module's `FORMATS_TRASH_GUIDES_PATH`). `{ official: true }` downloads the hardcoded TRaSH-Guides GitHub archive. The whole route is admin/manager only, bundled pack included (T-M5-12). Client `guidesPath` is ignored except the `official` sentinel; arbitrary URLs/paths are not accepted.
 
 ### `POST /api/formats/score`
 
@@ -296,7 +298,7 @@ Household Radarr/Sonarr release restrictions (admin-ui `/formats/release-profile
 
 ### `PATCH /api/movies/{id}` · `PATCH /api/tv/{id}` · `PATCH /api/tv/seasons/{id}` · `PATCH /api/episodes/{id}`
 
-Body `{ "monitored": true|false, "quality_profile_id": "qp_uhd", "root_folder_path": "/data/movies" }`. At least one field is required on movie/series PATCH. Forwards to media-movies `UpdateMovie` or media-tvshows `UpdateTVShow` / `UpdateSeasonMonitored` / `UpdateEpisodeMonitored`. Season monitor updates cascade to that season's episodes. After a successful movie/series/episode PATCH the BFF also calls automation `UpdateQueueItem` so Search now / grab scoring uses the new profile immediately (`queue_id` matches wanted id, library item id, or TV series id). Automation down does not fail the library PATCH.
+Body `{ "monitored": true|false, "quality_profile_id": "qp_uhd", "root_folder_path": "/data/movies" }`. At least one field is required on movie/series PATCH. Forwards to media-movies `UpdateMovie` or media-tvshows `UpdateTVShow` / `UpdateSeasonMonitored` / `UpdateEpisodeMonitored`. Season monitor updates cascade to that season's episodes. Admin/manager only; a body that names `root_folder_path` (any spelling `encoding/json` matches, empty value included) needs admin, as root-folder changes do (RULE-AUTH-3). The same holds for `PATCH /api/music/{id}`, `/api/books/{id}`, `/api/comics/{id}` and `/api/audiobooks/{id}`; album, work, issue, season and episode PATCHes take only `monitored`. After a successful movie/series/episode PATCH the BFF also calls automation `UpdateQueueItem` so Search now / grab scoring uses the new profile immediately (`queue_id` matches wanted id, library item id, or TV series id). Automation down does not fail the library PATCH.
 
 ### `GET /api/roots`
 
@@ -316,7 +318,7 @@ Household Arr-style watch/download folders. Admin/manager only. GET `{ available
 
 ### `GET /api/rename/preview` · `POST /api/rename`
 
-Radarr/Sonarr Preview Rename. `GET ?movie_id=` or `?tv_id=` (`&episode_id=` optional) returns `{ available, items: [{ file_id, episode_id, title, current_path, new_path, new_filename, changed, quality }] }`. `POST` body `{ movie_id }` or `{ tv_id, episode_id? }` applies changed rows (`media-rename` Execute) and updates `movie_files` / `episode_files`. Module unset/down → GET `{ available: false, items: [] }`. Not a feature key — the SPA hides the card when unavailable.
+Radarr/Sonarr Preview Rename. `GET ?movie_id=` or `?tv_id=` (`&episode_id=` optional) returns `{ available, items: [{ file_id, episode_id, title, current_path, new_path, new_filename, changed, quality }] }`. `POST` (admin/manager only) body `{ movie_id }` or `{ tv_id, episode_id? }` applies changed rows (`media-rename` Execute) and updates `movie_files` / `episode_files`. Module unset/down → GET `{ available: false, items: [] }`. Not a feature key — the SPA hides the card when unavailable.
 
 ### `POST /api/rename/organize`
 
@@ -330,9 +332,11 @@ Household naming-template CRUD (admin-ui `/rename/templates`). Admin/manager onl
 
 ### `GET /api/tv/{id}/override` · `PUT /api/tv/{id}/override` · `DELETE /api/tv/{id}/override`
 
-Per-show grab delay and preferred/ignored release groups (`ListSeriesOverrides` / `UpsertSeriesOverride` / `DeleteSeriesOverride`). PUT body `{ delay_minutes, preferred_groups, ignored_groups }`. `{ available, found, override }`. Automation unset/down → GET `{ available: false, found: false }`.
+Per-show grab delay and preferred/ignored release groups (`ListSeriesOverrides` / `UpsertSeriesOverride` / `DeleteSeriesOverride`). PUT body `{ delay_minutes, preferred_groups, ignored_groups }`. `{ available, found, override }`. PUT/POST/DELETE are admin/manager only; GET stays available to any signed-in session. Automation unset/down → GET `{ available: false, found: false }`.
 
 ## Remove / refresh
+
+Every route in this section is admin/manager only (T-M5-12), including `?delete_files=1`, which matches `DELETE /api/movies/{id}/files/{fileId}`.
 
 ### `DELETE /api/movies/{id}` · `DELETE /api/tv/{id}`
 
@@ -358,7 +362,7 @@ Lists automation `release_blacklist` rows (`ListBlocklist`). `{ items, total, av
 
 ### `POST /api/blocklist/clear`
 
-Unblock one release `{ wanted_item_id, guid? }` or `{ clear_all: true }`. Forwards to `ClearBlocklist`. Interactive Search still uses `POST /api/releases/block` to add entries.
+Unblock one release `{ wanted_item_id, guid? }` or `{ clear_all: true }`. Forwards to `ClearBlocklist`. Admin/manager only, like `POST /api/releases/block`. Interactive Search still uses `POST /api/releases/block` to add entries.
 
 ## Delay profiles
 
@@ -368,7 +372,7 @@ Lists automation per-protocol grab delays (`ListDelayProfiles`). `{ available, p
 
 ### `PUT /api/delay-profiles` · `POST /api/delay-profiles`
 
-Upsert one protocol delay. Body `{ protocol, wait_minutes }` (`wait_minutes` 0–10080). Forwards to `UpsertDelayProfile`. The grab loop waits this long after first seeing a release before dispatching.
+Upsert one protocol delay. Body `{ protocol, wait_minutes }` (`wait_minutes` 0–10080). Forwards to `UpsertDelayProfile`. Admin/manager only (GET stays open). The grab loop waits this long after first seeing a release before dispatching.
 
 ## Manual import
 
@@ -378,7 +382,7 @@ Lists unimported files in scanner watch/download folders (`media-scanner` `ListI
 
 ### `POST /api/import`
 
-Imports one candidate via `ImportPath`. Body: `{ path, title?, media_type?, year?, tmdb_id?, season_number?, episode_number? }`. `path` is required. Response: `{ imported, skipped, found, message }`.
+Imports one candidate via `ImportPath`. Body: `{ path, title?, media_type?, year?, tmdb_id?, season_number?, episode_number? }`. `path` is required. Response: `{ imported, skipped, found, message }`. Admin/manager only, like watch folders and `POST /api/scan`.
 
 ## Saved offline (browser cache)
 
@@ -482,7 +486,7 @@ Public POST queues a reset request (`MEDIA_UI_PASSWORD_RESET_FILE`, shared with 
 
 When `downloader-debrid` HTTP is up:
 
-- `POST /api/debrid/add` — enqueue magnet/hoster
+- `POST /api/debrid/add` — enqueue magnet/hoster (admin/manager only)
 - `GET /api/debrid/vfs` — virtual file listing
 - `GET /api/debrid/stream` — proxied playback URL
 
@@ -515,7 +519,7 @@ Session required unless noted.
 
 `POST /api/playback/session` accepts `{ event_type, session_id, media_id, title, media_type, position_seconds, duration_seconds, is_paused, is_transcode }`. `event_type` is `started` / `progress` / `stopped` (or `playback.*`). The BFF fills household user + `server_type=native` and forwards to `PLAYBACK_MONITOR_HTTP_URL` (`-playback-monitor-http`, default `http://127.0.0.1:8560`) with `PLAYBACK_MONITOR_HTTP_TOKEN`. When the monitor is unset or down the route still returns **HTTP 202** `{ "accepted": true, "forwarded": false }` so playback never fails.
 
-`GET /api/sessions` returns `{ items, total, available }` with snake/camel-normalized rows (`title`, `user`, `href`, `paused`, `transcode`, `serverType`, progress). Listing uses the same operator token as ingest (`PLAYBACK_MONITOR_HTTP_TOKEN`). When the monitor is unset or down the route still returns **HTTP 200** `{ "available": false, "items": [] }`. `POST /api/sessions/{id}/stop` returns `{ stopped, id, serverType, jellyfinStopped }`.
+`GET /api/sessions` returns `{ items, total, available }` with snake/camel-normalized rows (`title`, `user`, `href`, `paused`, `transcode`, `serverType`, progress). Listing uses the same operator token as ingest (`PLAYBACK_MONITOR_HTTP_TOKEN`). When the monitor is unset or down the route still returns **HTTP 200** `{ "available": false, "items": [] }`. `POST /api/sessions/{id}/stop` returns `{ stopped, id, serverType, jellyfinStopped }`. It is admin/manager only: it can stop any household member's stream, including Jellyfin and Plex sessions, and the BFF cannot prove that a session belongs to the caller (see [Operator route roles](#operator-route-roles)).
 
 `GET /api/capabilities` includes `features.playbackMonitor` when monitor `/healthz` is live.
 
@@ -565,7 +569,7 @@ Gate responses carry `Cache-Control: no-store` and a body of only `{ "error", "c
 
 ## Parental route classes
 
-Every pattern registered by `registerRoutes` has a class in `cmd/mediauiprox/parental_routes.go` (`parentalRouteClasses`, keyed by the exact registered pattern). Registration panics on an unclassified pattern, and `routes_inventory_test.go` fails when a registered pattern has no class or when this table differs from the code. Routes not listed below are **C-EXEMPT**: no catalogue content in the response (session, auth, health, SPA, `/api/userdata`, playback telemetry, item mutations that return only status), operator routes whose handlers already reject non-admin/manager sessions (proved per route by `TestParentalOperatorExemptionsAreRoleGated`), and `/images/*` (public; out of scope per ADR-0031 §6).
+Every pattern registered by `registerRoutes` has a class in `cmd/mediauiprox/parental_routes.go` (`parentalRouteClasses`, keyed by the exact registered pattern). Registration panics on an unclassified pattern, and `routes_inventory_test.go` fails when a registered pattern has no class or when this table differs from the code. Routes not listed below are **C-EXEMPT**: no catalogue content in the response (session, auth, health, SPA, `/api/userdata`, playback telemetry, item mutations that return only status), operator routes that reject non-admin/manager sessions in the handler or through the [operator role gate](#operator-route-roles) (proved per route by `TestParentalOperatorExemptionsAreRoleGated`), and `/images/*` (public; out of scope per ADR-0031 §6). Some C-DENY and C-ITEM routes are also operator routes; for them the role gate runs first and the parental class still applies to admin/manager principals with a restricted policy (ADR-0031 §7).
 
 | Route | Class |
 |-------|-------|
@@ -668,6 +672,68 @@ Every pattern registered by `registerRoutes` has a class in `cmd/mediauiprox/par
 | `GET /api/tv/{id}/titles` | C-ITEM |
 | `PATCH /api/movies/{id}` | C-ITEM |
 | `PATCH /api/tv/{id}` | C-ITEM |
+
+## Operator route roles
+
+T-M5-12 (C-30): these state-changing routes had no role check, so any signed-in `user` or `viewer` could call them. Their row in `parentalRouteClasses` (`cmd/mediauiprox/parental_routes.go`) sets `requirePrivileged`, and `operator_routes.go` enforces it for every one before the parental gate of the route's class and before the handler. The check uses only the BFF session's roles (`sessionHasPrivilegedRole`: `admin` or `manager`, the same predicate as the 170 handler-gated operator routes); client headers, query parameters and body fields are never consulted for it. A session without the role gets **403** `{ "error", "code": "operator.forbidden" }`. No parental policy lookup and no module call happen before that, so the response says nothing about the item or the caller's policy. Without a session (auth disabled for local dev) the result is also 403, like the handler-gated operator routes.
+
+Rows marked "admin for `root_folder_path`" also require `admin` (`sessionHasAdminRole`) when the JSON body names `root_folder_path`. Root-folder create/update is already admin-only (RULE-AUTH-3), and these PATCHes forward the path to the module as the item's new root. The gate reads at most 1 MiB of the body, decodes it with the same decoder as the handler (`decodeLibraryPatch`, so `Root_Folder_Path` and an empty value count), and restores it for the handler. A manager gets **403** `operator.admin_required`, or **413** `operator.body_too_large` for a larger body. Admins skip the read.
+
+`TestOperatorRoutesMatchBFFAPIDoc` keeps this table equal to the code. `operator_routes_test.go` carries an independent list of the 43 routes and proves each one by request: `user`, `viewer`, no-role, `approver` and lookalike-role sessions get 403 with no module, HTTP or policy call; `manager` and `admin` reach the module; a manager is refused `root_folder_path` on all six root-path routes.
+
+Role decisions:
+- **Removal and file deletion** (including `?delete_files=1`): admin/manager. This matches the existing `DELETE /api/movies/{id}/files/{fileId}` and `POST /api/maintainer/act`, which also delete from disk.
+- **Monitoring, quality profile and series overrides**: admin/manager. Managers manage libraries (FRD §1). Only `root_folder_path` needs admin.
+- **Acquisition** (grab, search-now, block, wanted add/remove, import retry, blocklist clear, delay profiles, debrid add, TRaSH sync in both modes, rename, manual import, subtitle download): admin/manager. `user` may only request through `/api/request*`, which goes through approval (RULE-AUTH-4). `POST /api/wanted` and `POST /api/releases/grab` would bypass that approval. `POST /api/import` takes a server path; it gets the same role as watch folders and `POST /api/scan`.
+- **`POST /api/sessions/{id}/stop`**: admin/manager, with no own-session exception. The BFF cannot prove ownership from trusted data. playback-monitor has no per-session read, and Jellyfin/Plex records carry media-server user ids that have no trusted mapping to MuxCore users. Native records take their `user_id` from the BFF session, but `POST /api/playback/session` lets any member pick the `session_id`, and a `started` event for an active `session_id` overwrites the record's `user_id`. Any member could therefore make another member's native session look like their own.
+- **`POST /api/livetv/timers`**: admin/manager (schedules recordings to household storage).
+- Not gated, by design: `POST /api/formats/score` and `/parse` only compute. `GET /api/delay-profiles` and `GET /api/tv/{id}/override` are reads.
+
+| Route | Role |
+|-------|------|
+| `DELETE /api/audiobooks/{id}` | admin/manager |
+| `DELETE /api/books/works/{id}` | admin/manager |
+| `DELETE /api/books/{id}` | admin/manager |
+| `DELETE /api/comics/issues/{id}` | admin/manager |
+| `DELETE /api/comics/{id}` | admin/manager |
+| `DELETE /api/episodes/{id}/file` | admin/manager |
+| `DELETE /api/movies/{id}` | admin/manager |
+| `DELETE /api/movies/{id}/file` | admin/manager |
+| `DELETE /api/music/{id}` | admin/manager |
+| `DELETE /api/tv/{id}` | admin/manager |
+| `DELETE /api/tv/{id}/override` | admin/manager |
+| `PATCH /api/audiobooks/{id}` | admin/manager; admin for `root_folder_path` |
+| `PATCH /api/books/works/{id}` | admin/manager |
+| `PATCH /api/books/{id}` | admin/manager; admin for `root_folder_path` |
+| `PATCH /api/comics/issues/{id}` | admin/manager |
+| `PATCH /api/comics/{id}` | admin/manager; admin for `root_folder_path` |
+| `PATCH /api/episodes/{id}` | admin/manager |
+| `PATCH /api/movies/{id}` | admin/manager; admin for `root_folder_path` |
+| `PATCH /api/music/albums/{id}` | admin/manager |
+| `PATCH /api/music/{id}` | admin/manager; admin for `root_folder_path` |
+| `PATCH /api/tv/seasons/{id}` | admin/manager |
+| `PATCH /api/tv/{id}` | admin/manager; admin for `root_folder_path` |
+| `POST /api/activity/retry` | admin/manager |
+| `POST /api/blocklist/clear` | admin/manager |
+| `POST /api/debrid/add` | admin/manager |
+| `POST /api/delay-profiles` | admin/manager |
+| `POST /api/formats/sync-trash` | admin/manager |
+| `POST /api/import` | admin/manager |
+| `POST /api/livetv/timers` | admin/manager |
+| `POST /api/movies/{id}/refresh` | admin/manager |
+| `POST /api/music/{id}/refresh` | admin/manager |
+| `POST /api/releases/block` | admin/manager |
+| `POST /api/releases/grab` | admin/manager |
+| `POST /api/releases/search-now` | admin/manager |
+| `POST /api/rename` | admin/manager |
+| `POST /api/sessions/{id}/stop` | admin/manager |
+| `POST /api/subtitles/download` | admin/manager |
+| `POST /api/tv/{id}/override` | admin/manager |
+| `POST /api/tv/{id}/refresh` | admin/manager |
+| `POST /api/wanted` | admin/manager |
+| `POST /api/wanted/remove` | admin/manager |
+| `PUT /api/delay-profiles` | admin/manager |
+| `PUT /api/tv/{id}/override` | admin/manager |
 
 ## Route inventory
 
