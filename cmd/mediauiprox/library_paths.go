@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -237,13 +238,19 @@ func libraryTagLabels(lib string) []string {
 	return nil
 }
 
-func (s *server) resolveLibraryTagID(ctx context.Context, lib string) string {
+// resolveLibraryTagID finds the library's tag. The error is the tag lookup
+// failing; callers that must not return a partial list (restricted principals)
+// act on it, the rest treat it as "no tag".
+func (s *server) resolveLibraryTagID(ctx context.Context, lib string) (string, error) {
 	if s.movies == nil {
-		return ""
+		return "", nil
 	}
 	resp, err := s.movies.ListTags(ctx, &mgmntv1.ListTagsRequest{})
-	if err != nil || resp == nil {
-		return ""
+	if err != nil {
+		return "", err
+	}
+	if resp == nil {
+		return "", errors.New("media-movies returned no tag list")
 	}
 	want := map[string]bool{}
 	for _, l := range libraryTagLabels(lib) {
@@ -251,10 +258,10 @@ func (s *server) resolveLibraryTagID(ctx context.Context, lib string) string {
 	}
 	for _, t := range resp.GetTags() {
 		if want[strings.ToLower(strings.TrimSpace(t.GetLabel()))] {
-			return t.GetId()
+			return t.GetId(), nil
 		}
 	}
-	return ""
+	return "", nil
 }
 
 func (s *server) collectMoviesForLibrary(ctx context.Context, lib string) ([]*mgmntv1.MovieItem, error) {
@@ -268,12 +275,26 @@ func (s *server) collectMoviesForLibrary(ctx context.Context, lib string) ([]*mg
 		}
 	}
 
-	if tagID := s.resolveLibraryTagID(ctx, lib); tagID != "" {
+	// A restricted principal's list must be complete or fail (ADR-0031 §3):
+	// the tag lookup and the tag pass are required calls for it, so a failure
+	// of either is an error, never a partial 200. Everyone else keeps the
+	// best-effort tag pass.
+	_, restricted := parentalRestrictionFrom(ctx)
+	tagID, tagErr := s.resolveLibraryTagID(ctx, lib)
+	if tagErr != nil && restricted {
+		return nil, tagErr
+	}
+	if tagID != "" {
 		resp, err := s.movies.ListMovies(ctx, listMoviesRequest(ctx, &mgmntv1.ListMoviesRequest{
 			Page: 1, PageSize: 100, TagId: tagID,
 		}))
-		if err == nil && resp != nil {
+		switch {
+		case err == nil && resp != nil:
 			add(visibleMovies(ctx, resp.GetMovies()))
+		case restricted && err != nil:
+			return nil, err
+		case restricted:
+			return nil, errors.New("media-movies returned no tag page")
 		}
 	}
 

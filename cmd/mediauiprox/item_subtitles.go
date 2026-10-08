@@ -42,7 +42,11 @@ func publicSubtitleFileTarget(id, title string, season, episode int32) map[strin
 	}
 }
 
+// collectSubtitleFiles lists the subtitle rows of each media file. For a
+// restricted principal a row that does not name the file it was listed for is
+// dropped: the file ID is the only link to the authorized item.
 func (s *server) collectSubtitleFiles(ctx context.Context, fileIDs []string) []map[string]any {
+	_, restricted := parentalRestrictionFrom(ctx)
 	items := make([]map[string]any, 0)
 	if s.subtitles == nil {
 		return items
@@ -66,6 +70,9 @@ func (s *server) collectSubtitleFiles(ctx context.Context, fileIDs []string) []m
 			if row == nil || row.GetId() == "" {
 				continue
 			}
+			if restricted && row.GetMediaFileId() != fileID {
+				continue
+			}
 			items = append(items, publicSubtitleFile(row))
 		}
 	}
@@ -85,7 +92,12 @@ func (s *server) movieSubtitleFileIDs(ctx context.Context, movieID string) []str
 			}
 		}
 	}
-	if len(ids) == 0 && s.subtitles != nil {
+	// media-subtitles keeps its own media IDs (GetMedia takes a media-subtitles
+	// media.id, not a movie ID), so the movie ID names a subtitle media row only
+	// by coincidence. That mapping cannot be verified against the movie, and a
+	// restricted principal must not be handed another item's files by it.
+	_, restricted := parentalRestrictionFrom(ctx)
+	if len(ids) == 0 && s.subtitles != nil && !restricted {
 		if media, err := s.subtitles.GetMedia(ctx, &subtv1.GetMediaRequest{Id: movieID}); err == nil {
 			if id := strings.TrimSpace(media.GetItem().GetMediaFileId()); id != "" {
 				ids = append(ids, id)
@@ -101,6 +113,7 @@ func (s *server) tvSubtitleTargets(ctx context.Context, seriesID string) []map[s
 	if s.subtitles == nil {
 		return targets
 	}
+	_, restricted := parentalRestrictionFrom(ctx)
 	listed, err := s.subtitles.ListMedia(ctx, &subtv1.ListMediaRequest{
 		Page:     1,
 		PageSize: 100,
@@ -109,6 +122,11 @@ func (s *server) tvSubtitleTargets(ctx context.Context, seriesID string) []map[s
 	if err == nil {
 		for _, it := range listed.GetItems() {
 			if it == nil {
+				continue
+			}
+			// The series filter is the link to the authorized series; a row
+			// that names another series is not this item's.
+			if restricted && it.GetSeriesId() != seriesID {
 				continue
 			}
 			id := strings.TrimSpace(it.GetMediaFileId())
@@ -123,7 +141,9 @@ func (s *server) tvSubtitleTargets(ctx context.Context, seriesID string) []map[s
 			targets = append(targets, publicSubtitleFileTarget(id, title, it.GetSeason(), it.GetEpisode()))
 		}
 	}
-	if len(targets) == 0 {
+	// GetMedia takes a media-subtitles media.id, not a series ID (see
+	// movieSubtitleFileIDs), so restricted principals never use it.
+	if len(targets) == 0 && !restricted {
 		if media, err := s.subtitles.GetMedia(ctx, &subtv1.GetMediaRequest{Id: seriesID}); err == nil {
 			if id := strings.TrimSpace(media.GetItem().GetMediaFileId()); id != "" && !seen[id] {
 				it := media.GetItem()

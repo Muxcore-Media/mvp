@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"sort"
@@ -66,7 +67,7 @@ func visibleMovies(ctx context.Context, in []*mgmntv1.MovieItem) []*mgmntv1.Movi
 		}
 	}
 	if len(out) != len(in) {
-		log.Printf("parental: dropped %d movies the module returned past its own classification filter", len(in)-len(out))
+		log.Printf("parental: dropped %d movies the restriction does not allow (module filter or collection read)", len(in)-len(out))
 	}
 	return out
 }
@@ -83,7 +84,7 @@ func visibleSeries(ctx context.Context, in []*tvmgmtv1.TVSeries) []*tvmgmtv1.TVS
 		}
 	}
 	if len(out) != len(in) {
-		log.Printf("parental: dropped %d series the module returned past its own classification filter", len(in)-len(out))
+		log.Printf("parental: dropped %d series the restriction does not allow (module filter or collection read)", len(in)-len(out))
 	}
 	return out
 }
@@ -97,57 +98,81 @@ func listMoviesRequest(ctx context.Context, req *mgmntv1.ListMoviesRequest) *mgm
 	return req
 }
 
+// maxRestrictedCollections bounds the per-collection GetCollectionMovies
+// calls a restricted GET /api/collections makes. A library with more
+// collections cannot be listed completely inside the request budget, so it
+// fails closed (503 parental.classification_unavailable) instead of returning
+// a partial list.
+const maxRestrictedCollections = 1000
+
 // restrictedCollections derives the collection list for a restricted
-// principal from the visible movies alone. The module's ListCollections counts
-// every movie, hidden ones included, and its names can reveal hidden titles, so
-// neither is used: a collection exists for this principal only through a
-// visible movie, and its count is the number of visible movies in it.
+// principal from the movies it may see. ListMovies does not carry collection
+// membership (the module's list query leaves collection_id/collection_name
+// empty), and ListCollections counts every movie, hidden ones included, and
+// names a collection after any of them. So ListCollections supplies only the
+// collection IDs and the monitored flag, and GetCollectionMovies, which does
+// carry classification and membership, supplies the movies: a collection
+// exists for this principal only through a visible movie, its name comes from
+// a visible movie, and its count is the number of visible movies in it.
+// Any failed call, an oversized library or a module answer for another
+// collection fails the whole list; there is never a partial result.
 func (s *server) restrictedCollections(ctx context.Context, restr parentalRestriction) ([]map[string]any, error) {
-	type agg struct {
-		name  string
-		count int
+	all, err := s.movies.ListCollections(ctx, &mgmntv1.ListCollectionsRequest{})
+	if err != nil {
+		return nil, err
 	}
-	byID := map[int32]*agg{}
-	for page := int32(1); ; page++ {
-		resp, err := s.movies.ListMovies(ctx, &mgmntv1.ListMoviesRequest{Page: page, PageSize: 100, ClassificationFilter: restr.movieFilter()})
+	summaries := all.GetCollections()
+	if len(summaries) > maxRestrictedCollections {
+		return nil, fmt.Errorf("%d collections exceed the restricted listing bound of %d", len(summaries), maxRestrictedCollections)
+	}
+	type visible struct {
+		id        int32
+		name      string
+		count     int
+		monitored bool
+	}
+	var found []visible
+	seen := map[int32]bool{}
+	for _, c := range summaries {
+		id := c.GetCollectionId()
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		resp, err := s.movies.GetCollectionMovies(ctx, &mgmntv1.GetCollectionMoviesRequest{CollectionId: id})
 		if err != nil {
 			return nil, err
 		}
-		for _, m := range resp.GetMovies() {
-			if !restr.allowsMovie(m) || m.GetCollectionId() <= 0 {
-				continue
+		if resp.GetCollectionId() != id {
+			return nil, fmt.Errorf("media-movies answered for collection %d when asked for %d", resp.GetCollectionId(), id)
+		}
+		name, count := "", 0
+		for _, m := range visibleMovies(ctx, resp.GetMovies()) {
+			if m.GetCollectionId() != id {
+				return nil, fmt.Errorf("media-movies returned a movie of collection %d for collection %d", m.GetCollectionId(), id)
 			}
-			a := byID[m.GetCollectionId()]
-			if a == nil {
-				a = &agg{name: m.GetCollectionName()}
-				byID[m.GetCollectionId()] = a
+			count++
+			if n := m.GetCollectionName(); n > name {
+				name = n
 			}
-			a.count++
 		}
-		if len(resp.GetMovies()) == 0 || int(page)*100 >= int(resp.GetTotal()) {
-			break
-		}
-	}
-	monitored := map[int32]bool{}
-	if all, err := s.movies.ListCollections(ctx, &mgmntv1.ListCollectionsRequest{}); err == nil {
-		for _, c := range all.GetCollections() {
-			monitored[c.GetCollectionId()] = c.GetMonitored()
+		if count > 0 {
+			found = append(found, visible{id: id, name: name, count: count, monitored: c.GetMonitored()})
 		}
 	}
-	ids := make([]int, 0, len(byID))
-	for id := range byID {
-		ids = append(ids, int(id))
-	}
-	sort.Ints(ids)
-	sort.SliceStable(ids, func(i, j int) bool { return byID[int32(ids[i])].name < byID[int32(ids[j])].name })
-	items := make([]map[string]any, 0, len(ids))
-	for _, id := range ids {
-		a := byID[int32(id)]
+	sort.SliceStable(found, func(i, j int) bool {
+		if found[i].name != found[j].name {
+			return found[i].name < found[j].name
+		}
+		return found[i].id < found[j].id
+	})
+	items := make([]map[string]any, 0, len(found))
+	for _, v := range found {
 		items = append(items, map[string]any{
-			"id":          strconv.Itoa(id),
-			"name":        a.name,
-			"movie_count": a.count,
-			"monitored":   monitored[int32(id)],
+			"id":          strconv.Itoa(int(v.id)),
+			"name":        v.name,
+			"movie_count": v.count,
+			"monitored":   v.monitored,
 		})
 	}
 	return items, nil

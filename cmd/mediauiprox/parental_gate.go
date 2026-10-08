@@ -143,6 +143,9 @@ type parentalGate struct {
 	// classifier (ADR-0031 §4); it reads classifier at call time.
 	playClassifier *cachingClassifier
 	hls            *hlsKeyBindings
+	// subtitles binds playback subtitle track IDs to the session and item they
+	// were advertised for (parental_subtitles.go).
+	subtitles *subtitleTrackBindings
 
 	mu    sync.Mutex
 	cache map[string]parentalCacheEntry
@@ -177,6 +180,7 @@ func newParentalGateWith(userdataBase string, client *http.Client, now func() ti
 		ttl:        parentalPolicyTTL,
 		classifier: unavailableClassifier{},
 		hls:        newHLSKeyBindings(),
+		subtitles:  newSubtitleTrackBindings(),
 		cache:      map[string]parentalCacheEntry{},
 	}
 	g.playClassifier = newCachingClassifier(classifierFunc(func(ctx context.Context, item parentalItem) (parental.Classification, error) {

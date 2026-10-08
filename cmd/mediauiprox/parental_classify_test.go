@@ -44,6 +44,21 @@ type fakeCatalog struct {
 	failSeries   error
 	failEpisodes error
 
+	// Targeted failures, so one required call can fail while its siblings
+	// succeed.
+	failTagPass      bool  // ListMovies with a tag_id
+	failTags         error // ListTags
+	failCollections  error // ListCollections
+	failCollectionID int32 // GetCollectionMovies for this id
+	// collectionAnswersID makes GetCollectionMovies answer for another id.
+	collectionAnswersID int32
+	// foreignMovie is appended to every GetCollectionMovies answer: a module
+	// returning a movie of another collection.
+	foreignMovie *mgmntv1.MovieItem
+	tags         []*mgmntv1.Tag
+	// files maps a movie id to the absolute path of its video file.
+	files map[string]string
+
 	calls       map[string]int
 	movieLists  []*mgmntv1.ListMoviesRequest
 	seriesLists []*tvmgmtv1.ListTVShowsRequest
@@ -183,6 +198,15 @@ func (f *fakeMovies) clone(m *mgmntv1.MovieItem) *mgmntv1.MovieItem {
 	return out
 }
 
+// cloneListed is a movie as media-movies v0.1.23 returns it from ListMovies and
+// GetMovie: movieSelectCols/scanMovie fill the classification fields but never
+// collection_id/collection_name (only GetCollectionMovies' own query does).
+func (f *fakeMovies) cloneListed(m *mgmntv1.MovieItem) *mgmntv1.MovieItem {
+	out := f.clone(m)
+	out.CollectionId, out.CollectionName = 0, ""
+	return out
+}
+
 func (f *fakeMovies) ListMovies(_ context.Context, in *mgmntv1.ListMoviesRequest, _ ...grpc.CallOption) (*mgmntv1.ListMoviesResponse, error) {
 	f.c.mu.Lock()
 	defer f.c.mu.Unlock()
@@ -191,18 +215,37 @@ func (f *fakeMovies) ListMovies(_ context.Context, in *mgmntv1.ListMoviesRequest
 	if f.c.failMovies != nil {
 		return nil, f.c.failMovies
 	}
+	if in.GetTagId() != "" && f.c.failTagPass {
+		return nil, status.Error(codes.Unavailable, "tag pass failed")
+	}
 	cf := in.GetClassificationFilter()
 	spec := filterSpec{enabled: cf.GetEnabled() && !f.c.ignoreFilter, max: cf.GetMaxRating(), unrated: cf.GetAllowUnrated(), blocked: cf.GetBlockedTags(), allowed: cf.GetAllowedTags()}
+	tagLabel := ""
+	for _, t := range f.c.tags {
+		if t.GetId() == in.GetTagId() {
+			tagLabel = strings.ToLower(t.GetLabel())
+		}
+	}
 	var vis []*mgmntv1.MovieItem
 	for _, m := range f.c.movies {
-		if spec.visible(movieClassification(m)) {
-			vis = append(vis, m)
+		if !spec.visible(movieClassification(m)) {
+			continue
 		}
+		if in.GetTagId() != "" {
+			tagged := false
+			for _, l := range m.GetTagLabels() {
+				tagged = tagged || strings.ToLower(l) == tagLabel
+			}
+			if !tagged {
+				continue
+			}
+		}
+		vis = append(vis, m)
 	}
 	lo, hi := page(len(vis), in.GetPage(), in.GetPageSize())
 	out := &mgmntv1.ListMoviesResponse{Total: int32(len(vis)), Page: in.GetPage(), PageSize: in.GetPageSize()}
 	for _, m := range vis[lo:hi] {
-		out.Movies = append(out.Movies, f.clone(m))
+		out.Movies = append(out.Movies, f.cloneListed(m))
 	}
 	return out, nil
 }
@@ -216,7 +259,7 @@ func (f *fakeMovies) GetMovie(_ context.Context, in *mgmntv1.GetMovieRequest, _ 
 	}
 	for _, m := range f.c.movies {
 		if m.GetId() == in.GetMovieId() {
-			return &mgmntv1.GetMovieResponse{Movie: f.clone(m)}, nil
+			return &mgmntv1.GetMovieResponse{Movie: f.cloneListed(m)}, nil
 		}
 	}
 	return nil, status.Error(codes.NotFound, "movie not found")
@@ -226,6 +269,9 @@ func (f *fakeMovies) ListCollections(_ context.Context, _ *mgmntv1.ListCollectio
 	f.c.mu.Lock()
 	defer f.c.mu.Unlock()
 	f.c.hit("ListCollections")
+	if f.c.failCollections != nil {
+		return nil, f.c.failCollections
+	}
 	return &mgmntv1.ListCollectionsResponse{Collections: f.c.collections}, nil
 }
 
@@ -233,10 +279,13 @@ func (f *fakeMovies) GetCollectionMovies(_ context.Context, in *mgmntv1.GetColle
 	f.c.mu.Lock()
 	defer f.c.mu.Unlock()
 	f.c.hit("GetCollectionMovies")
-	if f.c.failMovies != nil {
-		return nil, f.c.failMovies
+	if f.c.failMovies != nil || (f.c.failCollectionID != 0 && f.c.failCollectionID == in.GetCollectionId()) {
+		return nil, status.Error(codes.Unavailable, "collection read failed")
 	}
 	out := &mgmntv1.GetCollectionMoviesResponse{CollectionId: in.GetCollectionId()}
+	if f.c.collectionAnswersID != 0 {
+		out.CollectionId = f.c.collectionAnswersID
+	}
 	for _, cs := range f.c.collections {
 		if cs.GetCollectionId() == in.GetCollectionId() {
 			out.Name = cs.GetName()
@@ -247,11 +296,31 @@ func (f *fakeMovies) GetCollectionMovies(_ context.Context, in *mgmntv1.GetColle
 			out.Movies = append(out.Movies, f.clone(m))
 		}
 	}
+	if f.c.foreignMovie != nil {
+		out.Movies = append(out.Movies, f.clone(f.c.foreignMovie))
+	}
 	return out, nil
 }
 
 func (f *fakeMovies) ListTags(context.Context, *mgmntv1.ListTagsRequest, ...grpc.CallOption) (*mgmntv1.ListTagsResponse, error) {
-	return &mgmntv1.ListTagsResponse{}, nil
+	f.c.mu.Lock()
+	defer f.c.mu.Unlock()
+	f.c.hit("ListTags")
+	if f.c.failTags != nil {
+		return nil, f.c.failTags
+	}
+	return &mgmntv1.ListTagsResponse{Tags: f.c.tags}, nil
+}
+
+func (f *fakeMovies) ListFiles(_ context.Context, in *mgmntv1.ListFilesRequest, _ ...grpc.CallOption) (*mgmntv1.ListFilesResponse, error) {
+	f.c.mu.Lock()
+	defer f.c.mu.Unlock()
+	f.c.hit("ListFiles")
+	path, ok := f.c.files[in.GetMovieId()]
+	if !ok {
+		return &mgmntv1.ListFilesResponse{}, nil
+	}
+	return &mgmntv1.ListFilesResponse{Files: []*mgmntv1.MovieFile{{Id: "file-" + in.GetMovieId(), MovieId: in.GetMovieId(), FilePath: path}}}, nil
 }
 
 func (f *fakeMovies) GetCollectionPrefs(context.Context, *mgmntv1.GetCollectionPrefsRequest, ...grpc.CallOption) (*mgmntv1.GetCollectionPrefsResponse, error) {
