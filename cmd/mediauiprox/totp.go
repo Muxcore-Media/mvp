@@ -27,7 +27,7 @@ func (s *server) requireLinkedAuthSession(w http.ResponseWriter, r *http.Request
 		writeAPIUnauthorized(w)
 		return false
 	}
-	if s.sessions == nil || s.sessions.LookupAuthToken(sessionTokenFromRequest(r)) == "" {
+	if s.sessionAuthToken(r) == "" {
 		writeAPIUnauthorized(w)
 		return false
 	}

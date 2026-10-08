@@ -14,6 +14,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -324,7 +325,7 @@ func (s *sessionStore) CreateWithAuth(userID, username, tenantID string, roles [
 
 // get returns the live entry for a raw token, dropping it when expired.
 func (s *sessionStore) get(tok string) (sessionEntry, bool) {
-	if tok == "" {
+	if s == nil || tok == "" {
 		return sessionEntry{}, false
 	}
 	id := sessionID(tok)
@@ -334,10 +335,11 @@ func (s *sessionStore) get(tok string) (sessionEntry, bool) {
 	if !ok {
 		return sessionEntry{}, false
 	}
-	if timeNow().After(e.expiry) {
+	if !timeNow().Before(e.expiry) {
 		delete(s.byID, id)
 		return sessionEntry{}, false
 	}
+	e.roles = append([]string(nil), e.roles...)
 	return e, true
 }
 
@@ -387,4 +389,45 @@ func (s *sessionStore) LookupRoles(tok string) (userID, username, tenantID strin
 		return "", "", "", nil, false
 	}
 	return e.userID, e.username, e.tenantID, append([]string(nil), e.roles...), true
+}
+
+// Include expiry so a replaced local session cannot inherit an in-flight result.
+func sameSessionBinding(a, b sessionEntry) bool {
+	return a.userID == b.userID && a.tenantID == b.tenantID && a.authToken == b.authToken && a.expiry.Equal(b.expiry)
+}
+
+// deleteIfBound atomically invalidates only the session that was checked.
+func (s *sessionStore) deleteIfBound(tok string, expected sessionEntry) bool {
+	s.mu.Lock()
+	current, exists := s.byID[sessionID(tok)]
+	matched := exists && sameSessionBinding(current, expected)
+	if matched {
+		delete(s.byID, sessionID(tok))
+	}
+	s.mu.Unlock()
+	if matched {
+		s.persistOrWarn()
+	}
+	return matched
+}
+
+// commitValidated updates public claims without extending expiry, changing the
+// principal/bearer or recreating a deleted session. Persist only changed claims.
+func (s *sessionStore) commitValidated(tok string, expected sessionEntry, username string, roles []string) (sessionEntry, bool) {
+	s.mu.Lock()
+	current, exists := s.byID[sessionID(tok)]
+	if !exists || !timeNow().Before(current.expiry) || !sameSessionBinding(current, expected) {
+		s.mu.Unlock()
+		return sessionEntry{}, false
+	}
+	changed := current.username != username || !slices.Equal(current.roles, roles)
+	current.username = username
+	current.roles = append([]string(nil), roles...)
+	s.byID[sessionID(tok)] = current
+	current.roles = append([]string(nil), current.roles...)
+	s.mu.Unlock()
+	if changed {
+		s.persistOrWarn()
+	}
+	return current, true
 }
