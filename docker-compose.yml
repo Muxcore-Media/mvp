@@ -1159,6 +1159,7 @@ services:
       context: ..
       dockerfile: mvp/dockerfiles/media-ui.Dockerfile
     environment:
+      AUTH_GRPC_CLIENT_ADDR: auth-local:9403
       MUXCORE_INSECURE_DISABLE_TLS: "true"
       TRANSCODER_HTTP_TOKEN: ${TRANSCODER_HTTP_TOKEN:?set a random dev transcoder token in .env}
       MOVIES_GRPC_CLIENT_ADDR: media-movies:9420

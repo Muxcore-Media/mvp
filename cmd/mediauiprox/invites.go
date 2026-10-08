@@ -154,10 +154,7 @@ func (s *server) proxyAuthInvites(r *http.Request, method, target string, body [
 	if strings.TrimSpace(s.authInternal) == "" {
 		return nil, 0, errPlaybackMonitorStatus(http.StatusServiceUnavailable, "auth not configured")
 	}
-	tok := ""
-	if s.sessions != nil {
-		tok = s.sessions.LookupAuthToken(sessionTokenFromRequest(r))
-	}
+	tok := s.sessionAuthToken(r)
 	if tok == "" {
 		return nil, 0, errPlaybackMonitorStatus(http.StatusUnauthorized, "auth session is not linked")
 	}

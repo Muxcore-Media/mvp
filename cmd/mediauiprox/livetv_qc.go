@@ -347,10 +347,18 @@ func (s *server) handleQuickConnect(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		m := s.quickconnect.load()
-		userID, username, tenantID := "", "", ""
-		if c, err := r.Cookie("session"); err == nil && s.sessions != nil {
-			userID, username, tenantID, _ = s.sessions.LookupTenant(c.Value)
+		// Approval requires a cookie, as before. Device registration/polling
+		// stays public and newly minted Quick Connect sessions stay local-only.
+		if c, err := r.Cookie("session"); err != nil || c.Value == "" {
+			writeAPIError(w, http.StatusUnauthorized, "login required to approve device", "quickconnect.login_required")
+			return
 		}
+		checked, ok := s.validateRequestSession(w, r)
+		if !ok {
+			return
+		}
+		r = checked
+		userID, username, tenantID, _, _ := s.sessionPrincipal(r)
 		if userID == "" {
 			writeAPIError(w, http.StatusUnauthorized, "login required to approve device", "quickconnect.login_required")
 			return
