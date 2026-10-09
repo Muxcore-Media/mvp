@@ -743,6 +743,9 @@ services:
       MUXCORE_ENROLL_DNS_NAMES: metadata-tmdb
       METADATA_GRPC_ADDR: metadata-tmdb:9411
       TMDB_API_KEY: ${TMDB_API_KEY:-}
+      # Offline fixture corpus (ADR-0008): search and details, including release_dates /
+      # content_ratings certifications. Empty = live TMDB (needs TMDB_API_KEY).
+      TMDB_FIXTURE: ${TMDB_FIXTURE:-}
     volumes:
       - metadata-tmdb-id:/data/mesh-id
       - mesh-ca:/data/mesh-ca:ro
