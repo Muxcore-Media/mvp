@@ -143,6 +143,22 @@ if SMOKE_USERDATA_TLS=1 SMOKE_PARENTAL_SEED_CMD='' parental_smoke_seed "$BASE" "
 fi
 if ! grep -q "S9c" "$work/err" || ! grep -q "mTLS-only" "$work/err"; then fail "missing-helper message: $(cat "$work/err")"; fi
 [[ "$(log_len)" == "$before" ]] || fail "household seed fell back to a direct provider call"
+# Whitespace-only and unknown commands are refused before anything runs (the
+# target user id must never become the command).
+cat >"$work/u-admin" <<'SH'
+#!/usr/bin/env bash
+touch "$CANARY"
+SH
+chmod +x "$work/u-admin"
+export CANARY="$work/canary"
+for bad in '   ' $'\t' "$work/no-such-helper --user"; do
+  if (cd "$work" && PATH="$work:$PATH" SMOKE_USERDATA_TLS=1 SMOKE_PARENTAL_SEED_CMD="$bad" parental_smoke_seed "$BASE" "$token" u-admin) >/dev/null 2>"$work/err"; then
+    fail "seed helper command '${bad}' accepted"
+  fi
+  [[ ! -e "$CANARY" ]] || fail "target user id was executed as the command for '${bad}'"
+done
+grep -q "command not found: $work/no-such-helper" "$work/err" || fail "unknown helper message: $(cat "$work/err")"
+[[ "$(log_len)" == "$before" ]] || fail "rejected helper reached the provider"
 # A stand-in helper records argv and stdin; it echoes the bearer to prove masking.
 cat >"$work/helper" <<'SH'
 #!/usr/bin/env bash
@@ -153,8 +169,9 @@ exit "${HELPER_RC:-0}"
 SH
 chmod +x "$work/helper"
 export HELPER_ARGS="$work/args" HELPER_STDIN="$work/stdin"
-out="$(SMOKE_USERDATA_TLS=1 SMOKE_PARENTAL_SEED_CMD="$work/helper --unrestricted" parental_smoke_seed "$BASE" "$token" "$admin_id")"
-[[ "$(cat "$work/args")" == $'--unrestricted\nu-admin' ]] || fail "helper argv: $(cat "$work/args")"
+# The documented S9c form: `… parental-seed --bearer-file - --user <id>`.
+out="$(SMOKE_USERDATA_TLS=1 SMOKE_PARENTAL_SEED_CMD="$work/helper parental-seed --bearer-file - --user" parental_smoke_seed "$BASE" "$token" "$admin_id")"
+[[ "$(cat "$work/args")" == $'parental-seed\n--bearer-file\n-\n--user\nu-admin' ]] || fail "helper argv: $(cat "$work/args")"
 grep -qF -- "$token" "$work/args" && fail "bearer passed in argv"
 [[ "$(cat "$work/stdin")" == "$token" ]] || fail "helper stdin is not the bearer"
 grep -qF -- "$token" <<<"$out" && fail "bearer not masked in helper output: $out"

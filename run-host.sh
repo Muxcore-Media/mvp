@@ -11,6 +11,8 @@ DATA="$ROOT/data"
 source "$ROOT/scripts/lib/admin-secret.sh"
 # shellcheck disable=SC1091
 source "$ROOT/scripts/lib/secrets-provider.sh"
+# shellcheck disable=SC1091
+source "$ROOT/scripts/lib/userdata-transport.sh"
 
 # Load $ROOT/.env defaults without clobbering env already set (systemd/nix on vault).
 load_env_file() {
@@ -57,8 +59,10 @@ export MUXCORE_CONFIG="${MUXCORE_CONFIG:-$ROOT/muxcore.json}"
 MESH="${MUXCORE_MESH_ADDR:-127.0.0.1:9090}"
 MODULE_CERT_ROOT="${MUXCORE_MODULE_CERT_DIR:-$ROOT/tls/module-certs}"
 _transcoder_http_url=https://127.0.0.1:9526
-# userdata-local HTTP (ADR-0033): mTLS on loopback, the clients still verify the
-# fixed userdata-local identity; plaintext only in explicit insecure dev.
+# userdata-local HTTP (ADR-0033): plaintext in explicit insecure dev (the default).
+# Secure host modes are unsupported for this transport and `up` refuses to start
+# userdata-local/media-ui there (scripts/lib/userdata-transport.sh); the https
+# origin below only reaches admin-ui's userdata pages, which then fail closed.
 _userdata_http_url=https://127.0.0.1:9672
 if [[ "${MUXCORE_INSECURE_DISABLE_TLS:-}" == "true" || "${MUXCORE_INSECURE_DISABLE_TLS:-}" == "1" ]]; then
   _transcoder_http_url=http://127.0.0.1:9526
@@ -344,10 +348,6 @@ case "$cmd" in
     # (never a bare HTTP probe; ADR-0033 §4).
     if [[ -x "$BIN/userdata-health" ]]; then
       ud_env=(MUXCORE_PROFILE="${MUXCORE_PROFILE:-}" MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" USERDATA_LOCAL_HTTP_ADDR=":9672")
-      if [[ "${MUXCORE_PROFILE:-}" == "staging" ]]; then
-        ud_dir="$MODULE_CERT_ROOT/userdata-local"
-        ud_env+=(MUXCORE_TLS_CERT="$ud_dir/module.crt" MUXCORE_TLS_KEY="$ud_dir/module.key" MUXCORE_TLS_CA="$ud_dir/ca.crt")
-      fi
       if env "${ud_env[@]}" "$BIN/userdata-health" >/dev/null 2>"$RUN/userdata-health.err"; then
         printf '  %-12s %s → %s\n' userdata "userdata-health :9672" ok
       else
@@ -400,6 +400,7 @@ EOF
     exit 0
     ;;
   up)
+    mvp_userdata_transport_preflight "${START_ONLY:-}"
     mvp_secrets_preflight "${START_ONLY:-}"
     if [[ -z "${START_ONLY:-}" ]]; then
       stop_all

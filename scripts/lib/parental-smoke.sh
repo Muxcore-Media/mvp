@@ -17,7 +17,8 @@
 # in plaintext, so only there does the seed call it directly with curl. In
 # household/staging userdata-local is mTLS-only and admits policy writes only
 # from admin-ui's verified identity, so the seed runs inside admin-ui's own
-# service context through admin-ui's seed helper (slice S9c), invoked via
+# service context through admin-ui's seed helper (slice S9c:
+# `/app/module parental-seed --bearer-file - --user <id>`), invoked via
 # SMOKE_PARENTAL_SEED_CMD. The smoke never holds a module key, never uses -k or
 # plaintext against a household provider, and never seeds with the BFF identity
 # (the provider denies media-ui policy writes). See docs/USERDATA-CLIENTS.md.
@@ -240,19 +241,25 @@ parental_smoke_userdata_tls() {
 # its last argument and the bearer as the only line on stdin (never argv). The
 # helper must leave TARGET with a configured unrestricted policy (seed when
 # unconfigured, no write when already unrestricted) and fail otherwise; its exit
-# status is the step's. Its output is printed with the bearer masked.
+# status is the step's. Its output is printed with the bearer masked. The
+# admin-ui helper (S9c) is `/app/module parental-seed --bearer-file - --user`
+# inside the admin-ui container, e.g. for the registry stack:
+#   SMOKE_PARENTAL_SEED_CMD='docker exec -i muxcore-mvp-registry-admin-ui-1 /app/module parental-seed --bearer-file - --user'
 parental_smoke_seed_via_helper() {
   local bearer="$1" target="$2" out rc
-  local -a cmd
-  if [[ -z "${SMOKE_PARENTAL_SEED_CMD:-}" ]]; then
+  local -a cmd=()
+  read -ra cmd <<<"${SMOKE_PARENTAL_SEED_CMD:-}"
+  if [[ ${#cmd[@]} -eq 0 ]]; then
     echo "FAIL: parental policy for ${target}: household userdata-local is mTLS-only (ADR-0033); the seed must run" >&2
-    echo "      inside admin-ui's service context with admin-ui's seed helper (slice S9c, not yet published)." >&2
-    echo "      Set SMOKE_PARENTAL_SEED_CMD to that invocation, e.g." >&2
-    echo "      SMOKE_PARENTAL_SEED_CMD='docker compose -f docker-compose.registry.yml exec -T admin-ui <helper>'" >&2
+    echo "      inside admin-ui's service context with admin-ui's seed helper (S9c). Set SMOKE_PARENTAL_SEED_CMD, e.g." >&2
+    echo "      SMOKE_PARENTAL_SEED_CMD='docker exec -i muxcore-mvp-registry-admin-ui-1 /app/module parental-seed --bearer-file - --user'" >&2
     echo "      (the bearer is passed on stdin, the target user id as the last argument)." >&2
     return 1
   fi
-  read -ra cmd <<<"$SMOKE_PARENTAL_SEED_CMD"
+  if ! command -v -- "${cmd[0]}" >/dev/null 2>&1; then
+    echo "FAIL: parental policy for ${target}: SMOKE_PARENTAL_SEED_CMD command not found: ${cmd[0]}" >&2
+    return 1
+  fi
   rc=0
   out="$(printf '%s\n' "$bearer" | "${cmd[@]}" "$target" 2>&1)" || rc=$?
   [[ -n "$bearer" ]] && out="${out//"$bearer"/***}"
