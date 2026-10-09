@@ -9,6 +9,8 @@ if [[ -f "$ROOT/.env" ]]; then source "$ROOT/.env"; fi
 source "$ROOT/scripts/lib/smoke-cmd.sh"
 # shellcheck disable=SC1091
 source "$ROOT/scripts/lib/parental-smoke.sh"
+# shellcheck disable=SC1091
+source "$ROOT/scripts/lib/parental-journey.sh"
 smoke_cmd_init
 
 if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == "1" ]]; then
@@ -418,6 +420,7 @@ fi
 # the scanner ImportPath fixture so the imported file is attributable to the grab.
 echo "==> fixture acquisition (indexer + downloader → import → stream)"
 acq_label="acquisition:skipped"
+journey_label="parental-journey:skipped"
 acquisition_smoke_detect
 acq_decision="$(acquisition_smoke_decide)"
 if [[ "$acq_decision" == "run" ]]; then
@@ -604,6 +607,17 @@ for it in d.get("items") or []:
     exit 1
   fi
   parental_smoke_delete_user "$AUTH_HTTP" "$parental_admin_token" "$parental_user"
+  # Restricted member journey (T-M4-01 / FR-PLAY-007): policy via admin-ui's
+  # provider form, ratings via admin-ui's content-rating page, the member vs
+  # the admin through the BFF. Household registry stacks only; dev skips.
+  echo "==> parental journey: restricted member vs admin on the fixture movie (ADR-0031)"
+  journey_decision="$(parental_journey_decide)"
+  if [[ "$journey_decision" == run ]]; then
+    parental_journey_run "$MEDIA_UI_URL" "$ADMIN_URL" "$AUTH_HTTP" "$ADMIN_USER" "$ADMIN_PASS" "$parental_admin_token" || exit 1
+    journey_label="parental-journey"
+  else
+    echo "SKIP parental journey: ${journey_decision#skip }"
+  fi
   # Soft Jellyfin play deep-link (404 unlinked / not configured; 200 when URL available)
   jf_play_code=$(curl -s -c "$media_cj" -b "$media_cj" -o /tmp/muxcore-jellyfin-play.json -w '%{http_code}' \
     "${MEDIA_UI_URL}/api/jellyfin/play?mux_id=mv_smoke_550")
@@ -663,4 +677,4 @@ else
   echo "==> media-ui not running (set MVP_ENABLE_MEDIA_UI=1 / build dist-app); skipping"
 fi
 
-echo "PASS: MVP smoke (auth + movies + tv + admin-ui + jellyfin + ${acq_label} + scanner + automation + health-monitor + media-ui + parental + request-media)"
+echo "PASS: MVP smoke (auth + movies + tv + admin-ui + jellyfin + ${acq_label} + scanner + automation + health-monitor + media-ui + parental + ${journey_label} + request-media)"
