@@ -216,6 +216,8 @@ Optional `GRAPH_MODULE_TOKEN` / `GRAPH_HTTP_TOKEN` / `-graph-token` is sent as `
 
 Progress, favorites, watched state, and preferences stored under `MEDIA_UI_USERDATA_DIR` / userdata-local when configured. JSON bodies mirror admin playback policy fields where shared.
 
+With `USERDATA_LOCAL_URL` set (and `USERDATA_PREFER_MESH` not `0`), reads and writes go to userdata-local's canonical `GET|PUT /api/userdata` route through the checked provider client (ADR-0033; see [Userdata provider transport](#userdata-provider-transport)) with the session's bearer and `X-MuxCore-User-Id`, no query string. If that call fails (transport, module admission or a non-200 status) the BFF serves its local `MEDIA_UI_USERDATA_DIR` store instead and logs the outage once; this blob fallback is never used for parental policy and is not reported as a provider success. Sessions without an auth-local bearer use the local store only.
+
 GET/PUT responses include `user_id` (household id used as the parental PIN salt: `SHA-256(userID+":"+pin)`) and echo `X-MuxCore-User-Id` with the same value. Scope is the session principal; admin/manager may override via `?user_id=` or `X-MuxCore-User-Id` (same header as admin-ui userdata sync).
 
 ## Acquisition status
@@ -559,6 +561,15 @@ Login, logout and other public recovery routes remain available during a provide
 ## Parental enforcement (ADR-0031)
 
 The BFF is the single server-side parental enforcement point (FR-PLAY-007, ADR-0031). For each gated request it reads the signed-in principal's policy from userdata-local `GET {USERDATA_LOCAL_URL}/api/parental-policy` (ADR-0030) with exactly one `Authorization: Bearer <session auth-local token>` and `X-MuxCore-User-Id: <session user>`, no query string and no client-supplied identity or tenant. The response envelope is validated strictly: `state` is `configured` (revision > 0, policy decoded by userdata-local `parental.DecodePolicy`) or `unconfigured` (revision 0, `policy: null`); unknown or duplicate fields are rejected; `user_id` and `tenant_id` must equal the session's (an empty session tenant is the household scope and is never rebound to `TENANT_MODE`'s `"default"`). Validated documents are cached for at most 30 s per SHA-256(bearer) + user + tenant; errors are never cached and a provider `401` evicts the entry. Items are evaluated with userdata-local `parental.Evaluate`.
+
+### Userdata provider transport
+
+ADR-0033 (T-M4-01 S9b). The policy read above and the userdata blob proxy share one client from userdata-local's published `httpclient` package, built once at startup **after** mesh enrollment (`meshid.Ensure` exports `MUXCORE_TLS_CERT`/`KEY`/`CA`):
+
+- `USERDATA_LOCAL_URL` must be a bare origin (`scheme://host[:port]`; trailing `/` is trimmed; no path, query, fragment or credentials; not an unspecified address). Household/staging (or no insecure flag) requires `https://`, the BFF's own enrolled certificate (CN = `MUXCORE_MODULE_ID`, default `media-ui`) and an explicit core CA; the provider must present CN **and** SAN `userdata-local` regardless of the dialed host (container name or loopback). System roots, `InsecureSkipVerify`, proxy environment variables and redirects (including same-origin) are never used. Explicit insecure dev (`MUXCORE_INSECURE_DISABLE_TLS=true`) uses `http://` only, with no module identity.
+- A configuration error is logged at startup and leaves the BFF without a provider (parental policy → `503 parental.policy_unavailable`; userdata → local store). There is no plaintext retry.
+- Status mapping is unchanged from ADR-0031: `200` validated document; provider `401` → `401 parental.session_invalid` and cache eviction; every other status, transport/TLS failure, refused redirect or module-admission denial (`403 {"code":"userdata.module_forbidden"}`, `httpclient.ErrUnavailable` reason `module_forbidden`) → `503 parental.policy_unavailable`, never cached, never a session revocation. An application `403 policy.forbidden` is also `503`.
+- The provider's admission table lets `media-ui` GET the policy and GET/PUT `/api/userdata` only; the BFF can never write a parental policy.
 
 Inputs that never influence a decision: query `tags`, `parental_rating`, `unrated`, `user_id`, `tenant_id`; headers `X-MuxCore-User-Id`, `X-Tenant-ID`, `X-Caller-Id`; the userdata blob `prefs.parental`; the local userdata store. There is no switch that disables enforcement. With `MEDIA_UI_REQUIRE_AUTH=0` (dev only) a request **without** a session is not gated and the BFF logs a startup warning; a request with a session is always gated. Without `USERDATA_LOCAL_URL` every gated request from a session returns `503 parental.policy_unavailable`.
 

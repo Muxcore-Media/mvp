@@ -11,11 +11,10 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
-	"strings"
 	"sync"
 	"time"
 
+	"github.com/Muxcore-Media/userdata-local/httpclient"
 	"github.com/Muxcore-Media/userdata-local/parental"
 )
 
@@ -28,6 +27,7 @@ import (
 // no fallback and no switch that turns enforcement off.
 
 const (
+	// parentalPolicyPath is the provider route httpclient.GetPolicy calls.
 	parentalPolicyPath = "/api/parental-policy"
 	// parentalPolicyTTL bounds how long a validated policy is reused (ADR-0031
 	// §4, matching the ADR-0019 identity cache bound).
@@ -132,8 +132,9 @@ type parentalCacheEntry struct {
 }
 
 type parentalGate struct {
-	policyURL  string // "" when USERDATA_LOCAL_URL is unset or invalid
-	client     *http.Client
+	// provider is the checked userdata-local client (userdata_provider.go);
+	// nil when USERDATA_LOCAL_URL is unset or its transport is unusable.
+	provider   userdataProviderClient
 	now        func() time.Time
 	ttl        time.Duration
 	classifier parentalClassifier
@@ -146,31 +147,17 @@ type parentalGate struct {
 	cache map[string]parentalCacheEntry
 }
 
-// newParentalGate builds the production gate for USERDATA_LOCAL_URL. An empty
-// or unusable base leaves the gate without a provider; every gated request
-// from a session then fails with 503 parental.policy_unavailable.
-func newParentalGate(userdataBase string) *parentalGate {
-	g := newParentalGateWith(userdataBase, newParentalPolicyClient(parentalPolicyTimeout), time.Now)
-	if strings.TrimSpace(userdataBase) != "" && g.policyURL == "" {
-		log.Printf("warn: USERDATA_LOCAL_URL %q is not an http(s) base URL; parental policy unavailable", userdataBase)
-	}
-	return g
+// newParentalGate builds the production gate on the shared checked provider
+// client. Without one every gated request from a session fails with 503
+// parental.policy_unavailable.
+func newParentalGate(provider userdataProviderClient) *parentalGate {
+	return newParentalGateWith(provider, time.Now)
 }
 
-// newParentalPolicyClient never follows redirects: a redirect is not a policy,
-// and following it would resend the bearer.
-func newParentalPolicyClient(timeout time.Duration) *http.Client {
-	return &http.Client{
-		Timeout:       timeout,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
-}
-
-// newParentalGateWith injects the HTTP client and clock (tests).
-func newParentalGateWith(userdataBase string, client *http.Client, now func() time.Time) *parentalGate {
+// newParentalGateWith injects the clock (tests).
+func newParentalGateWith(provider userdataProviderClient, now func() time.Time) *parentalGate {
 	return &parentalGate{
-		policyURL:  parentalPolicyURL(userdataBase),
-		client:     client,
+		provider:   provider,
 		now:        now,
 		ttl:        parentalPolicyTTL,
 		classifier: unavailableClassifier{},
@@ -180,19 +167,7 @@ func newParentalGateWith(userdataBase string, client *http.Client, now func() ti
 	}
 }
 
-// parentalPolicyURL derives the fixed policy resource URL. The request never
-// carries a query string or any client-supplied selector.
-func parentalPolicyURL(base string) string {
-	base = strings.TrimRight(strings.TrimSpace(base), "/")
-	u, err := url.Parse(base)
-	if base == "" || err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" ||
-		u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
-		return ""
-	}
-	return base + parentalPolicyPath
-}
-
-func (g *parentalGate) hasProvider() bool { return g != nil && g.policyURL != "" }
+func (g *parentalGate) hasProvider() bool { return g != nil && g.provider != nil }
 
 // parentalCacheKey is SHA-256(bearer) plus the session user and tenant, so a
 // cached document is only reused for the exact principal it was checked for.
@@ -242,21 +217,22 @@ func (g *parentalGate) storeLocked(key string, e parentalCacheEntry, now time.Ti
 	g.cache[key] = e
 }
 
-// fetch performs GET {USERDATA_LOCAL_URL}/api/parental-policy with exactly one
-// bearer and the session user as the target selector.
+// fetch performs GET /api/parental-policy through the checked provider client
+// with exactly one bearer and the session user as the target selector. The
+// client fixes the method, path and origin (no query, no redirects) and
+// authenticates the provider; any transport or module-admission failure
+// (httpclient.ErrUnavailable, including module_forbidden) is unavailability,
+// never a session failure.
 func (g *parentalGate) fetch(ctx context.Context, p parentalPrincipal) (parentalPolicy, *parentalError) {
 	ctx, cancel := context.WithTimeout(ctx, parentalPolicyTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, g.policyURL, nil)
+	h := http.Header{}
+	h.Set("Authorization", "Bearer "+p.bearer)
+	h.Set(muxcoreUserIDHeader, p.userID)
+	h.Set("Accept", "application/json")
+	resp, err := g.provider.Do(ctx, httpclient.GetPolicy, h, nil)
 	if err != nil {
-		return parentalPolicy{}, errParentalUnavail
-	}
-	req.Header.Set("Authorization", "Bearer "+p.bearer)
-	req.Header.Set(muxcoreUserIDHeader, p.userID)
-	req.Header.Set("Accept", "application/json")
-	resp, err := g.client.Do(req)
-	if err != nil {
-		log.Printf("parental: policy request for user %q failed: %v", p.userID, err)
+		log.Printf("parental: policy request for user %q failed: %s", p.userID, describeProviderError(err))
 		return parentalPolicy{}, errParentalUnavail
 	}
 	defer func() {

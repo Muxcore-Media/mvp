@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -179,7 +180,7 @@ func TestParentalProviderDownAndTimeout(t *testing.T) {
 	})
 	t.Run("timeout", func(t *testing.T) {
 		h := newParentalHarness(t)
-		h.s.parental.client = newParentalPolicyClient(50 * time.Millisecond)
+		h.s.parental.provider = devUserdataProvider(t, h.provider.srv.URL, 50*time.Millisecond)
 		h.provider.setFunc(func(w http.ResponseWriter, r *http.Request) {
 			select {
 			case <-r.Context().Done():
@@ -194,7 +195,7 @@ func TestParentalProviderDownAndTimeout(t *testing.T) {
 	})
 	t.Run("no provider configured", func(t *testing.T) {
 		h := newParentalHarness(t)
-		h.s.parental = newParentalGate("")
+		h.s.parental = newParentalGate(nil)
 		kid := h.session("kid", "", "bearer-kid")
 		assertParentalError(t, "GET /stream/hls", serve(h.gated, routeRequest("GET /stream/hls", kid)), http.StatusServiceUnavailable, parentalCodeUnavailable)
 		h.s.parental = nil
@@ -316,7 +317,7 @@ func TestParentalIgnoresClientInputsAndBlob(t *testing.T) {
 	t.Setenv("USERDATA_PREFER_MESH", "0")
 	t.Setenv("TENANT_MODE", "1")
 	h := newParentalHarness(t)
-	h.s.userdata = newServerUserdata(t.TempDir())
+	h.s.userdata = newServerUserdata(t.TempDir(), nil)
 	blocking, _ := json.Marshal(map[string]any{"parental": map[string]any{"blocked_tags": "horror", "allow_unrated": false}})
 	for _, scope := range []store.Scope{{UserID: "kid", TenantID: "default"}, {UserID: "kid"}, {UserID: "adult", TenantID: "default"}} {
 		if _, err := h.s.userdata.store.Put(scope, store.Blob{Prefs: blocking}); err != nil {
@@ -403,30 +404,41 @@ func TestParentalTenantScope(t *testing.T) {
 	}
 }
 
-// The policy client is the production one: no redirects followed.
+// The policy client is the production one (built from USERDATA_LOCAL_URL the
+// way main does, here in explicit insecure dev): no redirect is followed, so
+// the bearer never reaches the redirect target. TLS variants live in
+// userdata_provider_tls_test.go.
 func TestParentalProductionClientDoesNotFollowRedirects(t *testing.T) {
-	hits := 0
+	t.Setenv("MUXCORE_PROFILE", "dev")
+	t.Setenv("MUXCORE_INSECURE_DISABLE_TLS", "true")
+	var hits atomic.Int64
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		hits++
+		hits.Add(1)
 		_, _ = w.Write([]byte(configuredDoc("kid", "", 1, unrestrictedPolicyJSON)))
 	}))
 	defer target.Close()
-	redir := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, target.URL+parentalPolicyPath, http.StatusTemporaryRedirect)
-	}))
-	defer redir.Close()
-	g := newParentalGate(redir.URL + "/")
-	_, perr := g.policy(t.Context(), parentalPrincipal{userID: "kid", bearer: "b"})
-	if perr != errParentalUnavail || hits != 0 {
-		t.Fatalf("perr=%v redirect target hits=%d", perr, hits)
-	}
-	for _, bad := range []string{"", "  ", "ftp://x", "http://", "http://h/?q=1", "http://h/#f", "http://u:p@h"} {
-		if parentalPolicyURL(bad) != "" {
-			t.Errorf("policy URL accepted for %q", bad)
+	for _, code := range []int{http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		redir := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, target.URL+parentalPolicyPath, code)
+		}))
+		provider, err := newUserdataProviderClient(redir.URL+"/", "media-ui")
+		if err != nil || provider == nil {
+			t.Fatalf("dev provider: %v", err)
+		}
+		g := newParentalGate(provider)
+		_, perr := g.policy(t.Context(), parentalPrincipal{userID: "kid", bearer: "b"})
+		redir.Close()
+		if perr != errParentalUnavail || hits.Load() != 0 {
+			t.Fatalf("HTTP %d: perr=%v redirect target hits=%d", code, perr, hits.Load())
 		}
 	}
-	if got := parentalPolicyURL("http://userdata-local:9672/"); got != "http://userdata-local:9672/api/parental-policy" {
-		t.Errorf("policy URL %q", got)
+	for _, bad := range []string{"ftp://x", "http://", "http://h/api", "http://h/?q=1", "http://h/#f", "http://u:p@h", "http://0.0.0.0:9672", "https://h:9672"} {
+		if p, err := newUserdataProviderClient(bad, "media-ui"); err == nil || p != nil {
+			t.Errorf("dev provider accepted %q", bad)
+		}
+	}
+	if p, err := newUserdataProviderClient("  ", "media-ui"); err != nil || p != nil {
+		t.Errorf("blank USERDATA_LOCAL_URL: %v %v", p, err)
 	}
 }
 
