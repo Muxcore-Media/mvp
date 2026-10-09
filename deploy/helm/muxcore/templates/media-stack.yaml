@@ -1,5 +1,8 @@
 {{- if .Values.media.enabled }}
 {{- /* Media MVP stack — movies/TV/request/automation/scanner + consumer UI proxy */ -}}
+{{- if not .Values.insecureDisableTLS }}
+{{- fail "media.enabled with insecureDisableTLS=false is unsupported (ADR-0033 S9): this chart provisions no mesh identities or core CA, so userdata-local's mTLS-only HTTP listener, its clients and its userdata-health readiness probe cannot work. Use docker-compose.registry.yml for a household install, or keep this chart on the explicit insecure dev profile." }}
+{{- end }}
 {{- $root := . -}}
 {{- $modules := list
   (dict "name" "metadata-tmdb" "image" .Values.media.images.metadataTmdb "grpc" 9411)
@@ -10,7 +13,7 @@
   (dict "name" "media-scanner" "image" .Values.media.images.mediaScanner "grpc" 9470 "extra" (list (dict "name" "SCANNER_ALLOWED_ROOTS" "value" .Values.media.scannerAllowedRoots)))
   (dict "name" "media-ffprobe" "image" .Values.media.images.mediaFfprobe "grpc" 9480)
   (dict "name" "notification-default" "image" .Values.media.images.notificationDefault "grpc" 9441)
-  (dict "name" "userdata-local" "image" .Values.media.images.userdataLocal "http" 9672 "svcHttp" 9672 "grpc" 9673 "health" "/health" "pvc" "userdata-local-data" "pvcSize" .Values.media.persistence.userdataSize)
+  (dict "name" "userdata-local" "image" .Values.media.images.userdataLocal "http" 9672 "svcHttp" 9672 "grpc" 9673 "probeExec" (list "/app/userdata-health") "pvc" "userdata-local-data" "pvcSize" .Values.media.persistence.userdataSize "extra" (list (dict "name" "USERDATA_LOCAL_HTTP_ADDR" "value" ":9672")))
   (dict "name" "cache-local" "image" .Values.media.images.cacheLocal "grpc" 9602)
   (dict "name" "logging-file" "image" .Values.media.images.loggingFile "grpc" 9625)
   (dict "name" "media-ui" "image" .Values.media.images.mediaUi "http" 5173 "svcHttp" 5173 "health" "/healthz" "extra" (list (dict "name" "TRANSCODER_HTTP_URL" "value" .Values.media.transcoderHttpUrl) (dict "name" "MEDIA_UI_DIST" "value" "/app/dist-app") (dict "name" "AUTH_HTTP_URL" "value" "http://auth-local:9401") (dict "name" "AUTH_GRPC_CLIENT_ADDR" "value" "auth-local:9403") (dict "name" "MOVIES_HTTP_URL" "value" "http://media-movies:9430") (dict "name" "TVSHOWS_HTTP_URL" "value" "http://media-tvshows:9450") (dict "name" "REQUEST_MEDIA_HTTP_URL" "value" "http://request-media:9380")))
@@ -81,6 +84,14 @@ spec:
             httpGet: { path: {{ $m.health | quote }}, port: http }
             initialDelaySeconds: 5
             periodSeconds: 5
+          {{- else if $m.probeExec }}
+          {{- /* ADR-0033: the module's packaged local probe, never a bare HTTP probe */}}
+          readinessProbe:
+            exec:
+              command: {{ toJson $m.probeExec }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
           {{- end }}
           {{- end }}
           {{- if $m.pvc }}

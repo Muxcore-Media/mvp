@@ -68,6 +68,15 @@ Override `registry`, `coreTag`, or individual `images.*` strings via `--set` or 
 
 When `acquisition.enabled=true`, the chart deploys `indexer-torznab`, `downloader-native-torrent`, `downloader-sabnzbd`, and `downloader-debrid` as mesh sidecars (`templates/acquisition-stack.yaml`). Pair with `media.enabled=true` for acquire→library flows.
 
+## userdata-local transport (ADR-0033 S9) — unsupported here
+
+userdata-local >= v0.1.6 serves its HTTP API (`/api/userdata`, `/api/parental-policy`, `/health`) over mTLS only outside explicit insecure dev, admits only verified module certificates (media-ui, admin-ui; health for userdata-local/health-monitor) and is probed with its packaged `userdata-health` executable. These manifests provision no mesh identities or core CA, so:
+
+- **Helm**: `media.enabled=true` renders only with `insecureDisableTLS=true` (explicit insecure dev). With TLS on, rendering fails with an ADR-0033 message instead of claiming readiness. The userdata-local readiness probe is the packaged `/app/userdata-health` (exec), not a bare HTTP probe, and the pod binds `USERDATA_LOCAL_HTTP_ADDR=:9672` to match its declared port. media-ui is not wired to userdata-local in this chart (no `USERDATA_LOCAL_URL`), so signed-in users get `503 parental.policy_unavailable` on gated routes.
+- **Kustomize**: the overlays deploy no userdata-local and no `USERDATA_LOCAL_URL`; the same 503 applies. Unsupported for S9.
+
+Use `docker-compose.registry.yml` (household) for a supported install; see [`docs/USERDATA-CLIENTS.md`](../docs/USERDATA-CLIENTS.md).
+
 ## Not in scope yet
 
 - mTLS cert injection matching `run-host-staging.sh`

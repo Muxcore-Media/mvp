@@ -388,7 +388,10 @@ fi
 AUTOMATION_ADDR="${AUTOMATION_GRPC_CLIENT_ADDR:-127.0.0.1:9460}"
 [[ "$AUTOMATION_ADDR" == :* ]] && AUTOMATION_ADDR="127.0.0.1${AUTOMATION_ADDR}"
 MEDIA_UI_URL="${SMOKE_MEDIA_UI_URL:-http://127.0.0.1:5173}"
-# userdata-local HTTP as published on the host (run-host.sh and both compose files).
+# userdata-local plaintext HTTP for the explicit insecure dev seed (run-host.sh
+# dev, docker-compose.yml, the registry dev override). Household providers are
+# mTLS-only and publish no port: the seed then runs through admin-ui's seed
+# helper (SMOKE_PARENTAL_SEED_CMD, ADR-0033; scripts/lib/parental-smoke.sh).
 USERDATA_HTTP="${SMOKE_USERDATA_URL:-http://127.0.0.1:${USERDATA_LOCAL_PORT:-9672}}"
 
 # Parental policy (ADR-0030/ADR-0031): the BFF denies playback to every account
@@ -397,10 +400,14 @@ USERDATA_HTTP="${SMOKE_USERDATA_URL:-http://127.0.0.1:${USERDATA_LOCAL_PORT:-967
 # media-ui below stream as this admin). Required whenever media-ui is serving.
 parental_admin_token=""
 if curl -sf "${MEDIA_UI_URL}/healthz" >/dev/null 2>&1; then
-  echo "==> parental policy: ${ADMIN_USER} unrestricted via ${USERDATA_HTTP}/api/parental-policy"
+  if parental_smoke_userdata_tls; then
+    echo "==> parental policy: ${ADMIN_USER} unrestricted via the admin-ui seed helper (household mTLS, ADR-0033)"
+  else
+    echo "==> parental policy: ${ADMIN_USER} unrestricted via ${USERDATA_HTTP}/api/parental-policy (explicit insecure dev)"
+  fi
   parental_admin_login="$(parental_smoke_device_login "$AUTH_HTTP" "$ADMIN_USER" "$ADMIN_PASS")"
   parental_admin_token="${parental_admin_login%%$'\t'*}"
-  parental_smoke_seed_unrestricted "$USERDATA_HTTP" "$parental_admin_token" "${parental_admin_login#*$'\t'}"
+  parental_smoke_seed "$USERDATA_HTTP" "$parental_admin_token" "${parental_admin_login#*$'\t'}"
 else
   echo "==> media-ui not running; parental policy seeding skipped"
 fi

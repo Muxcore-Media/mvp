@@ -64,7 +64,7 @@ Host `run-host.sh` sets explicit `*_GRPC_ADDR` / `*_HTTP_ADDR` env vars. Module 
 | 9660 / 9661 | media-comics | optional manga/comic manager (gRPC / health) |
 | 9665 | input-validate-jsonschema | |
 | 9670 / 9671 | media-audiobooks | optional audiobook manager (gRPC / health) |
-| 9672 / 9673 | userdata-local | optional household userdata (HTTP / gRPC); `MVP_ENABLE_USERDATA_LOCAL=1` |
+| 9672 / 9673 | userdata-local | optional household userdata (HTTP / gRPC); `MVP_ENABLE_USERDATA_LOCAL=1`. HTTP is mTLS-only outside insecure dev (ADR-0033); the household compose publishes no host port ([`docs/USERDATA-CLIENTS.md`](docs/USERDATA-CLIENTS.md)) |
 | 9675 | spool-resolver-http | |
 | 9680 / 9681 | storage-ceph | optional Ceph/Rook RGW StorageProvider (gRPC / health) |
 | 9690 / 9691 | storage-overlay | optional storage overlay encrypt/compress/dedup (gRPC / health) |

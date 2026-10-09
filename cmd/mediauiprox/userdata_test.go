@@ -15,7 +15,7 @@ import (
 
 func TestUserdataMergeAndScope(t *testing.T) {
 	dir := t.TempDir()
-	u := newServerUserdata(dir)
+	u := newServerUserdata(dir, nil)
 	sessions := newSessionStore(time.Hour)
 	tok, err := sessions.Create("alice", "Alice")
 	if err != nil {
@@ -69,28 +69,26 @@ func TestUserdataMergeAndScope(t *testing.T) {
 }
 
 func TestUserdataPreferMeshDisabled(t *testing.T) {
-	t.Setenv("USERDATA_LOCAL_URL", "http://127.0.0.1:9")
 	t.Setenv("USERDATA_PREFER_MESH", "0")
-	dir := t.TempDir()
-	u := newServerUserdata(dir)
-	if u.proxyURL != "" {
-		t.Fatalf("expected empty proxy when PREFER_MESH=0, got %q", u.proxyURL)
+	u := newServerUserdata(t.TempDir(), devUserdataProvider(t, "http://127.0.0.1:9", time.Second))
+	if u.provider != nil {
+		t.Fatal("expected no provider when USERDATA_PREFER_MESH=0")
 	}
 }
 
 func TestUserdataPreferMeshEnabled(t *testing.T) {
-	t.Setenv("USERDATA_LOCAL_URL", "http://userdata-local:9680")
 	t.Setenv("USERDATA_PREFER_MESH", "1")
-	u := newServerUserdata(t.TempDir())
-	if u.proxyURL != "http://userdata-local:9680" {
-		t.Fatalf("proxy=%q", u.proxyURL)
+	p := devUserdataProvider(t, "http://userdata-local:9680", time.Second)
+	u := newServerUserdata(t.TempDir(), p)
+	if u.provider != p {
+		t.Fatalf("provider=%v", u.provider)
 	}
 }
 
 func TestUserdataTenantModeScopesFiles(t *testing.T) {
 	t.Setenv("TENANT_MODE", "1")
 	dir := t.TempDir()
-	u := newServerUserdata(dir)
+	u := newServerUserdata(dir, nil)
 	sessions := newSessionStore(time.Hour)
 	tok, _ := sessions.CreateWithTenant("alice", "Alice", "acme")
 	s := &server{userdata: u, sessions: sessions}
@@ -124,7 +122,7 @@ func TestUserdataTenantModeScopesFiles(t *testing.T) {
 
 func TestUserdataIgnoresCrossUserQueryOverride(t *testing.T) {
 	dir := t.TempDir()
-	u := newServerUserdata(dir)
+	u := newServerUserdata(dir, nil)
 	sessions := newSessionStore(time.Hour)
 	aliceTok, _ := sessions.Create("alice", "Alice")
 	bobTok, _ := sessions.Create("bob", "Bob")
@@ -202,7 +200,7 @@ func TestUserdataIgnoresCrossUserQueryOverride(t *testing.T) {
 
 func TestUserdataAdminCanOverrideUserID(t *testing.T) {
 	dir := t.TempDir()
-	u := newServerUserdata(dir)
+	u := newServerUserdata(dir, nil)
 	sessions := newSessionStore(time.Hour)
 	adminTok, _ := sessions.CreateWithRoles("admin-1", "admin", "", []string{"admin"})
 	bobTok, _ := sessions.Create("bob", "Bob")
@@ -238,7 +236,7 @@ func TestUserdataAdminCanOverrideUserID(t *testing.T) {
 
 func TestUserdataGetIncludesScopedUserID(t *testing.T) {
 	dir := t.TempDir()
-	u := newServerUserdata(dir)
+	u := newServerUserdata(dir, nil)
 	sessions := newSessionStore(time.Hour)
 	tok, err := sessions.Create("alice", "Alice")
 	if err != nil {
@@ -269,7 +267,7 @@ func TestUserdataGetIncludesScopedUserID(t *testing.T) {
 
 func TestUserdataPutIncludesScopedUserID(t *testing.T) {
 	dir := t.TempDir()
-	u := newServerUserdata(dir)
+	u := newServerUserdata(dir, nil)
 	sessions := newSessionStore(time.Hour)
 	tok, err := sessions.Create("alice", "Alice")
 	if err != nil {
@@ -301,7 +299,7 @@ func TestUserdataPutIncludesScopedUserID(t *testing.T) {
 
 func TestUserdataAdminHeaderOverrideSetsBlobUserID(t *testing.T) {
 	dir := t.TempDir()
-	u := newServerUserdata(dir)
+	u := newServerUserdata(dir, nil)
 	sessions := newSessionStore(time.Hour)
 	adminTok, _ := sessions.CreateWithRoles("admin-1", "admin", "", []string{"admin"})
 	bobTok, _ := sessions.Create("bob", "Bob")
@@ -350,7 +348,7 @@ func TestUserdataAdminHeaderOverrideSetsBlobUserID(t *testing.T) {
 
 func TestUserdataIgnoresCrossUserHeaderOverride(t *testing.T) {
 	dir := t.TempDir()
-	u := newServerUserdata(dir)
+	u := newServerUserdata(dir, nil)
 	sessions := newSessionStore(time.Hour)
 	aliceTok, _ := sessions.Create("alice", "Alice")
 	bobTok, _ := sessions.Create("bob", "Bob")
@@ -401,9 +399,8 @@ func TestUserdataProxyAndJellyfinPushForwardBearer(t *testing.T) {
 	}))
 	t.Cleanup(upstream.Close)
 	t.Setenv("USERDATA_PREFER_MESH", "1")
-	t.Setenv("USERDATA_LOCAL_URL", upstream.URL)
 	t.Setenv("JELLYFIN_USERDATA_PUSH_URL", upstream.URL+"/userdata/from-muxcore")
-	u := newServerUserdata(t.TempDir())
+	u := newServerUserdata(t.TempDir(), devUserdataProvider(t, upstream.URL, 2*time.Second))
 	sessions := newSessionStore(time.Hour)
 	tok, err := sessions.CreateWithAuth("alice-id", "alice", "", []string{"member"}, "alice-auth-token")
 	if err != nil {
@@ -432,7 +429,9 @@ func TestUserdataProxyAndJellyfinPushForwardBearer(t *testing.T) {
 			t.Fatalf("upstream calls: %v", got)
 		}
 	}
-	for _, p := range []string{"/userdata", "/userdata/from-muxcore"} {
+	// /api/userdata is the provider's canonical route (the legacy /userdata
+	// path does not exist on userdata-local).
+	for _, p := range []string{"/api/userdata", "/userdata/from-muxcore"} {
 		h, ok := got[p]
 		if !ok {
 			t.Fatalf("no call to %s", p)

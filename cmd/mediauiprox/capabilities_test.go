@@ -23,7 +23,7 @@ func TestCapabilitiesOptionalLibrariesDown(t *testing.T) {
 		livetv:       newLiveTVStore("", t.TempDir()),
 		libraryPaths: newLibraryPathsStore("", t.TempDir()),
 		quickconnect: newQuickConnectStore(t.TempDir()),
-		userdata:     newServerUserdata(t.TempDir()),
+		userdata:     newServerUserdata(t.TempDir(), nil),
 	}
 	w := httptest.NewRecorder()
 	s.handleCapabilities(w, httptest.NewRequest(http.MethodGet, "/api/capabilities", nil))
@@ -90,7 +90,7 @@ func TestCapabilitiesOptionalLibrariesUp(t *testing.T) {
 		livetv:         newLiveTVStore("", t.TempDir()),
 		libraryPaths:   newLibraryPathsStore("", t.TempDir()),
 		quickconnect:   newQuickConnectStore(t.TempDir()),
-		userdata:       newServerUserdata(t.TempDir()),
+		userdata:       newServerUserdata(t.TempDir(), nil),
 	}
 	w := httptest.NewRecorder()
 	s.handleCapabilities(w, httptest.NewRequest(http.MethodGet, "/api/capabilities", nil))
@@ -133,7 +133,7 @@ func TestCapabilitiesRequestModuleSearchFallback(t *testing.T) {
 		livetv:       newLiveTVStore("", t.TempDir()),
 		libraryPaths: newLibraryPathsStore("", t.TempDir()),
 		quickconnect: newQuickConnectStore(t.TempDir()),
-		userdata:     newServerUserdata(t.TempDir()),
+		userdata:     newServerUserdata(t.TempDir(), nil),
 	}
 	w := httptest.NewRecorder()
 	s.handleCapabilities(w, httptest.NewRequest(http.MethodGet, "/api/capabilities", nil))

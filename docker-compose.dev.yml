@@ -93,6 +93,9 @@ services:
       <<: *dev_env
       # Plain-HTTP session cookies (admin-ui marks them Secure otherwise).
       ADMIN_UI_INSECURE: "true"
+      # Explicit insecure dev: userdata-local serves plaintext HTTP without
+      # module identity (ADR-0033 §3). Never a household fallback.
+      ADMIN_UI_USERDATA_URL: http://userdata-local:9672
 
   media-movies:
     environment:
@@ -173,6 +176,10 @@ services:
   userdata-local:
     environment:
       <<: *dev_env
+    # Dev only: plaintext provider port on the host for smoke.sh's dev policy
+    # seeding and debugging. The household base publishes no userdata port.
+    ports:
+      - "${USERDATA_LOCAL_PORT:-9672}:9672"
 
   backup-local:
     environment:
@@ -239,6 +246,8 @@ services:
     environment:
       <<: *dev_env
       TRANSCODER_HTTP_URL: ${TRANSCODER_HTTP_URL-http://media-transcoder:9526}
+      # Explicit insecure dev: plaintext provider, no module identity (ADR-0033 §3).
+      USERDATA_LOCAL_URL: http://userdata-local:9672
       TRANSCODER_HTTP_TOKEN: ${TRANSCODER_HTTP_TOKEN:?set a random dev transcoder token in .env}
 
   jellyfin-bridge:
