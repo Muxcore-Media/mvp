@@ -124,7 +124,11 @@ func (s *server) resolveEpisodePlaybackFile(ctx context.Context, mediaID string)
 	return body.FilePath, body.FileID
 }
 
-func discoverSidecarSubtitles(videoPath string) []playbackSubtitleTrack {
+// discoverSidecarSubtitles lists the subtitle files beside videoPath. With
+// owned set (a restricted principal) a file is listed only when the video
+// provably owns it (sidecarOwnedBy), not merely when its name starts with the
+// video's.
+func discoverSidecarSubtitles(videoPath string, owned bool) []playbackSubtitleTrack {
 	if videoPath == "" {
 		return nil
 	}
@@ -147,6 +151,9 @@ func discoverSidecarSubtitles(videoPath string) []playbackSubtitleTrack {
 		}
 		stem := strings.TrimSuffix(name, filepath.Ext(name))
 		if stem != base && !strings.HasPrefix(stem, base+".") && !strings.HasPrefix(stem, base+" ") {
+			continue
+		}
+		if owned && !sidecarOwnedBy(name, videoPath, entries) {
 			continue
 		}
 		abs := filepath.Join(dir, name)
@@ -205,7 +212,10 @@ func decodeSidecarTrackID(id string) (string, bool) {
 	return string(raw), true
 }
 
-func (s *server) moduleSubtitleTracks(ctx context.Context, fileID string) []playbackSubtitleTrack {
+// moduleSubtitleTracks lists the subtitle rows of fileID. For a restricted
+// principal a row that does not name fileID is dropped: the file ID is the only
+// link to the authorized item (as in collectSubtitleFiles).
+func (s *server) moduleSubtitleTracks(ctx context.Context, fileID string, restricted bool) []playbackSubtitleTrack {
 	if s.subtitles == nil || fileID == "" {
 		return nil
 	}
@@ -220,6 +230,9 @@ func (s *server) moduleSubtitleTracks(ctx context.Context, fileID string) []play
 	var tracks []playbackSubtitleTrack
 	for _, sub := range resp.GetSubtitles() {
 		if sub == nil || sub.GetId() == "" {
+			continue
+		}
+		if restricted && sub.GetMediaFileId() != fileID {
 			continue
 		}
 		label := sub.GetLanguage()
@@ -260,9 +273,17 @@ func (s *server) handlePlaybackSubtitlesList(w http.ResponseWriter, r *http.Requ
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 
+	// A restricted principal's grant names the item the gate authorized; the
+	// tracks are resolved and bound for exactly that item, whatever the
+	// handler would make of src.
+	grant, restricted := parentalGrantFrom(ctx)
+	if restricted {
+		kind, mediaID = grant.item.Kind, grant.item.ID
+	}
 	absPath, fileID := s.resolvePlaybackMediaFile(ctx, kind, mediaID)
-	tracks := discoverSidecarSubtitles(absPath)
-	tracks = append(tracks, s.moduleSubtitleTracks(ctx, fileID)...)
+	tracks := discoverSidecarSubtitles(absPath, restricted)
+	tracks = append(tracks, s.moduleSubtitleTracks(ctx, fileID, restricted)...)
+	tracks = s.parental.bindSubtitleTracks(grant, restricted, tracks)
 
 	writeJSONStatus(w, http.StatusOK, playbackSubtitlesResponse{Tracks: tracks})
 }
@@ -272,13 +293,7 @@ func (s *server) handlePlaybackSubtitleServe(w http.ResponseWriter, r *http.Requ
 		writeAPIMethodNotAllowed(w)
 		return
 	}
-	id := strings.TrimSpace(r.PathValue("id"))
-	if id == "" {
-		id = strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/playback/subtitles/"), "/")
-		if u, err := url.PathUnescape(id); err == nil {
-			id = u
-		}
-	}
+	id := subtitleTrackIDFromRequest(r)
 	if id == "" {
 		writeAPIError(w, http.StatusBadRequest, "subtitle id required", "subtitles.id_required")
 		return
