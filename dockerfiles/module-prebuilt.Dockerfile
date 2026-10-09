@@ -22,6 +22,7 @@ RUN apk add --no-cache ca-certificates curl ${APK_EXTRA} \
   && chown -R app:app /data && chmod 700 /data/mesh-id
 USER app
 WORKDIR /app
-# The binary plus its runtime files (policies*.yaml), owned by root (read-only).
+# The binary plus its runtime files (policies*.yaml) and any local probe
+# (userdata-health, ADR-0033), owned by root (read-only).
 COPY . ./
 ENTRYPOINT ["./module"]

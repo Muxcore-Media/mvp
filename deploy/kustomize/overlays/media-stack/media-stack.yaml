@@ -1,5 +1,11 @@
 # Media MVP stack overlay — extends minimal platform base with acquire→library→UI peers.
 # Apply after platform base is healthy: kubectl apply -k deploy/kustomize/overlays/media-stack
+#
+# userdata-local is NOT deployed here and media-ui has no USERDATA_LOCAL_URL:
+# the ADR-0033 userdata transport (mTLS with per-module identities, the packaged
+# userdata-health probe) is unsupported in these overlays, so signed-in users
+# get 503 parental.policy_unavailable on gated routes. Use
+# docker-compose.registry.yml for a household install (deploy/README.md).
 ---
 apiVersion: apps/v1
 kind: Deployment

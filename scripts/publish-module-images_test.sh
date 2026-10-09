@@ -35,4 +35,16 @@ done
 grep -q -- '-trimpath -buildvcs=false -ldflags=-buildid=' "$ROOT/scripts/build-module-binaries.sh" \
   || fail "build-module-binaries.sh should use the ADR-0012 build flags"
 
+# ADR-0033: the userdata-local image must contain the packaged userdata-health
+# probe the compose healthcheck invokes (both build paths).
+grep -q 'go build -o /assets/userdata-health ./cmd/userdata-health' "$ROOT/dockerfiles/module.Dockerfile" \
+  || fail "module.Dockerfile must package cmd/userdata-health as /app/userdata-health"
+grep -q 'COPY --from=builder /assets/ ./' "$ROOT/dockerfiles/module.Dockerfile" \
+  || fail "module.Dockerfile must copy /assets (probe) into /app"
+# shellcheck disable=SC2016 # literal $ in the pattern
+grep -qF 'build_go "$dir" ./cmd/userdata-health/ "$OUT/$name/userdata-health"' "$ROOT/scripts/build-module-binaries.sh" \
+  || fail "build-module-binaries.sh must build the userdata-health probe for prebuilt images"
+grep -q '^COPY \. \./' "$ROOT/dockerfiles/module-prebuilt.Dockerfile" \
+  || fail "module-prebuilt.Dockerfile must copy the whole prebuilt module dir (probe included)"
+
 echo "ok publish-module-images tests"

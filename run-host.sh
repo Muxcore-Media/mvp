@@ -57,8 +57,12 @@ export MUXCORE_CONFIG="${MUXCORE_CONFIG:-$ROOT/muxcore.json}"
 MESH="${MUXCORE_MESH_ADDR:-127.0.0.1:9090}"
 MODULE_CERT_ROOT="${MUXCORE_MODULE_CERT_DIR:-$ROOT/tls/module-certs}"
 _transcoder_http_url=https://127.0.0.1:9526
+# userdata-local HTTP (ADR-0033): mTLS on loopback, the clients still verify the
+# fixed userdata-local identity; plaintext only in explicit insecure dev.
+_userdata_http_url=https://127.0.0.1:9672
 if [[ "${MUXCORE_INSECURE_DISABLE_TLS:-}" == "true" || "${MUXCORE_INSECURE_DISABLE_TLS:-}" == "1" ]]; then
   _transcoder_http_url=http://127.0.0.1:9526
+  _userdata_http_url=http://127.0.0.1:9672
 fi
 
 mkdir -p "$BIN" "$RUN" "$DATA"/{movies,tvshows,automation,scanner,roots,sqlite,secrets,library/tv,storage,auth,jellyfin,downloads,request,formats,rename,ffprobe,subtitles,backup,audiobooks,books,comics,intro-outro,transcoder-pool,graph,tagging,listsync,workflow,maintainer,playback-guard,playback-monitor,locks,schemas,userdata,feature-flags,dlna,plex,emby}
@@ -336,6 +340,22 @@ case "$cmd" in
     probe media 'http://127.0.0.1:5173/'
     probe auth 'http://127.0.0.1:9401/login'
     probe api-rest 'http://127.0.0.1:18080/health'
+    # userdata-local: the packaged mTLS probe with the provider's own identity
+    # (never a bare HTTP probe; ADR-0033 §4).
+    if [[ -x "$BIN/userdata-health" ]]; then
+      ud_env=(MUXCORE_PROFILE="${MUXCORE_PROFILE:-}" MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" USERDATA_LOCAL_HTTP_ADDR=":9672")
+      if [[ "${MUXCORE_PROFILE:-}" == "staging" ]]; then
+        ud_dir="$MODULE_CERT_ROOT/userdata-local"
+        ud_env+=(MUXCORE_TLS_CERT="$ud_dir/module.crt" MUXCORE_TLS_KEY="$ud_dir/module.key" MUXCORE_TLS_CA="$ud_dir/ca.crt")
+      fi
+      if env "${ud_env[@]}" "$BIN/userdata-health" >/dev/null 2>"$RUN/userdata-health.err"; then
+        printf '  %-12s %s → %s\n' userdata "userdata-health :9672" ok
+      else
+        printf '  %-12s %s → %s\n' userdata "userdata-health :9672" "FAIL ($(head -c 200 "$RUN/userdata-health.err"))"
+      fi
+    else
+      printf '  %-12s %s\n' userdata "userdata-health not built (userdata-local < v0.1.6?)"
+    fi
     if [[ -x "$BIN/muxcorectl" ]]; then
       echo "--- mesh (muxcorectl) ---"
       env MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MESH_DIAL_LOCAL=true MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-true}" \
@@ -570,7 +590,7 @@ EOF
       ADMIN_UI_PLAYBACK_FILE="${ADMIN_UI_PLAYBACK_FILE:-$DATA/media-ui/playback.json}" \
       ADMIN_UI_PASSWORD_RESET_FILE="${ADMIN_UI_PASSWORD_RESET_FILE:-$DATA/media-ui/password-resets.json}" \
       ADMIN_UI_SESSION_FILE="${ADMIN_UI_SESSION_FILE:-$DATA/media-ui/sessions.json}" \
-      ADMIN_UI_USERDATA_URL="${ADMIN_UI_USERDATA_URL:-http://127.0.0.1:9672}" \
+      ADMIN_UI_USERDATA_URL="${ADMIN_UI_USERDATA_URL:-$_userdata_http_url}" \
       MUXCORE_MESH_DIAL_LOCAL=true \
       "$BIN/admin-ui"
 
@@ -734,6 +754,9 @@ EOF
       "$BIN/notification-default"
 
     # Optional Jellyfin bridge — off by default; standalone Jellyfin at media.zem.systems is separate.
+    # Its background Jellyfin→MuxCore userdata sync is unsupported (ADR-0033 §3:
+    # no user bearer, no admitted `jellyfin` caller): USERDATA_SYNC=0 and no
+    # provider URL. Playback and the BFF→bridge progress push are unaffected.
     if [[ "${MVP_ENABLE_JELLYFIN:-0}" == "1" ]]; then
       maybe_start jellyfin env \
         MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=jellyfin MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
@@ -742,17 +765,22 @@ EOF
         JELLYFIN_BASE_URL="${JELLYFIN_BASE_URL:-}" \
         JELLYFIN_API_KEY="${JELLYFIN_API_KEY:-}" \
         JELLYFIN_WEBHOOK_SECRET="${JELLYFIN_WEBHOOK_SECRET:-}" \
-        USERDATA_SYNC="${USERDATA_SYNC:-1}" \
-        USERDATA_LOCAL_URL="${USERDATA_LOCAL_URL:-http://127.0.0.1:9672}" \
+        USERDATA_SYNC=0 \
         USERDATA_PUSH_TO_JELLYFIN="${USERDATA_PUSH_TO_JELLYFIN:-0}" \
         "$BIN/jellyfin"
     fi
 
-    # Optional household userdata mesh (HTTP :9672) — default on; BFF + jellyfin prefer USERDATA_LOCAL_URL.
+    # Optional household userdata mesh (HTTP :9672) — default on; the BFF and admin-ui
+    # use it via USERDATA_LOCAL_URL / ADMIN_UI_USERDATA_URL (https unless insecure dev).
     if [[ "${MVP_ENABLE_USERDATA_LOCAL:-1}" == "1" ]]; then
       if [[ ! -x "$BIN/userdata-local" ]]; then
         echo "building userdata-local"
         (cd "$WS/userdata-local" && go build -o "$BIN/userdata-local" ./cmd/module)
+      fi
+      # Packaged readiness probe (ADR-0033, userdata-local >= v0.1.6): ./run-host.sh status.
+      if [[ ! -x "$BIN/userdata-health" && -d "$WS/userdata-local/cmd/userdata-health" ]]; then
+        echo "building userdata-health"
+        (cd "$WS/userdata-local" && go build -o "$BIN/userdata-health" ./cmd/userdata-health)
       fi
       mkdir -p "$DATA/userdata"
       # userdata-local reads USERDATA_LOCAL_DB_PATH only; without it the DB lands in
@@ -768,7 +796,7 @@ EOF
         USERDATA_LOCAL_GRPC_ADDR=":9673" \
         USERDATA_LOCAL_DB_PATH="$userdata_db" \
         "$BIN/userdata-local"
-      export USERDATA_LOCAL_URL="${USERDATA_LOCAL_URL:-http://127.0.0.1:9672}"
+      export USERDATA_LOCAL_URL="${USERDATA_LOCAL_URL:-$_userdata_http_url}"
     fi
 
     # One-flag fixture grab: indexer + native torrent, still INDEXER_FIXTURE / DOWNLOADER_ENGINE=fixture.
@@ -1416,7 +1444,7 @@ EOF
           AUTH_HTTP_URL="${AUTH_HTTP_URL:-https://auth.gringotts}" \
           AUTH_HTTP_INTERNAL_URL="${AUTH_HTTP_INTERNAL_URL:-http://127.0.0.1:9401}" \
           AUTH_GRPC_CLIENT_ADDR="${AUTH_GRPC_CLIENT_ADDR:-127.0.0.1:9403}" \
-          USERDATA_LOCAL_URL="${USERDATA_LOCAL_URL:-http://127.0.0.1:9672}" \
+          USERDATA_LOCAL_URL="${USERDATA_LOCAL_URL:-$_userdata_http_url}" \
           MOVIES_GRPC_CLIENT_ADDR="127.0.0.1:9420" \
           TVSHOWS_GRPC_CLIENT_ADDR="127.0.0.1:9440" \
           JELLYFIN_GRPC_CLIENT_ADDR="127.0.0.1:9475" \

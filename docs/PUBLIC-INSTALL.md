@@ -178,4 +178,4 @@ Until `write:packages` is available, the LAN registry is the supported non-dev p
 
 **End state:** `media-ui-app` replaces Jellyfin web for browse **and** play (see workspace `MASTER-ROADMAP.md`).
 
-**Near-term:** after install, configure the `jellyfin` bridge and `USERDATA_SYNC` / `USERDATA_LOCAL_URL` so households can hand off playback to Jellyfin while MuxCore userdata stays coherent. That handoff must not be treated as the final UI architecture.
+**Near-term:** after install, configure the `jellyfin` bridge so households can hand off playback to Jellyfin. Its background Jellyfin→MuxCore userdata sync (`USERDATA_SYNC`) is unsupported with the authenticated userdata-local transport (ADR-0033) and is disabled in every MVP launcher; see [`USERDATA-CLIENTS.md`](USERDATA-CLIENTS.md). That handoff must not be treated as the final UI architecture.

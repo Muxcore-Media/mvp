@@ -109,6 +109,11 @@ build_one() {
   [[ -d "$dir/cmd/module" ]] || die "$name has no ./cmd/module entrypoint"
   mkdir -p "$OUT/$name"
   build_go "$dir" ./cmd/module/ "$OUT/$name/module"
+  # Local readiness probe shipped next to the daemon (ADR-0033: userdata-local
+  # >= v0.1.6); module-prebuilt.Dockerfile copies it to /app/userdata-health.
+  if [[ -d "$dir/cmd/userdata-health" ]]; then
+    build_go "$dir" ./cmd/userdata-health/ "$OUT/$name/userdata-health"
+  fi
   # Runtime files the module reads relative to its working dir (/app in the
   # image), e.g. call/publish-policy-default policies.yaml.
   local f

@@ -12,6 +12,15 @@
 #
 # Bearers and passwords go to curl through stdin / process substitution, not
 # argv. Every function prints "FAIL: …" and returns non-zero on error.
+#
+# Seed transport (ADR-0033 §4): only explicit insecure dev serves the provider
+# in plaintext, so only there does the seed call it directly with curl. In
+# household/staging userdata-local is mTLS-only and admits policy writes only
+# from admin-ui's verified identity, so the seed runs inside admin-ui's own
+# service context through admin-ui's seed helper (slice S9c), invoked via
+# SMOKE_PARENTAL_SEED_CMD. The smoke never holds a module key, never uses -k or
+# plaintext against a household provider, and never seeds with the BFF identity
+# (the provider denies media-ui policy writes). See docs/USERDATA-CLIENTS.md.
 
 PARENTAL_SMOKE_UNRESTRICTED='{"version":1,"mode":"unrestricted","rules":null}'
 
@@ -201,4 +210,68 @@ sys.exit(0 if json.loads(sys.stdin.read()).get("code") == "parental.policy_uncon
     return 1
   fi
   echo "OK unconfigured account ${user} denied ${stream} (403 parental.policy_unconfigured)"
+}
+
+# parental_smoke_userdata_tls — 0 (true) when the provider is household mTLS.
+# SMOKE_USERDATA_TLS=1|0 forces; an https:// / http:// SMOKE_USERDATA_URL
+# decides; registry mode follows the running core's profile; the host runner is
+# dev unless MUXCORE_PROFILE is household/staging or MUXCORE_REQUIRE_TLS=1.
+parental_smoke_userdata_tls() {
+  case "${SMOKE_USERDATA_TLS:-auto}" in
+    1|true|yes) return 0 ;;
+    0|false|no) return 1 ;;
+  esac
+  case "${SMOKE_USERDATA_URL:-}" in
+    https://*) return 0 ;;
+    http://*) return 1 ;;
+  esac
+  if [[ "${MUXCORE_SMOKE_REGISTRY:-}" == 1 ]] && declare -F registry_smoke_tls_enabled >/dev/null; then
+    registry_smoke_tls_enabled
+    return
+  fi
+  case "${MUXCORE_PROFILE:-}" in
+    household|staging) return 0 ;;
+  esac
+  [[ "${MUXCORE_REQUIRE_TLS:-}" == 1 ]]
+}
+
+# parental_smoke_seed_via_helper ADMIN_BEARER TARGET_USER_ID
+# Runs SMOKE_PARENTAL_SEED_CMD (word-split, never eval'd) with TARGET appended as
+# its last argument and the bearer as the only line on stdin (never argv). The
+# helper must leave TARGET with a configured unrestricted policy (seed when
+# unconfigured, no write when already unrestricted) and fail otherwise; its exit
+# status is the step's. Its output is printed with the bearer masked.
+parental_smoke_seed_via_helper() {
+  local bearer="$1" target="$2" out rc
+  local -a cmd
+  if [[ -z "${SMOKE_PARENTAL_SEED_CMD:-}" ]]; then
+    echo "FAIL: parental policy for ${target}: household userdata-local is mTLS-only (ADR-0033); the seed must run" >&2
+    echo "      inside admin-ui's service context with admin-ui's seed helper (slice S9c, not yet published)." >&2
+    echo "      Set SMOKE_PARENTAL_SEED_CMD to that invocation, e.g." >&2
+    echo "      SMOKE_PARENTAL_SEED_CMD='docker compose -f docker-compose.registry.yml exec -T admin-ui <helper>'" >&2
+    echo "      (the bearer is passed on stdin, the target user id as the last argument)." >&2
+    return 1
+  fi
+  read -ra cmd <<<"$SMOKE_PARENTAL_SEED_CMD"
+  rc=0
+  out="$(printf '%s\n' "$bearer" | "${cmd[@]}" "$target" 2>&1)" || rc=$?
+  [[ -n "$bearer" ]] && out="${out//"$bearer"/***}"
+  [[ -n "$out" ]] && printf '%s\n' "$out"
+  if [[ "$rc" -ne 0 ]]; then
+    echo "FAIL: parental policy seed helper for ${target} exited ${rc}" >&2
+    return 1
+  fi
+  echo "OK parental policy ${target}: unrestricted via the admin-ui seed helper"
+}
+
+# parental_smoke_seed USERDATA_URL ADMIN_BEARER TARGET_USER_ID
+# The smoke's seed step: plaintext provider in explicit insecure dev, otherwise
+# the admin-ui seed helper (see the header).
+parental_smoke_seed() {
+  local base="$1" bearer="$2" target="$3"
+  if parental_smoke_userdata_tls; then
+    parental_smoke_seed_via_helper "$bearer" "$target"
+  else
+    parental_smoke_seed_unrestricted "$base" "$bearer" "$target"
+  fi
 }
