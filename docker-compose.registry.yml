@@ -386,7 +386,10 @@ services:
       # in-network URL admin-ui uses server-side.
       ADMIN_UI_AUTH_ADDR: ${ADMIN_UI_AUTH_ADDR:-http://localhost:9401}
       ADMIN_UI_AUTH_INTERNAL_ADDR: http://auth-local:9401
-      ADMIN_UI_USERDATA_URL: http://userdata-local:9672
+      # userdata-local HTTP is mTLS-only in household (ADR-0033): admin-ui dials
+      # the service name and must verify the fixed userdata-local identity with
+      # its own admin-ui certificate (S9c). The dev override sets http://.
+      ADMIN_UI_USERDATA_URL: https://userdata-local:9672
       ADMIN_UI_DATA_DIR: /data
       # Shared with media-ui consumer POST /api/password-reset (umbrella #111).
       ADMIN_UI_PASSWORD_RESET_FILE: /data/media-ui/password-resets.json
@@ -874,6 +877,15 @@ services:
         condition: service_healthy
 
   # Household userdata mesh — tip module reads USERDATA_LOCAL_DB_PATH (+ HTTP/gRPC addrs) only.
+  # ADR-0033 (userdata-local >= v0.1.6): the HTTP listener on :9672 is TLS-only
+  # with a required core-CA client certificate and a fixed caller table
+  # (media-ui, admin-ui; health for userdata-local/health-monitor). Its
+  # certificate carries CN and SAN `userdata-local` (the module ID, so no
+  # MUXCORE_ENROLL_SAN_ALLOW entry is needed). Clients use
+  # https://userdata-local:9672. No host port is published: browsers and native
+  # devices go through the BFF, and the smoke seeds policy inside admin-ui's
+  # service context (docs/USERDATA-CLIENTS.md). The dev override re-publishes a
+  # plaintext port for local debugging only.
   userdata-local:
     <<: *image
     image: ${MUXCORE_REGISTRY:-localhost:5000/muxcore}/userdata-local:${MUXCORE_IMAGE_TAG:-v0.6.15}
@@ -888,8 +900,17 @@ services:
       # (default localhost:9403 is wrong inside this container).
       AUTH_LOCAL_GRPC_ADDR: auth-local:9403
       USERDATA_LOCAL_DB_PATH: /data/userdata.db
-    ports:
-      - "${USERDATA_LOCAL_PORT:-9672}:9672"
+    # Readiness: the packaged userdata-health probe (ADR-0033 §4), a separate
+    # process in this container that reuses the service's existing identity
+    # (MUXCORE_TLS_DIR + MUXCORE_TLS_CA; it never enrolls) and calls GET /health
+    # on loopback :9672 while verifying the userdata-local identity. Plaintext in
+    # the dev override (insecure flag set there).
+    healthcheck:
+      test: ["CMD", "/app/userdata-health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     volumes:
       - userdata-data:/data
       - userdata-local-id:/data/mesh-id
@@ -1377,7 +1398,9 @@ services:
       MEDIA_UI_LISTEN: ":5173"
       MEDIA_UI_REQUIRE_AUTH: "1"
       AUTH_HTTP_INTERNAL_URL: http://auth-local:9401
-      USERDATA_LOCAL_URL: http://userdata-local:9672
+      # ADR-0033: mTLS to the fixed userdata-local identity with the BFF's own
+      # media-ui certificate (policy reads + userdata blobs). Dev override: http://.
+      USERDATA_LOCAL_URL: https://userdata-local:9672
       AUTOMATION_GRPC_CLIENT_ADDR: media-automation:9460
       SCANNER_GRPC_CLIENT_ADDR: media-scanner:9470
       FORMATS_GRPC_CLIENT_ADDR: media-custom-formats:9490
@@ -1452,9 +1475,12 @@ services:
       JELLYFIN_BASE_URL: ${JELLYFIN_BASE_URL:-}
       JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
       JELLYFIN_WEBHOOK_SECRET: ${JELLYFIN_WEBHOOK_SECRET:-}
-      USERDATA_SYNC: ${USERDATA_SYNC:-1}
-      USERDATA_SYNC_INTERVAL_SECONDS: ${USERDATA_SYNC_INTERVAL_SECONDS:-300}
-      USERDATA_LOCAL_URL: ${USERDATA_LOCAL_URL:-http://userdata-local:9672}
+      # Jellyfin→MuxCore background userdata sync is unsupported in this train
+      # (ADR-0033 §3): it writes without a user bearer and userdata-local admits
+      # no `jellyfin` caller, so it is disabled and no provider URL is wired.
+      # Playback and the BFF→bridge progress push (USERDATA_PUSH_TO_JELLYFIN)
+      # are unaffected. Re-enabling needs a reviewed service-operation contract.
+      USERDATA_SYNC: "0"
       USERDATA_PUSH_TO_JELLYFIN: ${USERDATA_PUSH_TO_JELLYFIN:-0}
     volumes:
       - jellyfin-data:/data

@@ -43,6 +43,9 @@ resources:
     memory: 256Mi
 
 media:
+  # Explicit insecure dev only (insecureDisableTLS: true). The chart provisions
+  # no mesh identities, so media.enabled with TLS on fails to render: the
+  # userdata-local HTTP transport (ADR-0033) is unsupported here.
   enabled: false
   # These paths must match the media/download mounts supplied by the operator.
   scannerAllowedRoots: "/data/media:/data/downloads"

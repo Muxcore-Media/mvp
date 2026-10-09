@@ -2,13 +2,18 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
+	"github.com/Muxcore-Media/userdata-local/httpclient"
 	"github.com/Muxcore-Media/userdata-local/store"
 )
 
@@ -20,36 +25,57 @@ const muxcoreUserIDHeader = "X-MuxCore-User-Id"
 // (progress/favorites/prefs/queue). Scoped per session user (+ tenant when
 // TENANT_MODE=1).
 //
-// Mesh preference: when USERDATA_LOCAL_URL is set, GET/PUT prefer the
-// userdata-local module and fall back to the local file store on mesh errors.
-// Set USERDATA_PREFER_MESH=0 to force local files only (ignore URL).
-// After a successful PUT, optionally notifies the Jellyfin bridge so companion
-// UI progress can push into Jellyfin UserData (JELLYFIN_USERDATA_PUSH_URL).
+// Provider preference: with a checked userdata-local client
+// (userdata_provider.go, ADR-0033) GET/PUT go to the provider's canonical
+// /api/userdata route with the session's bearer and X-MuxCore-User-Id
+// (providerAllowed decides per request; never in TENANT_MODE, see there).
+// The first provider operation per user migrates the pre-upgrade local blob
+// once (userdata_migrate.go). A provider outage (transport, module admission,
+// redirect, unreadable response, 5xx/408/429) falls back to the local file
+// store; a provider 4xx is returned to the client and nothing is written
+// locally. The local store is an ordinary availability fallback for blobs only
+// — it is never consulted for parental policy, and a fallback is never
+// reported as provider success (degraded transitions are logged). Set
+// USERDATA_PREFER_MESH=0 to use local files only. After a successful PUT,
+// optionally notifies the Jellyfin bridge so companion UI progress can push
+// into Jellyfin UserData (JELLYFIN_USERDATA_PUSH_URL).
 type serverUserdata struct {
-	store    *store.Store
-	proxyURL string // empty = local files only
-	pushURL  string // jellyfin bridge /userdata/from-muxcore
+	store     *store.Store
+	provider  userdataProviderClient // nil = local files only
+	pushURL   string                 // jellyfin bridge /userdata/from-muxcore
+	migration *userdataMigration
+	// degraded records that the last provider call failed, so the fallback is
+	// logged once per outage rather than per request.
+	degraded atomic.Bool
 }
 
-func newServerUserdata(dir string) *serverUserdata {
+// userdataRequest is one blob operation: the scope, the session's auth-local
+// bearer and whether the provider may be used for it (providerAllowed).
+type userdataRequest struct {
+	scope    store.Scope
+	bearer   string
+	provider bool
+}
+
+func newServerUserdata(dir string, provider userdataProviderClient) *serverUserdata {
 	if dir == "" {
 		dir = filepath.Join(os.TempDir(), "muxcore-media-userdata")
 	}
 	st, err := store.New(dir)
 	if err != nil {
 		// Fall back to empty store in temp — Init always succeeds for fixtures.
-		st, _ = store.New(filepath.Join(os.TempDir(), "muxcore-media-userdata-fallback"))
+		dir = filepath.Join(os.TempDir(), "muxcore-media-userdata-fallback")
+		st, _ = store.New(dir)
 	}
-	preferMesh := os.Getenv("USERDATA_PREFER_MESH") != "0"
-	proxy := ""
-	if preferMesh {
-		proxy = strings.TrimRight(strings.TrimSpace(os.Getenv("USERDATA_LOCAL_URL")), "/")
+	if os.Getenv("USERDATA_PREFER_MESH") == "0" {
+		provider = nil
 	}
 	push := strings.TrimRight(strings.TrimSpace(os.Getenv("JELLYFIN_USERDATA_PUSH_URL")), "/")
 	return &serverUserdata{
-		store:    st,
-		proxyURL: proxy,
-		pushURL:  push,
+		store:     st,
+		provider:  provider,
+		pushURL:   push,
+		migration: &userdataMigration{dir: filepath.Join(dir, migrationDirName)},
 	}
 }
 
@@ -89,38 +115,106 @@ func (u *serverUserdata) scopeFromRequest(r *http.Request, sessions *sessionStor
 	return store.Scope{TenantID: tenantID, UserID: userID}
 }
 
-// load returns the scope's blob. authToken is the signed-in user's auth-local
-// token, forwarded as a bearer to userdata-local (ADR-0019).
-func (u *serverUserdata) load(scope store.Scope, authToken string) store.Blob {
-	if u.proxyURL != "" {
-		if blob, ok := u.proxyGet(scope, authToken); ok {
-			return blob
-		}
+// providerAllowed decides whether a blob operation may use the provider.
+// Never without a bearer (the provider would refuse it; Quick Connect and
+// auth-less dev keep the local store). Never in TENANT_MODE: userdata-local
+// v0.1.6 keys blobs by user ID only and its admin check ignores tenants, so a
+// tenant-A admin could read or write a tenant-B user's blob through it; the
+// tenant-scoped local store stays authoritative until the provider is
+// tenant-aware. The target is the verified session user unless the session is
+// privileged (admin/manager override in scopeFromRequest).
+func (u *serverUserdata) providerAllowed(scope store.Scope, bearer, sessionUser string, privileged bool) bool {
+	if u.provider == nil || strings.TrimSpace(bearer) == "" {
+		return false
 	}
-	return u.store.Get(scope)
+	if os.Getenv("TENANT_MODE") == "1" {
+		return false
+	}
+	return scope.UserID == sessionUser || privileged
 }
 
-func (u *serverUserdata) save(scope store.Scope, incoming store.Blob, authToken string) (store.Blob, error) {
-	var (
-		merged store.Blob
-		err    error
-	)
-	if u.proxyURL != "" {
-		if blob, putErr := u.proxyPut(scope, incoming, authToken); putErr == nil {
-			// Mirror into local cache for offline/fixture paths.
-			_, _ = u.store.Put(scope, blob)
-			merged = blob
-		} else {
-			merged, err = u.store.Put(scope, incoming)
-		}
-	} else {
-		merged, err = u.store.Put(scope, incoming)
+// load returns the scope's blob: the provider's (after the one-time migration)
+// or, on a provider outage or when the provider is not allowed, the local
+// store's. A provider 4xx is returned as a *userdataError.
+func (u *serverUserdata) load(ctx context.Context, req userdataRequest) (store.Blob, error) {
+	if !req.provider {
+		return u.store.Get(req.scope), nil
 	}
+	if !u.migration.decided(req.scope) {
+		defer u.migration.lock(req.scope)()
+	}
+	blob, err := u.providerGet(ctx, req)
+	u.noteProvider("GET", err)
+	if err != nil {
+		if ae := providerApplicationError(err); ae != nil {
+			return store.Blob{}, ae
+		}
+		return u.store.Get(req.scope), nil
+	}
+	if u.migration.decided(req.scope) {
+		return blob, nil
+	}
+	blob, _ = u.migrate(ctx, req, blob)
+	return blob, nil
+}
+
+func (u *serverUserdata) save(ctx context.Context, req userdataRequest, incoming store.Blob) (store.Blob, error) {
+	merged, err := u.saveBlob(ctx, req, incoming)
 	if err != nil {
 		return store.Blob{}, err
 	}
-	u.notifyJellyfinPush(scope, merged, authToken)
+	u.notifyJellyfinPush(req.scope, merged, req.bearer)
 	return merged, nil
+}
+
+func (u *serverUserdata) saveBlob(ctx context.Context, req userdataRequest, incoming store.Blob) (store.Blob, error) {
+	if !req.provider {
+		return u.store.Put(req.scope, incoming)
+	}
+	if !u.migration.decided(req.scope) {
+		// Migrate before the first write, or the write would make the provider
+		// non-empty and strand the pre-upgrade local copy.
+		defer u.migration.lock(req.scope)()
+		if !u.migration.decided(req.scope) {
+			current, err := u.providerGet(ctx, req)
+			u.noteProvider("GET", err)
+			if err != nil {
+				if ae := providerApplicationError(err); ae != nil {
+					return store.Blob{}, ae
+				}
+				return u.store.Put(req.scope, incoming)
+			}
+			if _, pending := u.migrate(ctx, req, current); pending {
+				// The local copy stays authoritative until it is migrated.
+				return u.store.Put(req.scope, incoming)
+			}
+		}
+	}
+	blob, err := u.providerPut(ctx, req, incoming)
+	u.noteProvider("PUT", err)
+	if err != nil {
+		if ae := providerApplicationError(err); ae != nil {
+			return store.Blob{}, ae
+		}
+		return u.store.Put(req.scope, incoming)
+	}
+	// Mirror into local cache for offline/fixture paths.
+	_, _ = u.store.Put(req.scope, blob)
+	return blob, nil
+}
+
+// noteProvider logs provider/local-fallback transitions. A failed provider call
+// is never counted as success: the caller serves the local store instead.
+func (u *serverUserdata) noteProvider(op string, err error) {
+	if err != nil && providerApplicationError(err) == nil {
+		if !u.degraded.Swap(true) {
+			log.Printf("warn: userdata provider %s failed: %s; serving the local fallback store until it recovers", op, describeProviderError(err))
+		}
+		return
+	}
+	if u.degraded.Swap(false) {
+		log.Printf("userdata provider recovered (%s)", op)
+	}
 }
 
 // setUserdataAuth sets the end-user bearer and the target user header that
@@ -133,61 +227,54 @@ func setUserdataAuth(h http.Header, scope store.Scope, authToken string) {
 	h.Set(muxcoreUserIDHeader, scope.UserID)
 }
 
-func (u *serverUserdata) proxyGet(scope store.Scope, authToken string) (store.Blob, bool) {
-	req, err := http.NewRequest(http.MethodGet, u.proxyURL+"/userdata", nil)
-	if err != nil {
-		return store.Blob{}, false
-	}
-	q := req.URL.Query()
-	q.Set("user_id", scope.UserID)
-	if scope.TenantID != "" {
-		q.Set("tenant_id", scope.TenantID)
-	}
-	req.URL.RawQuery = q.Encode()
-	setUserdataAuth(req.Header, scope, authToken)
-	resp, err := upstreamClient.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		if resp != nil {
-			_ = resp.Body.Close()
-		}
-		return store.Blob{}, false
-	}
-	defer func() { _ = resp.Body.Close() }()
-	var blob store.Blob
-	if json.NewDecoder(resp.Body).Decode(&blob) != nil {
-		return store.Blob{}, false
-	}
-	return blob, true
+// errUserdataProviderStatus is a non-200 provider response (the body is not
+// logged: it can echo user data).
+type errUserdataProviderStatus int
+
+func (e errUserdataProviderStatus) Error() string {
+	return fmt.Sprintf("provider returned HTTP %d", int(e))
 }
 
-func (u *serverUserdata) proxyPut(scope store.Scope, incoming store.Blob, authToken string) (store.Blob, error) {
+// providerGet reads the blob from GET /api/userdata. The provider keys blobs by
+// the authenticated target user only; the request carries no query string.
+func (u *serverUserdata) providerGet(ctx context.Context, req userdataRequest) (store.Blob, error) {
+	h := http.Header{}
+	h.Set("Accept", "application/json")
+	setUserdataAuth(h, req.scope, req.bearer)
+	resp, err := u.provider.Do(ctx, httpclient.GetUserdata, h, nil)
+	if err != nil {
+		return store.Blob{}, err
+	}
+	return decodeProviderBlob(resp)
+}
+
+// providerPut merges the blob through PUT /api/userdata and returns the
+// provider's merged document.
+func (u *serverUserdata) providerPut(ctx context.Context, req userdataRequest, incoming store.Blob) (store.Blob, error) {
+	incoming.UserID, incoming.TenantID = "", ""
 	body, err := json.Marshal(incoming)
 	if err != nil {
 		return store.Blob{}, err
 	}
-	req, err := http.NewRequest(http.MethodPut, u.proxyURL+"/userdata", strings.NewReader(string(body)))
+	h := http.Header{}
+	h.Set("Content-Type", "application/json")
+	h.Set("Accept", "application/json")
+	setUserdataAuth(h, req.scope, req.bearer)
+	resp, err := u.provider.Do(ctx, httpclient.PutUserdata, h, bytes.NewReader(body))
 	if err != nil {
 		return store.Blob{}, err
 	}
-	q := req.URL.Query()
-	q.Set("user_id", scope.UserID)
-	if scope.TenantID != "" {
-		q.Set("tenant_id", scope.TenantID)
-	}
-	req.URL.RawQuery = q.Encode()
-	req.Header.Set("Content-Type", "application/json")
-	setUserdataAuth(req.Header, scope, authToken)
-	resp, err := upstreamClient.Do(req)
-	if err != nil {
-		return store.Blob{}, err
-	}
+	return decodeProviderBlob(resp)
+}
+
+func decodeProviderBlob(resp *http.Response) (store.Blob, error) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return store.Blob{}, os.ErrInvalid
+		return store.Blob{}, errUserdataProviderStatus(resp.StatusCode)
 	}
 	var blob store.Blob
 	if err := json.NewDecoder(resp.Body).Decode(&blob); err != nil {
-		return store.Blob{}, err
+		return store.Blob{}, fmt.Errorf("decode provider blob: %w", err)
 	}
 	return blob, nil
 }
@@ -236,8 +323,13 @@ func (s *server) handleUserdataGet(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusServiceUnavailable, "userdata disabled", "userdata.disabled")
 		return
 	}
-	scope := s.userdata.scopeFromRequest(r, s.sessions, s.sessionHasPrivilegedRole(r))
-	writeUserdataJSON(w, scope, s.userdata.load(scope, s.sessionAuthToken(r)))
+	req := s.userdataRequest(r)
+	blob, err := s.userdata.load(r.Context(), req)
+	if err != nil {
+		writeUserdataError(w, err)
+		return
+	}
+	writeUserdataJSON(w, req.scope, blob)
 }
 
 func (s *server) handleUserdataPut(w http.ResponseWriter, r *http.Request) {
@@ -254,13 +346,35 @@ func (s *server) handleUserdataPut(w http.ResponseWriter, r *http.Request) {
 		writeAPIError(w, http.StatusBadRequest, "invalid json", "userdata.invalid_json")
 		return
 	}
-	scope := s.userdata.scopeFromRequest(r, s.sessions, s.sessionHasPrivilegedRole(r))
-	merged, err := s.userdata.save(scope, blob, s.sessionAuthToken(r))
+	req := s.userdataRequest(r)
+	merged, err := s.userdata.save(r.Context(), req, blob)
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, err.Error(), "userdata.save_failed")
+		writeUserdataError(w, err)
 		return
 	}
-	writeUserdataJSON(w, scope, merged)
+	writeUserdataJSON(w, req.scope, merged)
+}
+
+// userdataRequest derives the scope, bearer and provider admission for r from
+// the verified session (client identity headers count only for privileged
+// sessions, via scopeFromRequest).
+func (s *server) userdataRequest(r *http.Request) userdataRequest {
+	privileged := s.sessionHasPrivilegedRole(r)
+	scope := s.userdata.scopeFromRequest(r, s.sessions, privileged)
+	e, _ := requestSession(r, s.sessions)
+	return userdataRequest{scope: scope, bearer: e.authToken,
+		provider: s.userdata.providerAllowed(scope, e.authToken, e.userID, privileged)}
+}
+
+// writeUserdataError writes a provider application answer (no provider body)
+// or a local store failure.
+func writeUserdataError(w http.ResponseWriter, err error) {
+	var ue *userdataError
+	if errors.As(err, &ue) {
+		writeAPIError(w, ue.status, ue.message, ue.code)
+		return
+	}
+	writeAPIError(w, http.StatusInternalServerError, err.Error(), "userdata.save_failed")
 }
 
 // writeUserdataJSON returns the blob plus the scoped household user_id so

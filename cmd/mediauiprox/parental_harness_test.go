@@ -163,7 +163,7 @@ func newParentalHarness(t *testing.T) *parentalHarness {
 		taggingHTTP: u, subtitlesHTTP: u,
 		requireAuth: true,
 		sessions:    newSessionStore(time.Hour),
-		parental:    newParentalGateWith(h.provider.srv.URL, newParentalPolicyClient(2*time.Second), h.clock.Now),
+		parental:    newParentalGateWith(devUserdataProvider(t, h.provider.srv.URL, 2*time.Second), h.clock.Now),
 	}
 	gated := http.NewServeMux()
 	h.s.registerRoutes(gated)

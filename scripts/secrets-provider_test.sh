@@ -83,7 +83,7 @@ unset -f ps
 runner="$tmp/runner"
 mkdir -p "$runner/scripts/lib" "$runner/run"
 cp "$ROOT/run-host.sh" "$runner/"
-cp "$ROOT/scripts/lib/admin-secret.sh" "$ROOT/scripts/lib/secrets-provider.sh" "$runner/scripts/lib/"
+cp "$ROOT/scripts/lib/admin-secret.sh" "$ROOT/scripts/lib/secrets-provider.sh" "$ROOT/scripts/lib/userdata-transport.sh" "$runner/scripts/lib/"
 bash -c 'exec -a "$1" sleep 30' _ "$runner/bin/secrets-file" &
 test_pid=$!
 for _ in $(seq 1 30); do

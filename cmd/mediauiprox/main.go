@@ -114,6 +114,9 @@ func main() {
 
 	// Mesh identity first: dialMeshGRPC reads the MUXCORE_TLS_* it exports.
 	mustEnsureMeshIdentity()
+	// After enrollment: the checked userdata-local client presents the BFF's
+	// own certificate (ADR-0033). Policy and blob calls share it.
+	userdataProvider := startupUserdataProvider()
 	moviesConn, err := dialMeshGRPC(*moviesGRPC)
 	if err != nil {
 		log.Fatalf("dial movies: %v", err)
@@ -412,14 +415,14 @@ func main() {
 		dist:                 *dist,
 		requireAuth:          *requireAuth,
 		sessions:             newSessionStoreForDir(*userdataDir, defaultSessionTTL),
-		userdata:             newServerUserdata(*userdataDir),
+		userdata:             newServerUserdata(*userdataDir, userdataProvider),
 		livetv:               newLiveTVStore(*livetvFile, *userdataDir),
 		libraryPaths:         newLibraryPathsStore(*libraryPathsFile, *userdataDir),
 		quickconnect:         newQuickConnectStore(*userdataDir),
 		passwordResets:       newPasswordResetStore(*passwordResetFile, *userdataDir),
 		issues:               newMediaIssueStore(*userdataDir),
 		together:             newWatchTogetherStore(*userdataDir),
-		parental:             newParentalGate(os.Getenv("USERDATA_LOCAL_URL")),
+		parental:             newParentalGate(userdataProvider),
 	}
 	s.parental.classifier = newCatalogClassifier(s, time.Now)
 	// ADR-0031: there is no switch that disables parental enforcement. Only a
@@ -428,7 +431,7 @@ func main() {
 		log.Printf("warn: MEDIA_UI_REQUIRE_AUTH=0 (dev only): requests without a BFF session bypass parental enforcement (ADR-0031)")
 	}
 	if !s.parental.hasProvider() {
-		log.Printf("warn: USERDATA_LOCAL_URL unset or invalid: parental policy unavailable; playback and restricted-class routes return 503 parental.policy_unavailable for signed-in users")
+		log.Printf("warn: USERDATA_LOCAL_URL unset or its transport unusable: parental policy unavailable; playback and restricted-class routes return 503 parental.policy_unavailable for signed-in users")
 	}
 
 	mux := http.NewServeMux()

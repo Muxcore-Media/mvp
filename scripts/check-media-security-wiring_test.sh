@@ -51,21 +51,27 @@ for services in (dev, load("docker-compose.yml")["services"]):
     token = services["media-ui"]["environment"]["TRANSCODER_HTTP_TOKEN"]
     assert token.startswith("${TRANSCODER_HTTP_TOKEN:?")
     assert services["media-transcoder"]["environment"]["TRANSCODER_HTTP_TOKEN"] == token
-# ADR-0031: the BFF gate reads USERDATA_LOCAL_URL; without it every gated
-# request is 503. Every stack points the BFF at the same provider, and the
-# provider's HTTP port is published for smoke.sh's policy seeding.
-for services in (household, load("docker-compose.yml")["services"]):
-    assert services["media-ui"]["environment"]["USERDATA_LOCAL_URL"] == "http://userdata-local:9672"
+# ADR-0031/ADR-0033: the BFF gate reads USERDATA_LOCAL_URL; without it every
+# gated request is 503. Household dials the mTLS provider by service name; the
+# explicit insecure dev stacks stay plaintext. The household provider publishes
+# no host port (scripts/check-compose-userdata-transport_test.sh renders these).
+reference = load("docker-compose.yml")["services"]
+assert household["media-ui"]["environment"]["USERDATA_LOCAL_URL"] == "https://userdata-local:9672"
+assert dev["media-ui"]["environment"]["USERDATA_LOCAL_URL"] == "http://userdata-local:9672"
+assert reference["media-ui"]["environment"]["USERDATA_LOCAL_URL"] == "http://userdata-local:9672"
+assert "ports" not in household["userdata-local"]
+assert "${USERDATA_LOCAL_PORT:-9672}:9672" in dev["userdata-local"]["ports"]
+assert "${USERDATA_LOCAL_PORT:-9672}:9672" in reference["userdata-local"]["ports"]
+for services in (household, reference):
     assert services["userdata-local"]["environment"]["USERDATA_LOCAL_HTTP_ADDR"] == ":9672"
-    assert "${USERDATA_LOCAL_PORT:-9672}:9672" in services["userdata-local"]["ports"]
     # userdata-local validates bearers against auth-local; the localhost default
     # is the container itself, which made /api/parental-policy answer 503.
     assert services["userdata-local"]["environment"]["AUTH_LOCAL_GRPC_ADDR"] == "auth-local:9403"
-assert "USERDATA_LOCAL_URL" not in (dev["media-ui"].get("environment") or {})
 run_host = (root / "run-host.sh").read_text()
 media_ui_start = run_host[run_host.index("maybe_start media-ui env"):]
 media_ui_start = media_ui_start[:media_ui_start.index('"$BIN/mediauiprox"')]
-assert 'USERDATA_LOCAL_URL="${USERDATA_LOCAL_URL:-http://127.0.0.1:9672}"' in media_ui_start
+assert 'USERDATA_LOCAL_URL="${USERDATA_LOCAL_URL:-$_userdata_http_url}"' in media_ui_start
+assert "_userdata_http_url=https://127.0.0.1:9672" in run_host
 assert 'USERDATA_LOCAL_HTTP_ADDR=":9672"' in run_host
 print("OK: media guard roots match mounts; playback origins and dev credentials agree; BFF policy provider wired")
 PY

@@ -124,9 +124,72 @@ grep -q "v0.1.5" "$work/err" || fail "404 message: $(cat "$work/err")"
 control '{"provider_404": false}'
 echo "OK missing provider route fails with a version hint"
 
+# ---- household seed transport (ADR-0033 §4): never curl, admin-ui helper only ----
+log_len() { fakelog | python3 -c 'import json, sys; print(len(json.load(sys.stdin)["log"]))'; }
+(
+  unset SMOKE_PARENTAL_SEED_CMD SMOKE_USERDATA_URL MUXCORE_PROFILE MUXCORE_REQUIRE_TLS MUXCORE_SMOKE_REGISTRY
+  export SMOKE_USERDATA_TLS=auto
+  parental_smoke_userdata_tls && fail "host default must be the explicit insecure dev seed"
+  SMOKE_USERDATA_URL=https://127.0.0.1:9672 parental_smoke_userdata_tls || fail "https SMOKE_USERDATA_URL not household"
+  MUXCORE_PROFILE=household parental_smoke_userdata_tls || fail "MUXCORE_PROFILE=household not household"
+  MUXCORE_PROFILE=staging parental_smoke_userdata_tls || fail "MUXCORE_PROFILE=staging not household"
+  MUXCORE_REQUIRE_TLS=1 parental_smoke_userdata_tls || fail "MUXCORE_REQUIRE_TLS=1 not household"
+  SMOKE_USERDATA_TLS=0 MUXCORE_PROFILE=household parental_smoke_userdata_tls && fail "SMOKE_USERDATA_TLS=0 not honoured"
+  exit 0
+) || exit 1
+before="$(log_len)"
+if SMOKE_USERDATA_TLS=1 SMOKE_PARENTAL_SEED_CMD='' parental_smoke_seed "$BASE" "$token" "$admin_id" >/dev/null 2>"$work/err"; then
+  fail "household seed without the admin-ui helper passed"
+fi
+if ! grep -q "S9c" "$work/err" || ! grep -q "mTLS-only" "$work/err"; then fail "missing-helper message: $(cat "$work/err")"; fi
+[[ "$(log_len)" == "$before" ]] || fail "household seed fell back to a direct provider call"
+# Whitespace-only and unknown commands are refused before anything runs (the
+# target user id must never become the command).
+cat >"$work/u-admin" <<'SH'
+#!/usr/bin/env bash
+touch "$CANARY"
+SH
+chmod +x "$work/u-admin"
+export CANARY="$work/canary"
+for bad in '   ' $'\t' "$work/no-such-helper --user"; do
+  if (cd "$work" && PATH="$work:$PATH" SMOKE_USERDATA_TLS=1 SMOKE_PARENTAL_SEED_CMD="$bad" parental_smoke_seed "$BASE" "$token" u-admin) >/dev/null 2>"$work/err"; then
+    fail "seed helper command '${bad}' accepted"
+  fi
+  [[ ! -e "$CANARY" ]] || fail "target user id was executed as the command for '${bad}'"
+done
+grep -q "command not found: $work/no-such-helper" "$work/err" || fail "unknown helper message: $(cat "$work/err")"
+[[ "$(log_len)" == "$before" ]] || fail "rejected helper reached the provider"
+# A stand-in helper records argv and stdin; it echoes the bearer to prove masking.
+cat >"$work/helper" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >"$HELPER_ARGS"
+cat >"$HELPER_STDIN"
+echo "helper saw $(cat "$HELPER_STDIN")"
+exit "${HELPER_RC:-0}"
+SH
+chmod +x "$work/helper"
+export HELPER_ARGS="$work/args" HELPER_STDIN="$work/stdin"
+# The documented S9c form: `… parental-seed --bearer-file - --user <id>`.
+out="$(SMOKE_USERDATA_TLS=1 SMOKE_PARENTAL_SEED_CMD="$work/helper parental-seed --bearer-file - --user" parental_smoke_seed "$BASE" "$token" "$admin_id")"
+[[ "$(cat "$work/args")" == $'parental-seed\n--bearer-file\n-\n--user\nu-admin' ]] || fail "helper argv: $(cat "$work/args")"
+grep -qF -- "$token" "$work/args" && fail "bearer passed in argv"
+[[ "$(cat "$work/stdin")" == "$token" ]] || fail "helper stdin is not the bearer"
+grep -qF -- "$token" <<<"$out" && fail "bearer not masked in helper output: $out"
+grep -q 'helper saw \*\*\*' <<<"$out" || fail "masked helper output: $out"
+grep -q "OK parental policy u-admin: unrestricted via the admin-ui seed helper" <<<"$out" || fail "helper success: $out"
+[[ "$(log_len)" == "$before" ]] || fail "household seed called the provider directly"
+if HELPER_RC=3 SMOKE_USERDATA_TLS=1 SMOKE_PARENTAL_SEED_CMD="$work/helper" parental_smoke_seed "$BASE" "$token" "$admin_id" >/dev/null 2>"$work/err"; then
+  fail "failing helper accepted"
+fi
+grep -q "helper for u-admin exited 3" "$work/err" || fail "helper failure message: $(cat "$work/err")"
+# Explicit insecure dev keeps the direct plaintext seed.
+out="$(SMOKE_USERDATA_TLS=0 parental_smoke_seed "$BASE" "$token" "$admin_id")"
+grep -q "unrestricted (revision 1, unchanged)" <<<"$out" || fail "dev seed via dispatcher: $out"
+echo "OK household seed runs only through the admin-ui helper (bearer on stdin, masked); dev seed unchanged"
+
 # ---- smoke.sh wiring: seed before any stream, negative check after ----
 smoke="$ROOT/smoke.sh"
-seed_line="$(grep -n 'parental_smoke_seed_unrestricted "\$USERDATA_HTTP"' "$smoke" | cut -d: -f1)"
+seed_line="$(grep -n 'parental_smoke_seed "\$USERDATA_HTTP"' "$smoke" | cut -d: -f1)"
 acq_line="$(grep -n '==> fixture acquisition' "$smoke" | cut -d: -f1)"
 stream_line="$(grep -n 'stream_code=\$(curl' "$smoke" | cut -d: -f1)"
 neg_line="$(grep -n 'parental_smoke_expect_unconfigured "\$MEDIA_UI_URL"' "$smoke" | cut -d: -f1)"

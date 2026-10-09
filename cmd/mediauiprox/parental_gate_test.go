@@ -94,7 +94,7 @@ func TestParentalPolicyCacheCapacity(t *testing.T) {
 	p := newFakePolicyProvider(t)
 	p.doc(func(u string) string { return configuredDoc(u, "", 1, unrestrictedPolicyJSON) })
 	clock := newFakeClock()
-	g := newParentalGateWith(p.srv.URL, newParentalPolicyClient(time.Second), clock.Now)
+	g := newParentalGateWith(devUserdataProvider(t, p.srv.URL, time.Second), clock.Now)
 	for i := range parentalPolicyCacheMax {
 		g.cache[fmt.Sprint(i)] = parentalCacheEntry{expires: clock.Now().Add(time.Minute)}
 	}

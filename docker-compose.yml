@@ -841,8 +841,20 @@ services:
       # (default localhost:9403 is wrong inside this container).
       AUTH_LOCAL_GRPC_ADDR: auth-local:9403
       USERDATA_LOCAL_DB_PATH: /data/userdata.db
+    # This reference stack is explicit insecure dev: userdata-local serves
+    # plaintext HTTP without module identity (ADR-0033 §3), so the host port
+    # stays for smoke.sh's dev policy seeding. The household stack
+    # (docker-compose.registry.yml) is mTLS-only and publishes no port.
     ports:
       - "${USERDATA_LOCAL_PORT:-9672}:9672"
+    # Packaged probe (module.Dockerfile builds cmd/userdata-health when the
+    # userdata-local checkout ships it, >= v0.1.6); plaintext here.
+    healthcheck:
+      test: ["CMD", "/app/userdata-health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     volumes:
       - userdata-data:/data
 
@@ -917,9 +929,9 @@ services:
       JELLYFIN_BASE_URL: ${JELLYFIN_BASE_URL:-}
       JELLYFIN_API_KEY: ${JELLYFIN_API_KEY:-}
       JELLYFIN_WEBHOOK_SECRET: ${JELLYFIN_WEBHOOK_SECRET:-}
-      USERDATA_SYNC: ${USERDATA_SYNC:-1}
-      USERDATA_SYNC_INTERVAL_SECONDS: ${USERDATA_SYNC_INTERVAL_SECONDS:-300}
-      USERDATA_LOCAL_URL: ${USERDATA_LOCAL_URL:-}
+      # Background Jellyfin→MuxCore userdata sync is unsupported (ADR-0033 §3:
+      # no user bearer, no admitted `jellyfin` caller); disabled, no provider URL.
+      USERDATA_SYNC: "0"
       USERDATA_PUSH_TO_JELLYFIN: ${USERDATA_PUSH_TO_JELLYFIN:-0}
     ports:
       - "${JELLYFIN_HTTP_PORT:-8475}:8475"
