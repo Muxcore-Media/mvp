@@ -116,7 +116,7 @@ func main() {
 	mustEnsureMeshIdentity()
 	// After enrollment: the checked userdata-local client presents the BFF's
 	// own certificate (ADR-0033). Policy and blob calls share it.
-	userdataProvider := mustUserdataProvider(os.Getenv("USERDATA_LOCAL_URL"), meshModuleID(os.Getenv))
+	userdataProvider := startupUserdataProvider()
 	moviesConn, err := dialMeshGRPC(*moviesGRPC)
 	if err != nil {
 		log.Fatalf("dial movies: %v", err)

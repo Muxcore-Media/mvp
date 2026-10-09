@@ -50,10 +50,10 @@ func TestUserdataProviderTLSGenuineProvider(t *testing.T) {
 
 	u := newServerUserdata(t.TempDir(), client)
 	scope := store.Scope{UserID: "kid"}
-	if blob := u.load(t.Context(), scope, "bearer-kid"); string(blob.Prefs) != `{"theme":"dark"}` {
+	if blob := loadBlob(t, u, scope, "bearer-kid"); string(blob.Prefs) != `{"theme":"dark"}` {
 		t.Fatalf("blob GET over TLS: %+v", blob)
 	}
-	if _, err := u.save(t.Context(), scope, store.Blob{Prefs: []byte(`{"theme":"light"}`)}, "bearer-kid"); err != nil {
+	if _, err := u.save(t.Context(), userdataRequest{scope: scope, bearer: "bearer-kid", provider: true}, store.Blob{Prefs: []byte(`{"theme":"light"}`)}); err != nil {
 		t.Fatal(err)
 	}
 	if u.degraded.Load() {
@@ -154,7 +154,7 @@ func assertProviderRejected(t *testing.T, client userdataProviderClient, hits fu
 	if _, err := u.store.Put(scope, store.Blob{Prefs: []byte(`{"local":true}`)}); err != nil {
 		t.Fatal(err)
 	}
-	if blob := u.load(t.Context(), scope, "bearer-kid"); string(blob.Prefs) != `{"local":true}` {
+	if blob := loadBlob(t, u, scope, "bearer-kid"); string(blob.Prefs) != `{"local":true}` {
 		t.Fatalf("blob from forged provider was accepted: %+v", blob)
 	}
 	if !u.degraded.Load() {

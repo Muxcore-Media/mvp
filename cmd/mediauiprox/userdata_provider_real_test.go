@@ -106,6 +106,9 @@ type providerAuth struct {
 
 func (a providerAuth) Validate(_ context.Context, req *authv1.ValidateRequest) (*authv1.ValidateResponse, error) {
 	u, ok := a.tokens[req.GetToken()]
+	if id, dynamic := strings.CutPrefix(req.GetToken(), "tok-user-"); !ok && dynamic && id != "" {
+		u, ok = providerAuthUser{id: id, roles: []string{"user"}}, true
+	}
 	if !ok {
 		return &authv1.ValidateResponse{Valid: false, Error: "unknown token"}, nil
 	}
@@ -124,6 +127,7 @@ var providerAuthTokens = map[string]providerAuthUser{
 	"tok-kid":   {id: "kid", roles: []string{"user"}},
 	"tok-alice": {id: "alice", roles: []string{"user"}},
 	"tok-admin": {id: "admin", roles: []string{"admin"}},
+	"tok-bob":   {id: "bob", tenant: "tB", roles: []string{"user"}},
 }
 
 func freeLoopbackAddr(t *testing.T) string {
@@ -433,7 +437,7 @@ func TestRealUserdataProviderHousehold(t *testing.T) {
 			t.Fatalf("admission denial: %v, want parental.policy_unavailable", perr)
 		}
 		u := newServerUserdata(t.TempDir(), monitor)
-		if blob := u.load(t.Context(), store.Scope{UserID: "alice"}, "tok-alice"); len(blob.Progress) != 0 || !u.degraded.Load() {
+		if blob := loadBlob(t, u, store.Scope{UserID: "alice"}, "tok-alice"); len(blob.Progress) != 0 || !u.degraded.Load() {
 			t.Fatalf("denied blob read: %+v degraded=%v", blob, u.degraded.Load())
 		}
 	})

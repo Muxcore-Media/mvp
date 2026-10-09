@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Muxcore-Media/userdata-local/httpclient"
+	"github.com/Muxcore-Media/userdata-local/store"
 )
 
 // Test fixtures for the checked userdata-local transport (ADR-0033): a core-like
@@ -178,6 +179,17 @@ func householdProvider(t *testing.T, origin, moduleID string, id testIdentity) u
 		t.Cleanup(hc.CloseIdleConnections)
 	}
 	return c
+}
+
+// loadBlob is a provider-allowed blob load that must not return an
+// application error.
+func loadBlob(t *testing.T, u *serverUserdata, scope store.Scope, bearer string) store.Blob {
+	t.Helper()
+	blob, err := u.load(t.Context(), userdataRequest{scope: scope, bearer: bearer, provider: u.provider != nil})
+	if err != nil {
+		t.Fatalf("load %+v: %v", scope, err)
+	}
+	return blob
 }
 
 // observedRequest is what a fake TLS provider's handler saw.

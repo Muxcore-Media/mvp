@@ -7,6 +7,9 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/Muxcore-Media/userdata-local/httpclient"
@@ -40,9 +43,11 @@ func userdataProviderOrigin(raw string) string {
 // newUserdataProviderClient builds the BFF's checked provider client for
 // USERDATA_LOCAL_URL. It must run after mustEnsureMeshIdentity: meshid exports
 // MUXCORE_TLS_CERT/KEY/CA, which httpclient.FromEnv resolves. moduleID is the
-// BFF's own mesh identity (certificate CN). A nil client and nil error mean the
-// URL is unset; an error is a configuration failure and is never retried in
-// plaintext.
+// identity the provider admits for this caller; main passes the fixed
+// defaultMeshModuleID ("media-ui"), so a different MUXCORE_MODULE_ID override
+// (whose certificate the provider would refuse at request time) is a startup
+// configuration error here. A nil client and nil error mean the URL is unset;
+// an error is a configuration failure and is never retried in plaintext.
 func newUserdataProviderClient(rawURL, moduleID string) (userdataProviderClient, error) {
 	origin := userdataProviderOrigin(rawURL)
 	if origin == "" {
@@ -66,14 +71,42 @@ func newUserdataProviderClient(rawURL, moduleID string) (userdataProviderClient,
 func mustUserdataProvider(rawURL, moduleID string) userdataProviderClient {
 	c, err := newUserdataProviderClient(rawURL, moduleID)
 	if err != nil {
-		log.Printf("warn: USERDATA_LOCAL_URL %q: userdata provider transport unusable (ADR-0033): %v; "+
-			"parental policy is unavailable and userdata uses the local store only", rawURL, err)
+		log.Printf("warn: USERDATA_LOCAL_URL %s: userdata provider transport unusable (ADR-0033): %v; "+
+			"parental policy is unavailable and userdata uses the local store only", redactURLForLog(rawURL), err)
 		return nil
 	}
 	if c != nil {
-		log.Printf("media-ui: userdata provider %s as %q", userdataProviderOrigin(rawURL), moduleID)
+		log.Printf("media-ui: userdata provider %s as %q", redactURLForLog(rawURL), moduleID)
 	}
 	return c
+}
+
+// redactURLForLog renders a configured URL for logs without userinfo, query or
+// fragment (an operator typo such as https://user:pass@host must not leak the
+// password); an unparseable value is not echoed at all.
+func redactURLForLog(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return `"<unparseable URL>"`
+	}
+	if u.User != nil {
+		u.User = url.User("REDACTED")
+	}
+	if u.RawQuery != "" || u.ForceQuery {
+		u.RawQuery, u.ForceQuery = "REDACTED", false
+	}
+	if u.Fragment != "" || u.RawFragment != "" {
+		u.Fragment, u.RawFragment = "REDACTED", ""
+	}
+	return strconv.Quote(u.String())
+}
+
+// startupUserdataProvider is main's provider client: USERDATA_LOCAL_URL bound
+// to the BFF's fixed identity. The provider admits the BFF only as media-ui, so
+// a MUXCORE_MODULE_ID override is rejected here at startup (logged; parental
+// policy then fails closed) instead of surfacing as module_forbidden 503s.
+func startupUserdataProvider() userdataProviderClient {
+	return mustUserdataProvider(os.Getenv("USERDATA_LOCAL_URL"), defaultMeshModuleID)
 }
 
 // describeProviderError renders a provider transport failure for logs. It
