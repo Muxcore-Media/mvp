@@ -35,6 +35,9 @@ type parentalRoute struct {
 	// hlsAsset marks GET /stream/hls/{key}/{file}: the item comes from the
 	// session's key binding, not from the request.
 	hlsAsset bool
+	// subtitleTrack marks GET /api/playback/subtitles/{id}: the items come from
+	// the session's track bindings, not from the request.
+	subtitleTrack bool
 	// blockedAlias replaces parental.blocked in the response code (resolve).
 	blockedAlias string
 	// roleGated marks C-EXEMPT operator routes that reject sessions without
@@ -77,8 +80,6 @@ var (
 	cPlaySrc = parentalRoute{class: classPlay, item: parentalItemFromSrcQuery}
 	// cPlayPath checks the item named by the request path itself.
 	cPlayPath = parentalRoute{class: classPlay, item: parentalItemFromRequestPath}
-	// cPlayUnknown cannot name an item from the request (classification unavailable).
-	cPlayUnknown = parentalRoute{class: classPlay, item: func(*http.Request) parentalItem { return parentalItem{} }}
 )
 
 var parentalRouteClasses = map[string]parentalRoute{
@@ -91,7 +92,7 @@ var parentalRouteClasses = map[string]parentalRoute{
 	"/stream/movies/":                  cPlayPath,
 	"/stream/tv/":                      cPlayPath,
 	"GET /api/playback/subtitles":      cPlaySrc,
-	"GET /api/playback/subtitles/{id}": cPlayUnknown, // subtitle id; the item is not named
+	"GET /api/playback/subtitles/{id}": {class: classPlay, subtitleTrack: true},
 	"GET /api/playback/segments": {class: classPlay, item: func(r *http.Request) parentalItem {
 		return parentalItem{ID: strings.TrimSpace(r.URL.Query().Get("media_id"))}
 	}},
@@ -578,21 +579,35 @@ func (s *server) parentalPlayGate(route parentalRoute, next http.Handler) http.H
 			next.ServeHTTP(w, r)
 			return
 		}
-		var item parentalItem
-		if route.hlsAsset {
+		var items []parentalItem
+		switch {
+		case route.hlsAsset:
 			bound, ok := s.parental.hls.lookup(pr.sessionID, r.PathValue("key"), s.parental.now())
 			if !ok {
 				writeParentalError(w, errParentalBlocked, route.blockedAlias)
 				return
 			}
-			item = bound
-		} else if route.item != nil {
-			item = route.item(r)
+			items = []parentalItem{bound}
+		case route.subtitleTrack:
+			bound, ok := s.parental.subtitles.lookup(pr.sessionID, subtitleTrackIDFromRequest(r), s.parental.now())
+			if !ok || len(bound) == 0 {
+				writeParentalError(w, errParentalBlocked, route.blockedAlias)
+				return
+			}
+			items = bound
+		case route.item != nil:
+			items = []parentalItem{route.item(r)}
+		default:
+			items = []parentalItem{{}}
 		}
-		if perr := s.parental.authorizeItem(r.Context(), pol, item); perr != nil {
-			writeParentalError(w, perr, route.blockedAlias)
-			return
+		// Every item the request is bound to must be allowed.
+		for _, item := range items {
+			if perr := s.parental.authorizeItem(r.Context(), pol, item); perr != nil {
+				writeParentalError(w, perr, route.blockedAlias)
+				return
+			}
 		}
+		item := items[0]
 		ctx := context.WithValue(r.Context(), parentalGrantKey{}, parentalGrant{sessionID: pr.sessionID, item: item})
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

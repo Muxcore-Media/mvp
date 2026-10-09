@@ -138,6 +138,9 @@ type parentalGate struct {
 	ttl        time.Duration
 	classifier parentalClassifier
 	hls        *hlsKeyBindings
+	// subtitles binds playback subtitle track IDs to the session and item they
+	// were advertised for (parental_subtitles.go).
+	subtitles *subtitleTrackBindings
 
 	mu    sync.Mutex
 	cache map[string]parentalCacheEntry
@@ -172,6 +175,7 @@ func newParentalGateWith(userdataBase string, client *http.Client, now func() ti
 		ttl:        parentalPolicyTTL,
 		classifier: unavailableClassifier{},
 		hls:        newHLSKeyBindings(),
+		subtitles:  newSubtitleTrackBindings(),
 		cache:      map[string]parentalCacheEntry{},
 	}
 }
