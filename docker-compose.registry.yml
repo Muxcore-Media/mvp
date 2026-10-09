@@ -128,6 +128,9 @@ services:
       AUTH_DB_PATH: /data/auth.db
       AUTH_GRPC_ADDR: auth-local:9403
       AUTH_HTTP_ADDR: ":9401"
+      # Extra post-login redirect hosts (host:port, comma-separated) for a BFF
+      # published on a non-default MEDIA_UI_PORT; empty keeps the built-in defaults.
+      AUTH_ALLOWED_REDIRECT_HOSTS: ${AUTH_ALLOWED_REDIRECT_HOSTS:-}
       AUTH_BOOTSTRAP_USER: ${MVP_ADMIN_USER:-admin}
       AUTH_BOOTSTRAP_PASSWORD: ${MVP_ADMIN_PASSWORD:?set MVP_ADMIN_PASSWORD in .env (openssl rand -hex 16)}
     ports:
