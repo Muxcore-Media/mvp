@@ -175,9 +175,9 @@ control '{"set_rating": ""}'
 echo "OK re-run reuses the member, writes at the current revision and restores the original rating"
 
 # ---- staleness inside the bound is polled, not failed; a conflict re-reads ----
-control '{"class_ttl": 0.6, "policy_ttl": 0.6}'
-journey || { cat "$work/out" >&2; fail "staleness inside the bound failed"; }
-grep -q "old state seen until 0\.[0-9]*s" "$work/out" || fail "in-bound staleness not observed/reported"
+control '{"class_ttl": 1.5, "policy_ttl": 1.5}'
+SMOKE_PARENTAL_JOURNEY_BOUND_SEC=3 SMOKE_PARENTAL_JOURNEY_TIMEOUT_SEC=5 journey || { cat "$work/out" >&2; fail "staleness inside the bound failed"; }
+grep -qE "old state seen until [0-9]+\.[0-9]+s" "$work/out" || fail "in-bound staleness not observed/reported"
 control '{"conflict_once": true}'
 journey || { cat "$work/out" >&2; fail "conflict retry failed"; }
 grep -qF "conflicted, re-reading" "$work/out" || fail "conflict not reported"
@@ -264,13 +264,13 @@ for s in d["passwords"] + d["secrets"]:
 echo "$ADMIN_PASS" >>"$work/secrets"
 [[ "$(wc -l <"$work/secrets")" -gt 50 ]] || fail "secret list too short"
 if grep -qFf "$work/secrets" "$work/all-out"; then
-  grep -oFf "$work/secrets" "$work/all-out" | head -3 >&2
+  grep -oFf "$work/secrets" "$work/all-out" | head -3 >&2 || true
   fail "a password, bearer, session, code or CSRF token reached the journey output"
 fi
 echo "OK no password, bearer, session, login code or CSRF token in any journey output (masking proven by L10/L12)"
 [[ "$(grep -c '^curl ' "$work/argv")" -gt 300 ]] || fail "argv recorder saw too little: $(wc -l <"$work/argv")"
 if grep -qFf "$work/secrets" "$work/argv"; then
-  grep -oFf "$work/secrets" "$work/argv" | head -3 >&2
+  grep -oFf "$work/secrets" "$work/argv" | head -3 >&2 || true
   fail "L4: a password, bearer, session or CSRF token appeared in a curl/python3 argv"
 fi
 echo "OK L4: no secret in any curl/python3 argv ($(grep -c '^curl ' "$work/argv") curl invocations recorded over the happy, S4, re-run and L10/L12 journeys)"
