@@ -35,7 +35,7 @@ means a process that opens a connection to the provider's HTTP listener.
 | Jellyfin bridge background sync (`USERDATA_SYNC`) | jellyfin `v0.3.5` `internal/userdata_sync.go`, `internal/module.go` | `PUT /userdata` with `X-User-ID`, no user bearer, shared external HTTP client | **Unsupported, disabled** (below) |
 | jellyfin module's own sample compose | jellyfin `deploy/docker-compose.yml` (`USERDATA_LOCAL_URL` default empty) | — | Outside this repo; leave empty |
 | `smoke.sh` / `scripts/lib/parental-smoke.sh` | this repo | dev: plaintext curl; household: admin-ui helper only | **Updated (S9d)** |
-| `smoke.sh` restricted-member journey (`scripts/lib/parental-journey.sh`) | this repo | not a direct client: writes the member's policy through admin-ui's form (`POST /users/{id}/parental`, admin-ui identity) and reads it through the BFF; pauses the userdata-local container once to prove the BFF fails closed | **Added (T-M4-01)**, household registry only |
+| `smoke.sh` restricted-member journey (`scripts/lib/parental-journey.sh`) | this repo | not a direct client: writes the member's policies through admin-ui's form (`POST /users/{id}/parental`, admin-ui identity), its own blob through the BFF's `/api/userdata`, and checks enforcement through the BFF; pauses the userdata-local container once to prove the BFF fails closed (unpaused by a trap and a preflight) | **Added (T-M4-01)**, household registry only |
 
 Not direct clients (they reach userdata through the BFF's `/api/userdata`, so
 they are unaffected by the provider transport):
