@@ -8,9 +8,14 @@ Mirrors only what scripts/lib/parental-journey.sh touches:
   GET/POST /users/{id}/parental (UserParentalForm fragment, revision checked)
   and POST /media/media-movies/item/{id}/content-rating, both behind the
   double-submit CSRF check (cookie csrf-token == X-CSRF-Token);
-- BFF: /healthz, POST /api/tv/login, /api/movies, /api/movies/{id},
-  /api/playback/resolve, /stream/movies/{id}, the operator routes and C-DENY
-  routes, evaluating ADR-0031 §2.6 for restricted policies.
+- BFF: /healthz, POST /api/tv/login, POST /logout, /api/userdata,
+  /api/movies, /api/movies/{id}, /api/playback/resolve, /stream/movies/{id},
+  operator routes, /api/search and /api/discover/movie/{id}. Restricted
+  policies are evaluated per ADR-0031 §2.6 with a per-session policy cache and
+  a per-item classification cache for play routes (TTLs settable, so stale
+  propagation beyond the bound can be modelled); a "paused" provider makes
+  expired policy lookups 503 parental.policy_unavailable. Optional TMDB
+  fallback models ADR-0031 S4 (operator > tmdb > unavailable).
 
 POST /_control sets FLAGS that break one behaviour each, so the test can prove
 every journey assertion fails when the product misbehaves. GET /_log returns
@@ -25,22 +30,30 @@ from urllib.parse import parse_qs, quote, unquote, urlsplit
 MOVIE_ID = "mv_550_2026-10-09T18:48:06Z"
 TITLE = "Fight Club"
 LADDER = ["G", "PG", "PG-13", "R", "NC-17"]
+UNRESTRICTED = {"version": 1, "mode": "unrestricted", "rules": None}
 
 USERS = {"admin": {"id": "u-admin", "password": "admin-pass-123", "roles": ["admin"]}}
 AUTH_TOKENS = {}  # auth-local bearer -> uid
 CODES = {}  # login code -> uid
 ADMIN_SESSIONS = {}  # admin-ui session cookie -> uid
 BFF = {}  # BFF session token -> uid
-POLICIES = {"u-admin": (1, {"version": 1, "mode": "unrestricted", "rules": None})}  # uid -> (revision, policy)
-MOVIES = {
-    MOVIE_ID: {"id": MOVIE_ID, "tmdb_id": 550, "title": TITLE, "rating": "", "source": "", "changed": 0.0},
-    "mv_other": {"id": "mv_other", "tmdb_id": 680, "title": "Pulp Fiction", "rating": "", "source": "", "changed": 0.0},
-}
+POLICIES = {"u-admin": (1, UNRESTRICTED)}  # uid -> (revision, policy)
+POLICY_CACHE = {}  # BFF token -> (fetched_at, policy or None)
+CLASS_CACHE = {}  # movie id -> (fetched_at, effective rating)
+BLOBS = {}  # uid -> userdata blob
+WRITES = {}  # uid -> (time, previous policy) of the last policy write
+RATED = {}  # movie id -> (time, previous effective rating) of the last rating change
+
+
+def new_movie(mid, tmdb, title):
+    return {"id": mid, "tmdb_id": tmdb, "title": title, "rating": "", "source": ""}
+
+
+MOVIES = {MOVIE_ID: new_movie(MOVIE_ID, 550, TITLE), "mv_other": new_movie("mv_other", 680, "Pulp Fiction")}
 FLAGS = {}
-BLOBS = {}  # uid -> userdata blob written through PUT /api/userdata
-HISTORY = {}  # uid -> policies in write order (policy_stale serves the first)
-PAUSED = [0.0]  # time userdata-local was "paused" (0 = running)
-LOG = {"csrf_posts": [], "kid_requests": [], "module_calls": [], "passwords": [], "secrets": [], "policy_puts": 0}
+PAUSED = [False]
+LOG = {"csrf_posts": [], "kid_requests": [], "module_calls": [], "passwords": [], "secrets": [],
+       "policy_puts": 0, "pause_calls": [], "logouts": 0}
 
 
 def user_by_id(uid):
@@ -57,39 +70,13 @@ def new_secret(prefix):
     return s
 
 
-def rating_state(m, play=False):
-    """Classification as seen by the gate; C-PLAY lookups see the previous value
-    for FLAGS['play_delay'] seconds after a change (the ≤30 s cache)."""
-    if play and time.time() - m["changed"] < float(FLAGS.get("play_delay") or 0):
-        return m.get("prev", "")
-    return m["rating"]
-
-
-def allowed(uid, m, play=False):
-    """None = allowed, else the parental code."""
-    if uid not in POLICIES:
-        return "parental.policy_unconfigured"
-    _, pol = POLICIES[uid]
-    if FLAGS.get("policy_stale") and HISTORY.get(uid):
-        pol = HISTORY[uid][0]
-    if FLAGS.get("blob_authority") and ((BLOBS.get(uid) or {}).get("prefs") or {}).get("parental", {}).get("mode") == "unrestricted":
-        return None
-    if pol["mode"] == "unrestricted":
-        return None
-    r = pol["rules"]
-    rating = rating_state(m, play)
-    if rating == "":
-        return None if FLAGS.get("unavailable_visible") else "parental.blocked"
-    if rating == "NR":
-        return None if (r["allow_unrated"] or FLAGS.get("nr_allowed")) else "parental.blocked"
-    ceiling = r["max_rating"] or ("PG" if r["kids_mode"] else "")
-    if ceiling and LADDER.index(rating) > LADDER.index(ceiling):
-        return "parental.blocked"
-    return None
-
-
-def restricted(uid):
-    return uid in POLICIES and POLICIES[uid][1]["mode"] == "restricted"
+def effective(m):
+    """(rating, source) as the media module reports it: operator > tmdb > none."""
+    if m["source"] == "operator":
+        return m["rating"], "operator"
+    if FLAGS.get("tmdb_fallback"):
+        return "R", "tmdb"
+    return "", ""
 
 
 def privileged(uid):
@@ -97,8 +84,80 @@ def privileged(uid):
     return bool(u) and ("admin" in u["roles"] or "manager" in u["roles"])
 
 
-def parental_fragment(uid, saved=False, conflict=False):
+class Unavailable(Exception):
+    pass
+
+
+def session_policy(tok, uid):
+    """Policy for a BFF session through the ≤TTL cache; the provider being
+    paused makes an expired lookup unavailable."""
+    now, ttl = time.time(), float(FLAGS.get("policy_ttl", 0.2))
+    if PAUSED[0]:
+        ttl = float(FLAGS.get("outage_policy_ttl", ttl))
+    hit = POLICY_CACHE.get(tok)
+    if hit and now - hit[0] < ttl:
+        return hit[1]
+    if PAUSED[0] and not FLAGS.get("outage_open"):
+        raise Unavailable()
+    pol = POLICIES.get(uid, (0, None))[1]
+    w = WRITES.get(uid)
+    if w and now - w[0] < float(FLAGS.get("policy_stale_for", 0)):
+        pol = w[1]  # a BFF that keeps the old policy this long after a write
+    POLICY_CACHE[tok] = (now, pol)
+    return pol
+
+
+def play_rating(m):
+    now, ttl = time.time(), float(FLAGS.get("class_ttl", 0.2))
+    hit = CLASS_CACHE.get(m["id"])
+    if hit and now - hit[0] < ttl:
+        return hit[1]
+    r = effective(m)[0]
+    w = RATED.get(m["id"])
+    if w and now - w[0] < float(FLAGS.get("class_stale_for", 0)):
+        r = w[1]  # a BFF that keeps the old classification this long after a change
+    CLASS_CACHE[m["id"]] = (now, r)
+    return r
+
+
+def ceiling(rules):
+    if rules["max_rating"]:
+        return LADDER.index(rules["max_rating"])
+    if rules["kids_mode"] and not FLAGS.get("kids_no_default"):
+        return LADDER.index("PG")
+    return len(LADDER) - 1
+
+
+def verdict(pol, uid, rating, q=None):
+    """None = allowed, else the parental code."""
+    if pol is None:
+        return "parental.policy_unconfigured"
+    if pol["mode"] == "unrestricted":
+        return None
+    if FLAGS.get("blob_authority") and ((BLOBS.get(uid) or {}).get("prefs") or {}).get("parental", {}).get("mode") == "unrestricted":
+        return None
+    r = pol["rules"]
+    if FLAGS.get("trust_query") and q and q.get("parental_rating"):
+        claimed = q["parental_rating"][0]
+        if claimed in LADDER and LADDER.index(claimed) <= ceiling(r):
+            return None
+    if rating == "":
+        if FLAGS.get("unavailable_visible"):
+            return None
+        if FLAGS.get("unavailable_as_unrated") and r["allow_unrated"]:
+            return None
+        return "parental.blocked"
+    if rating in ("NR", "UR"):
+        return None if (r["allow_unrated"] or FLAGS.get("nr_allowed")) else "parental.blocked"
+    if rating not in LADDER:
+        return "parental.blocked"
+    return None if LADDER.index(rating) <= ceiling(r) else "parental.blocked"
+
+
+def parental_fragment(uid, saved=False, conflict=False, pol_override=None):
     rev, pol = POLICIES.get(uid, (0, None))
+    if pol_override is not None:
+        rev, pol = pol_override
     state = "configured" if pol else "unconfigured"
     mode = pol["mode"] if pol else ""
     r = (pol or {}).get("rules") or {}
@@ -111,7 +170,7 @@ def parental_fragment(uid, saved=False, conflict=False):
         + '<form><input type="hidden" name="expected_revision" value="%d"/>' % rev
         + '<select name="mode"><option value="restricted"%s>R</option></select>' % (" selected" if mode == "restricted" else "")
         + '<input type="checkbox" name="kids_mode" value="1"%s/>' % (" checked" if r.get("kids_mode") else "")
-        + '<select name="max_rating"><option value="">none</option>%s</select>' % opts
+        + '<select name="max_rating"><option value=""%s>none</option>%s</select>' % (" selected" if not r.get("max_rating") else "", opts)
         + '<input name="blocked_tags" value="%s"/>' % ", ".join(r.get("blocked_tags") or [])
         + '<input name="allowed_tags" value="%s"/>' % ", ".join(r.get("allowed_tags") or [])
         + '<input type="checkbox" name="allow_unrated" value="1"%s/>' % (" checked" if r.get("allow_unrated") else "")
@@ -119,9 +178,13 @@ def parental_fragment(uid, saved=False, conflict=False):
     )
 
 
-def movie_json(m):
-    return {"id": m["id"], "tmdb_id": m["tmdb_id"], "title": m["title"], "has_file": True,
-            "content_rating": m["rating"], "stream_url": "/stream/movies/" + quote(m["id"], safe=":")}
+def movie_json(m, view=None):
+    r, s = effective(m)
+    if FLAGS.get("effective_wrong") and s == "operator":
+        r = "G"
+    out = {"id": m["id"], "tmdb_id": m["tmdb_id"], "title": m["title"], "has_file": True,
+           "content_rating": r, "content_rating_source": s, "stream_url": "/stream/movies/" + quote(m["id"], safe=":")}
+    return out
 
 
 class H(BaseHTTPRequestHandler):
@@ -147,13 +210,16 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def deny(self, code, pcode, alias=""):
+    def deny(self, pcode, alias="", status=403):
         body = {"error": "denied", "code": alias or pcode}
         if alias:
             body["parental_code"] = pcode
+        if FLAGS.get("missing_code"):
+            body = {"error": "denied", "parental_code": pcode}
         if FLAGS.get("title_leak"):
             body["error"] = "%s is not allowed" % TITLE
-        return self.send(403 if pcode != "parental.classification_unavailable" else 503, body)
+        hdrs = [] if FLAGS.get("no_store_missing") else [("Cache-Control", "no-store")]
+        return self.send(status, body, headers=hdrs)
 
     def body(self):
         n = int(self.headers.get("Content-Length") or 0)
@@ -187,24 +253,27 @@ class H(BaseHTTPRequestHandler):
 
     def route(self, method):
         u = urlsplit(self.path)
-        path, q = u.path, parse_qs(u.query)
+        path, q = u.path, parse_qs(u.query, keep_blank_values=True)
         if path == "/_control":
             if self.headers.get("X-Reset"):
                 FLAGS.clear()
-                MOVIES.setdefault(MOVIE_ID, {"id": MOVIE_ID, "tmdb_id": 550, "title": TITLE, "rating": "", "source": "", "changed": 0.0})
+                MOVIES.setdefault(MOVIE_ID, new_movie(MOVIE_ID, 550, TITLE))
             FLAGS.update(json.loads(self.body() or b"{}"))
             if "pause" in FLAGS:
-                PAUSED[0] = time.time() if FLAGS.pop("pause") else 0.0
-                LOG.setdefault("pause_calls", []).append(PAUSED[0] != 0.0)
+                PAUSED[0] = bool(FLAGS.pop("pause"))
+                LOG["pause_calls"].append(PAUSED[0])
             if FLAGS.pop("leftover_kid", False):
                 USERS["smoke-kid"] = {"id": "u-leftover", "password": "old-pass-xyz", "roles": ["viewer"]}
-                POLICIES["u-leftover"] = (3, {"version": 1, "mode": "unrestricted", "rules": None})
+                POLICIES["u-leftover"] = (3, UNRESTRICTED)
             if "set_rating" in FLAGS:
-                MOVIES[MOVIE_ID].update(rating=FLAGS.pop("set_rating"), changed=0.0)
+                v = FLAGS.pop("set_rating")
+                MOVIES[MOVIE_ID].update(rating=v, source="operator" if v else "")
             return self.send(200, {})
         if path == "/_log":
-            return self.send(200, dict(LOG, paused=PAUSED[0] != 0.0, users=sorted(USERS), policies={k: v for k, v in POLICIES.items()},
-                                       rating=MOVIES.get(MOVIE_ID, {}).get("rating", ""), movies=sorted(MOVIES)))
+            m = MOVIES.get(MOVIE_ID)
+            return self.send(200, dict(LOG, paused=PAUSED[0], users=sorted(USERS),
+                                       rating=(m["rating"], m["source"]) if m else None, movies=sorted(MOVIES),
+                                       bff_sessions=len(BFF)))
         # ---------------- auth-local ----------------
         if path == "/login" and method == "GET":
             tok = new_secret("acsrf-")
@@ -279,11 +348,18 @@ class H(BaseHTTPRequestHandler):
         if path == "/api/tv/login" and method == "POST":
             d = json.loads(self.body())
             usr = USERS.get(d.get("username"))
+            if FLAGS.get("tv_login_echo") and d.get("username") == "smoke-kid":
+                return self.send(401, {"code": "auth.invalid_credentials", "error": "rejected password %s" % d.get("password")})
             if not usr or usr["password"] != d.get("password"):
                 return self.send(401, {"code": "auth.invalid_credentials"})
             tok = new_secret("bff-")
             BFF[tok] = usr["id"]
             return self.send(200, {"session_token": tok, "user_id": usr["id"]})
+        if path == "/logout" and method == "POST":
+            LOG["logouts"] += 1
+            if not FLAGS.get("logout_noop"):
+                BFF.pop(self.bearer() or "", None)
+            return self.send(200, {"logged_out": True})
         return self.bff(method, path, q)
 
     def admin_ui(self, method, path):
@@ -309,7 +385,7 @@ class H(BaseHTTPRequestHandler):
             g = lambda k: (f.get(k) or [""])[0]
             rev = POLICIES.get(target, (0, None))[0]
             if FLAGS.pop("conflict_once", False):
-                POLICIES[target] = (rev + 1, {"version": 1, "mode": "unrestricted", "rules": None})
+                POLICIES[target] = (rev + 1, UNRESTRICTED)
                 return self.send(200, parental_fragment(target, conflict=True), "text/html")
             if int(g("expected_revision") or -1) != rev:
                 return self.send(200, parental_fragment(target, conflict=True), "text/html")
@@ -319,14 +395,11 @@ class H(BaseHTTPRequestHandler):
                 "allowed_tags": [t.strip() for t in g("allowed_tags").split(",") if t.strip()],
                 "allow_unrated": g("allow_unrated") == "1" or bool(FLAGS.get("store_allow_unrated"))}}
             LOG["policy_puts"] += 1
-            if not FLAGS.get("policy_not_saved"):
-                POLICIES[target] = (rev + 1, pol)
-                HISTORY.setdefault(target, []).append(pol)
-            frag = parental_fragment(target, saved=True)
             if FLAGS.get("policy_not_saved"):
-                frag = frag.replace('data-state="unconfigured" data-mode=""', 'data-state="configured" data-mode="restricted"').replace(
-                    'name="expected_revision" value="%d"' % rev, 'name="expected_revision" value="%d"' % (rev + 1))
-            return self.send(200, frag, "text/html")
+                return self.send(200, parental_fragment(target, saved=True, pol_override=(rev + 1, pol)), "text/html")
+            WRITES[target] = (time.time(), POLICIES.get(target, (0, None))[1])
+            POLICIES[target] = (rev + 1, pol)
+            return self.send(200, parental_fragment(target, saved=True), "text/html")
         if len(parts) == 5 and parts[:3] == ["media", "media-movies", "item"] and parts[4] == "content-rating" and method == "POST":
             if not privileged(uid):
                 return self.send(403, "admins only", "text/html")
@@ -337,11 +410,18 @@ class H(BaseHTTPRequestHandler):
             if not m:
                 return self.send(404, "not found", "text/html")
             choice = f["classification"][0]
-            new = {"clear": "", "unrated": "NR"}.get(choice, choice)
+            RATED[m["id"]] = (time.time(), effective(m)[0])
             if FLAGS.get("rating_unconfirmed"):
                 return self.send(502, "The save was acknowledged, but its current classification could not be confirmed.", "text/html")
-            m.update(prev=m["rating"], rating=new, source="operator" if new else "", changed=time.time())
-            rec = "<p>Recorded value: <strong>%s</strong></p>" % html.escape(new) if new else ""
+            if choice == "clear":
+                m.update(rating="", source="")
+            else:
+                m.update(rating="NR" if choice == "unrated" else choice, source="operator")
+            r, s = effective(m)
+            if choice == "clear" and s:
+                # admin-ui compares the readback with ""/"" and cannot confirm a TMDB fallback.
+                return self.send(502, "The save was acknowledged, but its current classification could not be confirmed.", "text/html")
+            rec = "<p>Recorded value: <strong>%s</strong></p>" % html.escape(r) if r else ""
             return self.send(200, "<p role=status>Content rating saved and checked.</p>" + rec, "text/html")
         return self.send(404)
 
@@ -350,16 +430,9 @@ class H(BaseHTTPRequestHandler):
         uid = BFF.get(tok or "")
         if not uid:
             return self.send(401, {"code": "auth.session_required"})
-        if path == "/api/userdata" and method == "PUT":
-            BLOBS[uid] = json.loads(self.body() or b"{}")
-            return self.send(200, BLOBS[uid])
-        if PAUSED[0] and time.time() - PAUSED[0] > 0.3 and not FLAGS.get("outage_open") and path != "/api/userdata":
-            if FLAGS.get("outage_stream_open") and path.startswith("/stream/"):
-                return self.send(206, raw=b"\x00" * 1024, ctype="video/mp4")
-            if True:
-                return self.send(503, {"error": "policy unavailable", "code": "parental.policy_unavailable"})
         if uid != "u-admin":
             LOG["kid_requests"].append({"method": method, "path": path, "auth": len(self.headers.get_all("Authorization") or [])})
+        # Operator routes: role gate before any policy lookup or module call.
         operator = (method == "DELETE" and path.startswith("/api/movies/")) or path == "/api/releases/grab" or (
             path.startswith("/api/sessions/") and path.endswith("/stop"))
         if operator:
@@ -369,49 +442,75 @@ class H(BaseHTTPRequestHandler):
                     MOVIES.pop(unquote(path.rsplit("/", 1)[1]), None)
                 return self.send(200, {"ok": True})
             return self.send(403, {"error": "forbidden", "code": FLAGS.get("rbac_code") or "operator.forbidden"})
+        if path == "/api/userdata":
+            if method == "PUT":
+                if FLAGS.get("userdata_put_400"):
+                    return self.send(400, {"code": "userdata.invalid"})
+                d = json.loads(self.body() or b"{}")
+                if not FLAGS.get("userdata_drop"):
+                    BLOBS[uid] = d
+                return self.send(200, BLOBS.get(uid, {}))
+            return self.send(200, dict(BLOBS.get(uid, {"prefs": {}}), user_id=uid))
+        try:
+            pol = session_policy(tok, uid)
+        except Unavailable:
+            if FLAGS.get("outage_stream_open") and path.startswith("/stream/"):
+                return self.send(206, raw=b"\x00" * 1024, ctype="video/mp4")
+            return self.deny("parental.policy_unavailable", status=503)
+        restricted = pol is not None and pol["mode"] == "restricted"
         if path == "/api/search" or path.startswith("/api/discover/"):
-            if restricted(uid) and not FLAGS.get("cdeny_open"):
-                return self.send(403, {"error": "restricted", "code": FLAGS.get("cdeny_code") or "parental.restricted_route"})
+            if path.startswith("/api/discover/") and (path != "/api/discover/movie/550" or (FLAGS.get("cdeny_route_missing") and not restricted)):
+                return self.send(404, "404 page not found", "text/plain")
+            if restricted and not FLAGS.get("cdeny_open"):
+                return self.send(403, {"error": "restricted", "code": FLAGS.get("cdeny_code") or "parental.restricted_route"},
+                                 headers=[("Cache-Control", "no-store")])
             return self.send(200, {"results": [{"title": TITLE}]})
         if path == "/api/movies":
             if FLAGS.get("list_503"):
-                return self.send(503, {"code": "parental.classification_unavailable"})
+                return self.deny("parental.classification_unavailable", status=503)
+            if FLAGS.get("list_garbage") and uid != "u-admin":
+                return self.send(200, "<html>upstream hiccup</html>", "text/html")
             items, hidden = [], 0
             for m in MOVIES.values():
-                if allowed(uid, m) is None or (FLAGS.get("list_leak") and m["id"] == MOVIE_ID):
+                if verdict(pol, uid, effective(m)[0], q) is None or (FLAGS.get("list_leak") and m["id"] == MOVIE_ID):
                     items.append(movie_json(m))
                 else:
                     hidden += 1
             total = len(items) + (hidden if FLAGS.get("total_leak") else 0)
-            return self.send(200, {"items": items, "total": total, "page": 1, "page_size": int((q.get("page_size") or ["48"])[0])})
+            return self.send(200, {"items": items, "total": total, "page": 1, "page_size": 20})
         if path.startswith("/api/movies/"):
             m = MOVIES.get(unquote(path[len("/api/movies/"):]))
             if not m:
                 return self.send(404, {"code": "movies.not_found"})
-            why = allowed(uid, m)
-            if why and not FLAGS.get("detail_open"):
-                return self.deny(403, FLAGS.get("detail_code") or why)
+            why = verdict(pol, uid, effective(m)[0], q)
+            if why and FLAGS.get("detail_open"):
+                body = movie_json(m)
+                if FLAGS.get("echo_bearer"):
+                    body["debug"] = "served to Bearer %s" % tok
+                return self.send(200, body)
+            if why:
+                return self.deny(FLAGS.get("detail_code") or why)
             return self.send(200, movie_json(m))
         if path == "/api/playback/resolve":
             src = (q.get("src") or [""])[0]
             m = MOVIES.get(unquote(src.rsplit("/", 1)[-1]))
             if not m:
                 return self.send(404, {"code": "playback.not_found"})
-            why = allowed(uid, m, play=True)
+            why = verdict(pol, uid, play_rating(m), q)
             if why and not FLAGS.get("resolve_open"):
-                return self.deny(403, why, "" if FLAGS.get("resolve_no_alias") else "playback.parental_blocked")
+                return self.deny(why, "" if FLAGS.get("resolve_no_alias") else "playback.parental_blocked")
             return self.send(200, {"stream_url": src, "mode": "direct"})
         if path.startswith("/stream/movies/"):
             m = MOVIES.get(unquote(path[len("/stream/movies/"):]))
             if not m:
                 return self.send(404)
-            why = allowed(uid, m, play=True)
+            why = verdict(pol, uid, play_rating(m), q)
             if FLAGS.get("admin_stream_denied") and uid == "u-admin":
                 why = "parental.blocked"
             if FLAGS.get("allowed_stream_denied") and not why and uid != "u-admin":
                 why = "parental.blocked"
             if why and not FLAGS.get("stream_open"):
-                return self.deny(403, why)
+                return self.deny(why)
             return self.send(206, raw=b"\x00" * 1024, ctype="video/mp4", headers=[("Content-Range", "bytes 0-1023/4096")])
         return self.send(404)
 
