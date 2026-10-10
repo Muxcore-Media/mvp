@@ -77,6 +77,14 @@ func (s *server) validateRequestSession(w http.ResponseWriter, r *http.Request) 
 		s.rejectSessionRequest(w, r)
 		return r, false
 	}
+	// ADR-0035 §3: an id in the erasure ledger has no session, whatever it
+	// holds. Bearer-less (Quick Connect) sessions are otherwise never
+	// revalidated, so this is what ends one before the sweep removes it.
+	if s.userErased(snap.userID) {
+		s.sessions.deleteIfBound(tok, snap)
+		s.rejectSessionRequest(w, r)
+		return r, false
+	}
 	if snap.authToken == "" {
 		// Quick Connect/legacy sessions have no provider grant to validate.
 		return r.WithContext(context.WithValue(r.Context(), checkedSessionKey{}, snap)), true

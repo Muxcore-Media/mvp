@@ -6,6 +6,7 @@
 #   - every required/recommended module is in `state` or `stateless` (not both);
 #   - each state entry's service mounts <volume>:<mount>, declares the volume, and
 #     sets every env var exactly (values must live under the mount);
+#   - `erasure` (ADR-0035) is consumer|provider|none and only on personal entries;
 #   - backed-up entries (backup != false) are mounted read-only in backup-local at
 #     /source/<module-id> and listed in its default BACKUP_SOURCE_DIRS;
 #   - backup: false entries and excluded_volumes are never mounted under /source;
@@ -89,6 +90,12 @@ report="$(jq -nr --argjson m "$manifest_json" --argjson c "$compose_json" '
               else "\($s): \($id): kind must be sqlite|files|json (got \($kind))" end ),
           ( if ($e.personal | type) == "boolean" then empty
             else "\($s): \($id): personal must be true/false" end ),
+          ( if ($e.erasure == null) then empty
+            elif (["consumer","provider","none"] | index($e.erasure)) == null
+            then "\($s): \($id): erasure must be consumer|provider|none (got \($e.erasure))"
+            elif $e.personal != true
+            then "\($s): \($id): erasure applies only to personal: true entries"
+            else empty end ),
           ( if $backed then
               ( if $bl == null then "\($s): \($id): backup-local service missing from compose"
                 elif ($bl_mounts | index("\($e.volume):/source/\($id):ro")) then empty

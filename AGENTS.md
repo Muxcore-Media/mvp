@@ -14,6 +14,7 @@ MuxCore **MVP household stack** — local `run-host.sh`, registry compose, smoke
 | `cmd/mediauiprox` | Consumer BFF (`media-ui` image) — see [`BFF-API.md`](BFF-API.md) |
 | `scripts/deploy-module-to-vault.sh` | Build + scp + restart one module on vault |
 | `scripts/check-household-manifest.sh` | Registry compose ↔ manifest parity (CI script-tests) |
+| `scripts/gen-erasure-set.sh` | `AUTH_ERASURE_CONSUMERS`/`AUTH_ERASURE_REQUIRED` from the manifest (ADR-0035); never hand-edit the lists |
 
 `_mvp/muxcore.json` is **core server listen config**, not a sidecar module manifest.
 
@@ -30,6 +31,7 @@ cd _mvp
 ./local-registry.sh start
 export MUXCORE_REGISTRY=localhost:5000/muxcore MUXCORE_IMAGE_TAG=v0.6.15
 ./scripts/gen-enrollment.sh            # household profile: mesh enrollment tokens into .env
+./scripts/gen-erasure-set.sh --env-file .env   # ADR-0035 ledger set (personal:true and enabled) into .env
 docker compose -f docker-compose.registry.yml up -d   # insecure dev loop: add -f docker-compose.dev.yml
 
 # Vault deploy (from workspace root)

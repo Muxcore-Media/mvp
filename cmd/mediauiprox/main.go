@@ -434,6 +434,15 @@ func main() {
 		log.Printf("warn: USERDATA_LOCAL_URL unset or its transport unusable: parental policy unavailable; playback and restricted-class routes return 503 parental.policy_unavailable for signed-in users")
 	}
 
+	// ADR-0035: apply the identity provider's erasure ledger to this BFF's
+	// personal state. The household and staging profiles refuse to start
+	// without a core connection.
+	stopErasure, err := s.startErasure(*userdataDir)
+	if err != nil {
+		log.Fatalf("media-ui: %v", err)
+	}
+	defer stopErasure()
+
 	mux := http.NewServeMux()
 	s.registerRoutes(mux)
 
@@ -837,6 +846,12 @@ type server struct {
 	issues               *mediaIssueStore
 	together             *watchTogetherStore
 	parental             *parentalGate // ADR-0031 enforcement; nil fails closed
+	// erased reports ids in the last-seen erasure ledger (ADR-0035 §3);
+	// nil = no reconciler. Set through setErasedCheck, before serving.
+	erased func(userID string) bool
+	// resetUsers resolves a username to a user id at password-reset request
+	// time (ADR-0035 §3); nil = no provider connection, so no id is stored.
+	resetUsers userIDResolver
 }
 
 func wantsJSON(r *http.Request) bool {

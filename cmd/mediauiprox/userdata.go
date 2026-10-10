@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/Muxcore-Media/userdata-local/httpclient"
@@ -41,9 +42,18 @@ const muxcoreUserIDHeader = "X-MuxCore-User-Id"
 // into Jellyfin UserData (JELLYFIN_USERDATA_PUSH_URL).
 type serverUserdata struct {
 	store     *store.Store
+	dir       string                 // directory of the local fallback store
 	provider  userdataProviderClient // nil = local files only
 	pushURL   string                 // jellyfin bridge /userdata/from-muxcore
 	migration *userdataMigration
+	// localMu serialises local blob and marker writes with the erasure sweep
+	// (erasure_stores.go): no write recreates a file after it was erased.
+	localMu sync.Mutex
+	// erased reports ids present in the last-seen erasure ledger (ADR-0035
+	// §3). The local store is also written on behalf of another user id by an
+	// admin override, without that user's bearer; erased ids are refused.
+	// nil = no ledger.
+	erased func(userID string) bool
 	// degraded records that the last provider call failed, so the fallback is
 	// logged once per outage rather than per request.
 	degraded atomic.Bool
@@ -73,6 +83,7 @@ func newServerUserdata(dir string, provider userdataProviderClient) *serverUserd
 	push := strings.TrimRight(strings.TrimSpace(os.Getenv("JELLYFIN_USERDATA_PUSH_URL")), "/")
 	return &serverUserdata{
 		store:     st,
+		dir:       dir,
 		provider:  provider,
 		pushURL:   push,
 		migration: &userdataMigration{dir: filepath.Join(dir, migrationDirName)},
@@ -169,7 +180,7 @@ func (u *serverUserdata) save(ctx context.Context, req userdataRequest, incoming
 
 func (u *serverUserdata) saveBlob(ctx context.Context, req userdataRequest, incoming store.Blob) (store.Blob, error) {
 	if !req.provider {
-		return u.store.Put(req.scope, incoming)
+		return u.localPut(req.scope, incoming)
 	}
 	if !u.migration.decided(req.scope) {
 		// Migrate before the first write, or the write would make the provider
@@ -182,11 +193,11 @@ func (u *serverUserdata) saveBlob(ctx context.Context, req userdataRequest, inco
 				if ae := providerApplicationError(err); ae != nil {
 					return store.Blob{}, ae
 				}
-				return u.store.Put(req.scope, incoming)
+				return u.localPut(req.scope, incoming)
 			}
 			if _, pending := u.migrate(ctx, req, current); pending {
 				// The local copy stays authoritative until it is migrated.
-				return u.store.Put(req.scope, incoming)
+				return u.localPut(req.scope, incoming)
 			}
 		}
 	}
@@ -196,11 +207,25 @@ func (u *serverUserdata) saveBlob(ctx context.Context, req userdataRequest, inco
 		if ae := providerApplicationError(err); ae != nil {
 			return store.Blob{}, ae
 		}
-		return u.store.Put(req.scope, incoming)
+		return u.localPut(req.scope, incoming)
 	}
 	// Mirror into local cache for offline/fixture paths.
-	_, _ = u.store.Put(req.scope, blob)
+	_, _ = u.localPut(req.scope, blob)
 	return blob, nil
+}
+
+// errUserdataErased is a write for a user id the erasure ledger lists.
+var errUserdataErased = &userdataError{http.StatusForbidden, "userdata.user_erased", "user has been erased"}
+
+// localPut writes the local fallback blob unless the user id is erased. The
+// check and the write are one critical section with eraseUser.
+func (u *serverUserdata) localPut(scope store.Scope, incoming store.Blob) (store.Blob, error) {
+	u.localMu.Lock()
+	defer u.localMu.Unlock()
+	if u.erased != nil && scope.UserID != "" && u.erased(scope.UserID) {
+		return store.Blob{}, errUserdataErased
+	}
+	return u.store.Put(scope, incoming)
 }
 
 // noteProvider logs provider/local-fallback transitions. A failed provider call

@@ -40,6 +40,17 @@ expect "unaccounted volume" 1 "ERROR: service auth-local mounts volume auth-extr
   "$FX/good-manifest.yaml" "$FX/bad-unaccounted-volume-compose.yml"
 expect "optional drift only warns" 0 "WARN: playback-guard: playback-guard PLAYBACK_GUARD_DB_PATH=/tmp/guard.db" \
   "$FX/good-manifest.yaml" "$FX/warn-optional-drift-compose.yml"
+# ADR-0035 `erasure` key: validated in place (mutated copies of the good fixture).
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+sed 's/^    env: {AUTH_DB_PATH: \/data\/auth.db}$/&\n    erasure: provider/' "$FX/good-manifest.yaml" >"$work/erasure-ok.yaml"
+expect "erasure: provider accepted" 0 "^OK: state coverage" "$work/erasure-ok.yaml" "$FX/good-compose.yml"
+sed 's/^    env: {AUTH_DB_PATH: \/data\/auth.db}$/&\n    erasure: sometimes/' "$FX/good-manifest.yaml" >"$work/erasure-bad.yaml"
+expect "erasure: unknown value" 1 "ERROR: auth-local: erasure must be consumer\\|provider\\|none \\(got sometimes\\)" \
+  "$work/erasure-bad.yaml" "$FX/good-compose.yml"
+sed 's/^    env: {RENAME_DB_PATH: \/data\/rename.db}$/&\n    erasure: none/' "$FX/good-manifest.yaml" >"$work/erasure-nonpersonal.yaml"
+expect "erasure on a non-personal entry" 1 "ERROR: media-rename: erasure applies only to personal: true entries" \
+  "$work/erasure-nonpersonal.yaml" "$FX/good-compose.yml"
 expect "repo manifest + registry compose" 0 "^OK: state coverage" \
   "$SCRIPT_DIR/../household-manifest.yaml" "$SCRIPT_DIR/../docker-compose.registry.yml"
 

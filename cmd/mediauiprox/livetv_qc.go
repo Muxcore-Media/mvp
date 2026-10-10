@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -284,6 +285,30 @@ func generateQuickConnectCode() string {
 type quickConnectStore struct {
 	mu   sync.Mutex
 	path string
+	// erased reports ids present in the last-seen erasure ledger (ADR-0035
+	// §3). Quick Connect mints a session for a user id without that user's
+	// bearer, so an erased id is refused here, under mu, which eraseUser also
+	// takes. nil = no ledger.
+	erased func(userID string) bool
+}
+
+// mutate runs fn on the current codes under the store lock and saves the map
+// when fn reports a change. Load, change and save are one critical section, so
+// an erasure cannot interleave between them.
+func (q *quickConnectStore) mutate(fn func(m map[string]qcEntry) (save bool)) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	m := map[string]qcEntry{}
+	if raw, err := os.ReadFile(q.path); err == nil {
+		var got map[string]qcEntry
+		if json.Unmarshal(raw, &got) == nil && got != nil {
+			m = got
+		}
+	}
+	if !fn(m) {
+		return nil
+	}
+	return q.saveLocked(m)
 }
 
 func newQuickConnectStore(dir string) *quickConnectStore {
@@ -346,7 +371,6 @@ func (s *server) handleQuickConnect(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, http.StatusBadRequest, "code too short", "quickconnect.code_too_short")
 			return
 		}
-		m := s.quickconnect.load()
 		// Approval requires a cookie, as before. Device registration/polling
 		// stays public and newly minted Quick Connect sessions stay local-only.
 		if c, err := r.Cookie("session"); err != nil || c.Value == "" {
@@ -363,26 +387,45 @@ func (s *server) handleQuickConnect(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, http.StatusUnauthorized, "login required to approve device", "quickconnect.login_required")
 			return
 		}
-		e, exists := m[code]
-		if exists && quickConnectExpired(e) {
-			delete(m, code)
-			exists = false
-		}
-		if !exists {
-			writeAPIError(w, http.StatusNotFound, "code not found or expired", "quickconnect.code_not_found")
+		if s.userErased(userID) {
+			writeAPIError(w, http.StatusUnauthorized, "login required to approve device", "quickconnect.login_required")
 			return
 		}
-		m[code] = qcEntry{
-			Code:      code,
-			UserID:    userID,
-			Username:  username,
-			TenantID:  tenantID,
-			CreatedAt: e.CreatedAt,
-			Approved:  true,
-			Consumed:  false,
-		}
-		if err := s.quickconnect.save(m); err != nil {
+		found, refused := false, false
+		err := s.quickconnect.mutate(func(m map[string]qcEntry) bool {
+			e, exists := m[code]
+			if exists && quickConnectExpired(e) {
+				delete(m, code)
+				exists = false
+			}
+			if !exists {
+				return false
+			}
+			if s.quickconnect.erased != nil && s.quickconnect.erased(userID) {
+				refused = true
+				return false
+			}
+			found = true
+			m[code] = qcEntry{
+				Code:      code,
+				UserID:    userID,
+				Username:  username,
+				TenantID:  tenantID,
+				CreatedAt: e.CreatedAt,
+				Approved:  true,
+				Consumed:  false,
+			}
+			return true
+		})
+		switch {
+		case err != nil:
 			writeAPIError(w, http.StatusInternalServerError, "save failed", "quickconnect.save_failed")
+			return
+		case refused:
+			writeAPIError(w, http.StatusUnauthorized, "login required to approve device", "quickconnect.login_required")
+			return
+		case !found:
+			writeAPIError(w, http.StatusNotFound, "code not found or expired", "quickconnect.code_not_found")
 			return
 		}
 		writeJSON(w, map[string]any{
@@ -397,37 +440,63 @@ func (s *server) handleQuickConnect(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, http.StatusBadRequest, "code required", "quickconnect.code_required")
 			return
 		}
-		m := s.quickconnect.load()
-		e, ok := m[code]
-		if !ok || quickConnectExpired(e) {
-			if ok {
-				delete(m, code)
-				_ = s.quickconnect.save(m)
+		var resp map[string]any
+		var failure string
+		bestEffort := false // dropping an expired or refused code is not worth a 500
+		err := s.quickconnect.mutate(func(m map[string]qcEntry) bool {
+			e, ok := m[code]
+			if !ok || quickConnectExpired(e) {
+				resp = map[string]any{"approved": false, "code": code}
+				if ok {
+					bestEffort = true
+					delete(m, code)
+					return true
+				}
+				return false
 			}
-			writeJSON(w, map[string]any{"approved": false, "code": code})
+			// ADR-0035 §3: this mints a session for e.UserID without that
+			// user's bearer. An id in the erasure ledger gets none, and its
+			// code goes (the erasure sweep removes the rest).
+			if e.UserID != "" && s.quickconnect.erased != nil && s.quickconnect.erased(e.UserID) {
+				resp = map[string]any{"approved": false, "code": code}
+				bestEffort = true
+				delete(m, code)
+				return true
+			}
+			resp = map[string]any{
+				"approved":   e.Approved,
+				"code":       e.Code,
+				"username":   e.Username,
+				"user_id":    e.UserID,
+				"created_at": e.CreatedAt,
+			}
+			if e.Approved && e.UserID != "" && !e.Consumed && s.sessions != nil {
+				sess, err := s.sessions.CreateWithTenant(e.UserID, e.Username, e.TenantID)
+				if err != nil {
+					if errors.Is(err, errUserErased) {
+						resp = map[string]any{"approved": false, "code": code}
+						bestEffort = true
+						delete(m, code)
+						return true
+					}
+					failure = "quickconnect.session_error"
+					return false
+				}
+				e.Consumed = true
+				m[code] = e
+				resp["session_token"] = sess
+				resp["consumed"] = true
+				return true
+			}
+			return false
+		})
+		if failure != "" {
+			writeAPIError(w, http.StatusInternalServerError, "session error", failure)
 			return
 		}
-		resp := map[string]any{
-			"approved":   e.Approved,
-			"code":       e.Code,
-			"username":   e.Username,
-			"user_id":    e.UserID,
-			"created_at": e.CreatedAt,
-		}
-		if e.Approved && e.UserID != "" && !e.Consumed && s.sessions != nil {
-			sess, err := s.sessions.CreateWithTenant(e.UserID, e.Username, e.TenantID)
-			if err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "session error", "quickconnect.session_error")
-				return
-			}
-			e.Consumed = true
-			m[code] = e
-			if err := s.quickconnect.save(m); err != nil {
-				writeAPIError(w, http.StatusInternalServerError, "save failed", "quickconnect.save_failed")
-				return
-			}
-			resp["session_token"] = sess
-			resp["consumed"] = true
+		if err != nil && !bestEffort {
+			writeAPIError(w, http.StatusInternalServerError, "save failed", "quickconnect.save_failed")
+			return
 		}
 		writeJSON(w, resp)
 	default:
@@ -443,21 +512,28 @@ func (s *server) handleQuickConnectRegister(w http.ResponseWriter, r *http.Reque
 		writeAPIError(w, http.StatusBadRequest, "code too short", "quickconnect.code_too_short")
 		return
 	}
-	m := s.quickconnect.load()
-	if e, ok := m[code]; ok && !quickConnectExpired(e) {
+	var existing *qcEntry
+	err := s.quickconnect.mutate(func(m map[string]qcEntry) bool {
+		if e, ok := m[code]; ok && !quickConnectExpired(e) {
+			existing = &e
+			return false
+		}
+		m[code] = qcEntry{
+			Code:      code,
+			CreatedAt: time.Now().UTC(),
+			Approved:  false,
+		}
+		return true
+	})
+	if existing != nil {
 		writeJSON(w, map[string]any{
 			"code":     code,
-			"approved": e.Approved,
-			"pending":  !e.Approved,
+			"approved": existing.Approved,
+			"pending":  !existing.Approved,
 		})
 		return
 	}
-	m[code] = qcEntry{
-		Code:      code,
-		CreatedAt: time.Now().UTC(),
-		Approved:  false,
-	}
-	if err := s.quickconnect.save(m); err != nil {
+	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "save failed", "quickconnect.save_failed")
 		return
 	}

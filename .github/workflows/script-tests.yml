@@ -38,5 +38,6 @@ jobs:
           enrollment_env="$(mktemp "$RUNNER_TEMP/muxcore-compose.XXXXXX.env")"
           trap 'rm -f "$enrollment_env"' EXIT
           bash scripts/gen-enrollment.sh --env-file "$enrollment_env"
+          bash scripts/gen-erasure-set.sh --env-file "$enrollment_env"
           docker compose --env-file "$enrollment_env" -f docker-compose.registry.yml config -q
           docker compose --env-file "$enrollment_env" -f docker-compose.registry.yml -f docker-compose.dev.yml config -q

@@ -436,6 +436,24 @@ EOF
 
     # No default admin password (FR-INS-004): generated once into data/auth/admin.password.
     mvp_admin_password_ensure "$ROOT"
+    # ADR-0035 user-erasure ledger: auth-local serves it only to the manifest's
+    # personal:true modules that are enabled (scripts/gen-erasure-set.sh). Without
+    # yq + jq the list stays unset and auth-local serves the ledger to nobody.
+    erasure_env=()
+    if command -v yq >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+      # This runner starts the playback monitor by default alongside media-ui.
+      _erasure_pm="${MVP_ENABLE_PLAYBACK_MONITOR:-}"
+      if [[ -z "$_erasure_pm" && "${MVP_ENABLE_MEDIA_UI:-1}" != "0" ]]; then
+        _erasure_pm=1
+      fi
+      if _erasure_out="$(MVP_ENABLE_PLAYBACK_MONITOR="$_erasure_pm" "$ROOT/scripts/gen-erasure-set.sh")"; then
+        mapfile -t erasure_env <<<"$_erasure_out"
+      else
+        echo "WARN: scripts/gen-erasure-set.sh failed; auth-local starts without AUTH_ERASURE_* (user erasures are not served)" >&2
+      fi
+    else
+      echo "WARN: yq v4 + jq not found; auth-local starts without AUTH_ERASURE_* (user erasures are not served)" >&2
+    fi
     maybe_start auth-local env \
       MUXCORE_GRPC_ADDR="$MESH" MUXCORE_MODULE_ID=auth-local MUXCORE_INSECURE_DISABLE_TLS="${MUXCORE_INSECURE_DISABLE_TLS:-}" \
       AUTH_DB_PATH="$DATA/auth/auth.db" \
@@ -445,6 +463,7 @@ EOF
       ADMIN_UI_PUBLIC_URL="${ADMIN_UI_PUBLIC_URL:-}" \
       MEDIA_UI_PUBLIC_URL="${MEDIA_UI_PUBLIC_URL:-}" \
       AUTH_ALLOWED_REDIRECT_HOSTS="${AUTH_ALLOWED_REDIRECT_HOSTS:-}" \
+      ${erasure_env[@]+"${erasure_env[@]}"} \
       "$BIN/auth-local"
 
     maybe_start database-sqlite env \
@@ -1434,7 +1453,10 @@ EOF
           echo "building mediauiprox"
           (cd "$ROOT" && go build -o "$BIN/mediauiprox" ./cmd/mediauiprox)
         fi
+        # MUXCORE_GRPC_ADDR: the BFF's ADR-0035 erasure reconciler discovers the
+        # identity provider through core (it is a ledger consumer, module id media-ui).
         maybe_start media-ui env \
+          MUXCORE_GRPC_ADDR="$MESH" \
           MEDIA_UI_LISTEN="${MEDIA_UI_LISTEN:-:5173}" \
           MEDIA_UI_DIST="$UI_DIST" \
           MEDIA_UI_REQUIRE_AUTH="${MEDIA_UI_REQUIRE_AUTH:-1}" \
