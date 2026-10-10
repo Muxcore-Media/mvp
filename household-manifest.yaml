@@ -115,6 +115,13 @@ optional_env_gated:
 #   env       env vars (compose `environment`) that point into the mount
 #   kind      sqlite | files | json
 #   personal  true when it holds household personal data (accounts, history, requests)
+#   erasure   (optional; only meaningful with personal: true) the module's part in the
+#             ADR-0035 user-erasure ledger: consumer (default; runs a reconciler and
+#             must acknowledge every erasure), provider (the identity provider: it
+#             erases in its own transaction) or none (personal state with no ledger
+#             disposition; `notes` gives the reason). scripts/gen-erasure-set.sh derives
+#             auth-local's AUTH_ERASURE_CONSUMERS / AUTH_ERASURE_REQUIRED from the
+#             enabled personal consumers; check-state-coverage.sh validates the value.
 #   backup    default true: backup-local mounts the volume read-only at
 #             /source/<module-id> and lists it in default BACKUP_SOURCE_DIRS.
 #             false: volume must be in excluded_volumes (e.g. key material).
@@ -142,7 +149,8 @@ state:
     env: {AUTH_DB_PATH: /data/auth.db}
     kind: sqlite
     personal: true
-    notes: household accounts, password hashes, sessions
+    erasure: provider
+    notes: household accounts, password hashes, sessions; erased in the DeleteUser transaction (ADR-0035 §1)
   database-sqlite:
     volume: sqlite-data
     mount: /data
@@ -150,7 +158,8 @@ state:
     env: {SQLITE_DB_PATH: /data/muxcore.db}
     kind: sqlite
     personal: true
-    notes: shared mesh database capability; may hold rows from any module
+    erasure: none
+    notes: shared mesh database capability; may hold rows from any module; out of ADR-0035 scope (§7, no household module is known to store user rows there)
   secrets-file:
     volume: secrets-file-data
     mount: /data
@@ -233,7 +242,11 @@ state:
       MEDIA_UI_PASSWORD_RESET_FILE: /data/media-ui/password-resets.json
     kind: json
     personal: true
-    notes: BFF playback policy, livetv, library paths, password-reset queue (shared with admin-ui)
+    notes: >-
+      BFF playback policy, livetv, library paths, password-reset queue (shared with
+      admin-ui, which is its only eraser); sessions, Quick Connect codes, fallback
+      userdata blobs, watch-together rooms, media issues and erasure-applied.json
+      (ADR-0035 §3)
   media-custom-formats:
     volume: media-custom-formats-data
     mount: /data
@@ -278,6 +291,8 @@ state:
     env: {AUTH_OIDC_DB_PATH: /data/auth-oidc/auth.db}
     kind: sqlite
     personal: true
+    erasure: provider
+    notes: alternative identity provider; its ledger RPCs return Unimplemented, so erasure reports unsupported (ADR-0035 §7)
   playback-guard:
     volume: playback-guard-data
     mount: /data/playback-guard
@@ -400,6 +415,8 @@ state:
     env: {PLEX_DATA_DIR: /data/plex}
     kind: files
     personal: true
+    erasure: none
+    notes: no household-user-keyed persistence; not an ADR-0035 consumer (§3)
   emby:
     service: emby-bridge
     volume: emby-data
@@ -407,6 +424,8 @@ state:
     env: {EMBY_DATA_DIR: /data/emby}
     kind: files
     personal: true
+    erasure: none
+    notes: no household-user-keyed persistence; not an ADR-0035 consumer (§3)
 
 # Required/recommended modules with no durable state (config/env only, in-memory caches).
 stateless:

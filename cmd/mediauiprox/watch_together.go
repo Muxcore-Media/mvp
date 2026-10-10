@@ -57,14 +57,20 @@ func (st *watchTogetherStore) load() {
 }
 
 func (st *watchTogetherStore) persistLocked() {
+	_ = st.writeLocked(st.rooms)
+}
+
+// writeLocked atomically writes rooms as the watch-together file (nothing for
+// a memory-only store). The caller holds st.mu.
+func (st *watchTogetherStore) writeLocked(rooms map[string]watchTogetherRoom) error {
 	if st.path == "" {
-		return
+		return nil
 	}
-	b, err := json.MarshalIndent(st.rooms, "", "  ")
+	b, err := json.MarshalIndent(rooms, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
-	_ = os.WriteFile(st.path, b, 0o600)
+	return writeFileAtomic(st.path, b)
 }
 
 func (st *watchTogetherStore) pruneLocked(now time.Time) {

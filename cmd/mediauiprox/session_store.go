@@ -45,7 +45,16 @@ type sessionStore struct {
 	persistMu sync.Mutex
 	path      string
 	aead      cipher.AEAD
+
+	// erased reports ids present in the last-seen erasure ledger (ADR-0035 §3).
+	// nil = no ledger: nothing is refused. A session is never created for an
+	// erased id, whatever the caller presents.
+	erased func(userID string) bool
 }
+
+// errUserErased is returned when a session would be created for a user id the
+// identity provider's erasure ledger lists.
+var errUserErased = errors.New("user has been erased")
 
 type sessionEntry struct {
 	userID    string
@@ -253,7 +262,7 @@ func (s *sessionStore) persist() error {
 	}
 	s.persistMu.Lock()
 	defer s.persistMu.Unlock()
-	f := persistedBFFSessions{Version: sessionFileFormatVersion, Sessions: map[string]*persistedBFFSession{}}
+	live := map[string]sessionEntry{}
 	now := timeNow()
 	s.mu.Lock()
 	for id, e := range s.byID {
@@ -261,9 +270,19 @@ func (s *sessionStore) persist() error {
 			delete(s.byID, id)
 			continue
 		}
+		live[id] = e
+	}
+	s.mu.Unlock()
+	return s.writeFileLocked(live)
+}
+
+// writeFileLocked seals and atomically writes entries as the sessions file.
+// The caller holds persistMu.
+func (s *sessionStore) writeFileLocked(entries map[string]sessionEntry) error {
+	f := persistedBFFSessions{Version: sessionFileFormatVersion, Sessions: map[string]*persistedBFFSession{}}
+	for id, e := range entries {
 		enc, err := s.seal(id, e.authToken)
 		if err != nil {
-			s.mu.Unlock()
 			return err
 		}
 		f.Sessions[id] = &persistedBFFSession{
@@ -271,7 +290,6 @@ func (s *sessionStore) persist() error {
 			Roles: e.roles, AuthTokenEnc: enc, ExpiresAt: e.expiry,
 		}
 	}
-	s.mu.Unlock()
 	raw, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return err
@@ -312,6 +330,12 @@ func (s *sessionStore) CreateWithAuth(userID, username, tenantID string, roles [
 	}
 	tok := hex.EncodeToString(b[:])
 	s.mu.Lock()
+	// Checked under the lock eraseUser takes, so a session is either created
+	// before an erasure (and erased by it) or refused after the id is listed.
+	if s.erased != nil && userID != "" && s.erased(userID) {
+		s.mu.Unlock()
+		return "", errUserErased
+	}
 	s.byID[sessionID(tok)] = sessionEntry{
 		userID: userID, username: username, tenantID: strings.TrimSpace(tenantID),
 		authToken: strings.TrimSpace(authToken),

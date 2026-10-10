@@ -6,6 +6,7 @@
 # created automatically, every module enrolls for its own certificate
 # (ADR-0017). Generate the enrollment secret and per-module tokens first:
 #   ./scripts/gen-enrollment.sh          # writes MUXCORE_ENROLL_* into .env (0600)
+#   ./scripts/gen-erasure-set.sh --env-file .env   # AUTH_ERASURE_* (ADR-0035), see below
 # Insecure dev loop: add -f docker-compose.dev.yml (dev profile, plaintext mesh).
 #
 # Usage (from this directory):
@@ -13,6 +14,7 @@
 #   export MUXCORE_IMAGE_TAG=v0.6.15
 #   export DOWNLOADER_ENGINE=fixture
 #   ./scripts/gen-enrollment.sh
+#   ./scripts/gen-erasure-set.sh --env-file .env   # re-run after enabling a profile
 #   docker compose -f docker-compose.registry.yml pull
 #   docker compose -f docker-compose.registry.yml up -d
 #   ./scripts/smoke-registry.sh    # no host Go / sibling clones (or ./smoke.sh auto-detects)
@@ -133,6 +135,14 @@ services:
       AUTH_ALLOWED_REDIRECT_HOSTS: ${AUTH_ALLOWED_REDIRECT_HOSTS:-}
       AUTH_BOOTSTRAP_USER: ${MVP_ADMIN_USER:-admin}
       AUTH_BOOTSTRAP_PASSWORD: ${MVP_ADMIN_PASSWORD:?set MVP_ADMIN_PASSWORD in .env (openssl rand -hex 16)}
+      # User-erasure ledger (ADR-0035 §2): served only to these module ids (mesh
+      # certificate CNs), and an erasure is complete when every REQUIRED module
+      # acknowledged it. Both are the household-manifest `personal: true` entries
+      # that are enabled, written into .env by scripts/gen-erasure-set.sh — never
+      # edit them by hand and re-run the script after enabling a profile
+      # (`gen-erasure-set.sh --env-file .env --check` reports a stale list).
+      AUTH_ERASURE_CONSUMERS: ${AUTH_ERASURE_CONSUMERS:?run scripts/gen-erasure-set.sh --env-file .env (erasure ledger set, ADR-0035)}
+      AUTH_ERASURE_REQUIRED: ${AUTH_ERASURE_REQUIRED:?run scripts/gen-erasure-set.sh --env-file .env (erasure ledger set, ADR-0035)}
     ports:
       - "${AUTH_LOCAL_PORT:-9403}:9403"
       - "${AUTH_HTTP_PORT:-9401}:9401"

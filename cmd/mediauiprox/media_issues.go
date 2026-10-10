@@ -20,7 +20,17 @@ type mediaIssue struct {
 	Title      string `json:"title"`
 	Message    string `json:"message"`
 	ReportedBy string `json:"reportedBy"`
+	// ReporterID is the signed-in reporter's user id (ADR-0035 §3: erasure
+	// keys on ids, never usernames). Entries written before it existed have
+	// none. It is stored for erasure and never returned to clients.
+	ReporterID string `json:"reporterId,omitempty"`
 	CreatedAt  string `json:"createdAt"`
+}
+
+// public is the client view of an issue: the stored reporter id stays server-side.
+func (iss mediaIssue) public() mediaIssue {
+	iss.ReporterID = ""
+	return iss
 }
 
 type mediaIssueStore struct {
@@ -53,21 +63,29 @@ func (st *mediaIssueStore) load() {
 }
 
 func (st *mediaIssueStore) persistLocked() {
+	_ = st.writeLocked(st.all)
+}
+
+// writeLocked atomically writes rows as the issues file (nothing for a
+// memory-only store). The caller holds st.mu.
+func (st *mediaIssueStore) writeLocked(rows []mediaIssue) error {
 	if st.path == "" {
-		return
+		return nil
 	}
-	b, err := json.MarshalIndent(st.all, "", "  ")
+	b, err := json.MarshalIndent(rows, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
-	_ = os.WriteFile(st.path, b, 0o600)
+	return writeFileAtomic(st.path, b)
 }
 
 func (st *mediaIssueStore) list() []mediaIssue {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	out := make([]mediaIssue, len(st.all))
-	copy(out, st.all)
+	for i, iss := range st.all {
+		out[i] = iss.public()
+	}
 	return out
 }
 
@@ -113,9 +131,16 @@ func (s *server) handleMediaIssues(w http.ResponseWriter, r *http.Request) {
 			writeAPIError(w, http.StatusBadRequest, "title is required", "issues.title_required")
 			return
 		}
-		who := "household"
-		if user, _, ok := s.sessionIdentity(r); ok && strings.TrimSpace(user) != "" {
-			who = user
+		who, reporterID := "household", ""
+		if id, user, _, _, ok := s.sessionPrincipal(r); ok {
+			if s.userErased(id) {
+				writeAPIError(w, http.StatusForbidden, "user has been erased", "issues.user_erased")
+				return
+			}
+			if strings.TrimSpace(user) != "" {
+				who = user
+			}
+			reporterID = strings.TrimSpace(id)
 		}
 		iss := s.issues.add(mediaIssue{
 			ID:         "iss_" + time.Now().UTC().Format("20060102150405.000000000"),
@@ -126,9 +151,10 @@ func (s *server) handleMediaIssues(w http.ResponseWriter, r *http.Request) {
 			Title:      title,
 			Message:    strings.TrimSpace(req.Message),
 			ReportedBy: who,
+			ReporterID: reporterID,
 			CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 		})
-		writeJSONStatus(w, http.StatusCreated, iss)
+		writeJSONStatus(w, http.StatusCreated, iss.public())
 	default:
 		writeAPIMethodNotAllowed(w)
 	}

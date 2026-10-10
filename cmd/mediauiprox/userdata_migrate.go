@@ -216,6 +216,11 @@ func (u *serverUserdata) migrate(ctx context.Context, req userdataRequest, provi
 // taken again next time, which cannot lose data: after a migration the
 // provider holds the collections, so the provider copy is kept.
 func (u *serverUserdata) recordMigration(scope store.Scope, state string) {
+	u.localMu.Lock()
+	defer u.localMu.Unlock()
+	if u.erased != nil && scope.UserID != "" && u.erased(scope.UserID) {
+		return // never recreate a marker for an erased user (ADR-0035 §3)
+	}
 	if err := u.migration.mark(scope, state); err != nil {
 		log.Printf("warn: userdata: recording the migration decision for user %q: %v", scope.UserID, err)
 	}

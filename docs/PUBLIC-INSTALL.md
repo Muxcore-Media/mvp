@@ -38,6 +38,7 @@ export MUXCORE_IMAGE_TAG=v0.6.15
 export DOWNLOADER_ENGINE=fixture
 export SECRETS_MASTER_KEY=...   # generate ONCE with `openssl rand -hex 32`; keep it outside backups and reuse it
 ./scripts/gen-enrollment.sh     # mesh enrollment secret + per-module tokens into .env (0600); safe to rerun
+./scripts/gen-erasure-set.sh --env-file .env   # user-erasure ledger set (ADR-0035); rerun after enabling a profile
 docker compose -f docker-compose.registry.yml pull
 docker compose -f docker-compose.registry.yml up -d
 ./scripts/smoke-registry.sh
@@ -100,6 +101,7 @@ How the pieces fit:
 | Piece | Where | What |
 |-------|-------|------|
 | Enrollment secret + tokens | `.env`, from [`../scripts/gen-enrollment.sh`](../scripts/gen-enrollment.sh) | `MUXCORE_ENROLL_SECRET` (random, kept on reruns) and `MUXCORE_ENROLL_TOKEN_<ID>` = `mct_2_<id>_` + hex(HMAC-SHA256(secret, id)), the same value `muxcored enroll token <id>` prints. Compose refuses to start without them. |
+| Erasure ledger set | `.env`, from [`../scripts/gen-erasure-set.sh`](../scripts/gen-erasure-set.sh) | `AUTH_ERASURE_CONSUMERS` (the modules auth-local serves the user-erasure ledger to, by certificate CN) and `AUTH_ERASURE_REQUIRED` (the modules whose acknowledgement completes an erasure; the same list). Derived from `household-manifest.yaml`: `state` entries with `personal: true` and `erasure: consumer` (default) that are enabled — required/recommended, or an `optional_env_gated` module whose `MVP_ENABLE_*` is `1`/`true` or whose compose profile is in `COMPOSE_PROFILES` (`--profile NAME` repeats the `docker compose --profile` flags). The identity providers (`erasure: provider`) and personal state without a ledger disposition (`erasure: none`) are excluded by the manifest. Never edit the list by hand: `gen-erasure-set.sh --env-file .env --check` fails when it is stale, and compose refuses to start without it. |
 | Core CA | `core-ca` volume (`MUXCORE_GRPC_CA_CERT_DIR=/app/ca`) | CA key, the single-use enrollment ledger (`enrolled.json`) and core's server certificate (SAN `core`, `MUXCORE_TLS_SERVER_SANS`). The core image (≥ v0.6.15) pre-creates the mount points, so the volume is owned by core's user. |
 | Public CA | `mesh-ca` volume | Core exports `ca.crt` there (`MUXCORE_CA_EXPORT_DIR`); every module mounts it read-only at `/data/mesh-ca` (`MUXCORE_TLS_CA`). |
 | Module identity | one `<service>-id` volume per service at `/data/mesh-id` (`MUXCORE_TLS_DIR`) | On first start the module generates its key, sends a CSR with its token (`MUXCORE_BOOTSTRAP_TOKEN`) and stores the certificate (CN = module ID; SANs = module ID, loopback and `MUXCORE_ENROLL_DNS_NAMES`=service name where core's `MUXCORE_ENROLL_SAN_ALLOW` allows it). Later starts reuse it without a token. |

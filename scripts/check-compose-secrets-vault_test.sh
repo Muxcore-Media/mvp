@@ -32,6 +32,9 @@ with tempfile.TemporaryDirectory(prefix="muxcore-provider-test-") as temp:
     fixture = str(Path(temp) / "parse.env")
     subprocess.run(["bash", str(root / "scripts/gen-enrollment.sh"), "--env-file", fixture],
                    check=True, stdout=subprocess.DEVNULL)
+    # auth-local requires the ADR-0035 ledger set (docker-compose.registry.yml).
+    subprocess.run(["bash", str(root / "scripts/gen-erasure-set.sh"), "--env-file", fixture],
+                   check=True, stdout=subprocess.DEVNULL)
 
     def render(files, backend="", profiles=(), error=None, extra_env=None):
         global count

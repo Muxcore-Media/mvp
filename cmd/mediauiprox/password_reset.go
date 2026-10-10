@@ -18,8 +18,13 @@ import (
 // Share path with admin-ui via MEDIA_UI_PASSWORD_RESET_FILE / ADMIN_UI_PASSWORD_RESET_FILE.
 
 type passwordResetEntry struct {
-	ID        string    `json:"id"`
-	Username  string    `json:"username"`
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	// UserID is the id the username resolved to when the request was made
+	// (ADR-0035 §3), so admin-ui, the single eraser of this file, can erase by
+	// id. Empty when the provider could not be asked or the name is unknown or
+	// ambiguous; admin-ui purges such legacy rows by username.
+	UserID    string    `json:"user_id,omitempty"`
 	Note      string    `json:"note,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 	Status    string    `json:"status"` // pending | closed
@@ -212,6 +217,7 @@ func (s *server) handlePasswordReset(w http.ResponseWriter, r *http.Request) {
 		f.Requests = append(f.Requests, passwordResetEntry{
 			ID:        id,
 			Username:  username,
+			UserID:    s.resolveResetUserID(r.Context(), username),
 			Note:      strings.TrimSpace(body.Note),
 			CreatedAt: time.Now().UTC(),
 			Status:    "pending",

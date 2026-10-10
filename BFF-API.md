@@ -466,7 +466,7 @@ Household API keys (auth-local tokens). Same admin/manager + linked auth-local t
 
 ### `GET|POST /api/quickconnect`
 
-Jellyfin-style quick connect code flow (file-backed store under userdata dir).
+Jellyfin-style quick connect code flow (file-backed store under userdata dir). Polling an approved code mints a session for the approving user **without that user's bearer**, so it is refused (the code is dropped, `{ approved: false }`) when the user id is in the erasure ledger (ADR-0035 §3; see "User erasure" below).
 
 ### `GET|POST /api/tv/login` · `POST /api/tv/login/totp`
 
@@ -482,7 +482,25 @@ Deep-link friendly mobile login: poll `done` after browser auth, exchange for be
 
 ### `POST /api/password-reset` · `GET /api/password-reset` · `POST /api/password-reset/{id}/dismiss` · `POST /api/password-reset/{id}/password`
 
-Public POST queues a reset request (`MEDIA_UI_PASSWORD_RESET_FILE`, shared with admin-ui). GET lists pending `{ available, count, requests: [{ id, username, note, created_at, user_id, user }] }` for admin/manager (user_id is filled when auth-local has a matching account). Dismiss marks the row closed. Set-password `{ password }` (min 8) proxies `POST /api/users/{id}/password` on auth-local, then marks matching usernames resolved. Never echoes the new password. Not a feature key — Settings → Users shows the queue.
+Public POST queues a reset request (`MEDIA_UI_PASSWORD_RESET_FILE`, shared with admin-ui). The entry also stores `user_id`: the id the username resolved to at request time through the identity provider (ADR-0035 §3, so admin-ui — the single eraser of this file — can erase by id). It is omitted when the provider is not reachable, the name is unknown or two accounts share it, and when the id is in the erasure ledger; the response never reveals which. GET lists pending `{ available, count, requests: [{ id, username, note, created_at, user_id, user }] }` for admin/manager (user_id is filled when auth-local has a matching account). Dismiss marks the row closed. Set-password `{ password }` (min 8) proxies `POST /api/users/{id}/password` on auth-local, then marks matching usernames resolved. Never echoes the new password. Not a feature key — Settings → Users shows the queue.
+
+## User erasure (ADR-0035)
+
+`mediauiprox` is a personal-data owner under module id `media-ui` (its mesh certificate CN). At startup, every `ERASURE_SWEEP_INTERVAL` (default 5 min) and on trigger, the SDK reconciler reads the erasure ledger of the provider of the exclusive `identity` capability (discovered through core, dialled with mesh mTLS, certificate CN must equal the provider's module id) and applies each tombstone it has not applied, keyed by the tombstone's **user id**, never a username:
+
+| Store (`MEDIA_UI_USERDATA_DIR`) | Disposition |
+|---|---|
+| `sessions.json` (memory and file), including Quick Connect sessions | delete the user's sessions |
+| `quickconnect.json` | delete the codes the user approved |
+| `<id>.json`, `tenants/<t>/<id>.json` (local fallback userdata blobs) | delete |
+| `.provider-migration/*` | delete the user's markers |
+| `watch-together.json` | delete rooms hosted by the user |
+| `media-issues.json` | **anonymise** `reportedBy` to `deleted-user` for issues carrying the user's `reporterId`; legacy issues (no id) are anonymised when the username is the user's own or no longer resolves to a live account. The issue rows stay. `reporterId` is stored for erasure and never returned by the API |
+| `password-resets.json` | **untouched** — admin-ui is the single eraser of this file |
+
+The erasure id is recorded in `erasure-applied.json` (opaque ids and times only) **after** every deletion persisted (temp file + rename each); a failed write leaves it unrecorded and the next sweep repeats the finished steps as no-ops. The post-condition (no remaining row carrying the id) is checked and acknowledged with per-store counts. Applying an applied tombstone is a no-op. While an id is in the last-seen ledger the BFF refuses to write on its behalf without that user's bearer: no session is created for it (Quick Connect poll, any login), a bearer-less session of it is rejected, an admin override cannot re-create its local blob or marker, and no password-reset or issue row stores it.
+
+Startup: the household and staging profiles refuse to start without a core address (`MUXCORE_GRPC_ADDR`) or with a plaintext mesh; other profiles warn and run with the reconciler disabled. The provider admits the BFF only when `media-ui` is on its `AUTH_ERASURE_CONSUMERS` (generated, see `scripts/gen-erasure-set.sh`). NFR-DATA-003 stays Plan until the ADR-0035 §5 evidence exists.
 
 ## Debrid (optional)
 
