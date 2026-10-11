@@ -20,6 +20,10 @@ RUN if [ -d ./cmd/module ]; then \
     fi
 # Runtime files the module reads from its working dir (policies.yaml, …).
 RUN mkdir -p /assets && for f in policies*.yaml; do [ -f "$f" ] && cp "$f" /assets/; done; true
+# Offline erasure-ledger export/import for restore (ADR-0035).
+RUN if [ "$MODULE" = "auth-local" ]; then \
+      CGO_ENABLED=0 go build -o /assets/authctl ./cmd/authctl; \
+    fi
 # Local readiness probes a module ships next to its daemon (ADR-0033:
 # userdata-local >= v0.1.6 cmd/userdata-health, invoked by the compose
 # healthcheck as /app/userdata-health).

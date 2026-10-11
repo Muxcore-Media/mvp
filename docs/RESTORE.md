@@ -65,6 +65,8 @@ Archives are immutable and are **not rewritten** when a user is erased. A user d
 
 Do this around steps 2 to 7 above, with auth-local stopped. The ledger lives in auth-local's own database (`data/auth/auth.db` in host mode, `/data/auth.db` in the `auth-data` volume in compose):
 
+`scripts/build-module-binaries.sh <out-dir> auth-local` supplies the CLI at `<out-dir>/auth-local/authctl`. Both auth-local image build paths include it at `/app/authctl`. Use that executable path in place of `authctl` below. The CLI comes from the selected auth-local source revision, which must provide the `erasures` commands.
+
 1. **Before step 6 replaces auth-local state**, export the live ledger from the database you are about to replace: `authctl erasures export -db <auth.db> <ledger.json>`. Keep `<ledger.json>` outside the archive.
 2. **After step 6 and before step 7 starts the stack** (so before anything serves), import it into the restored database: `authctl erasures import -db <auth.db> <ledger.json>`.
 3. On start, auth-local deletes any user, credential or session row whose id is tombstoned and refuses to create a tombstoned id. Restored modules carry their own `erasure-applied` records, so each module's startup sweep erases the restored data of an erased user again.

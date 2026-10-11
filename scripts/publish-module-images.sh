@@ -102,6 +102,8 @@ echo "==> publishing ${#MODULE_LIST[@]} modules to ${REGISTRY} tag ${TAG} via $R
 prebuilt_ready() {
   if [[ "$1" == "media-ui" ]]; then
     [[ -x "$PREBUILT_DIR/media-ui/mediauiprox" && -f "$PREBUILT_DIR/media-ui/dist-app/index.html" ]]
+  elif [[ "$1" == "auth-local" ]]; then
+    [[ -x "$PREBUILT_DIR/auth-local/module" && -x "$PREBUILT_DIR/auth-local/authctl" ]]
   else
     [[ -x "$PREBUILT_DIR/$1/module" ]]
   fi
@@ -117,6 +119,9 @@ if [[ -n "$PREBUILT_DIR" ]]; then
   if [[ ${#missing[@]} -gt 0 ]]; then
     [[ "${PREBUILT_NO_BUILD:-0}" != "1" ]] || die "PREBUILT_DIR missing binaries: ${missing[*]}"
     "$ROOT/scripts/build-module-binaries.sh" "$PREBUILT_DIR" "${missing[@]}"
+    for name in "${missing[@]}"; do
+      prebuilt_ready "$name" || die "PREBUILT_DIR missing binaries after build: $name"
+    done
   fi
 fi
 

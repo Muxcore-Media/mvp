@@ -108,7 +108,13 @@ build_one() {
   [[ -d "$dir" ]] || die "module dir not found: $dir"
   [[ -d "$dir/cmd/module" ]] || die "$name has no ./cmd/module entrypoint"
   mkdir -p "$OUT/$name"
-  build_go "$dir" ./cmd/module/ "$OUT/$name/module"
+  build_go "$dir" ./cmd/module/ "$OUT/$name/module" || return
+  # Restore-time ledger export/import uses the offline authctl (ADR-0035).
+  # build_one runs inside an `if`, so propagate this build failure explicitly.
+  if [[ "$name" == "auth-local" ]]; then
+    [[ -d "$dir/cmd/authctl" ]] || die "$name has no ./cmd/authctl entrypoint"
+    build_go "$dir" ./cmd/authctl/ "$OUT/$name/authctl" || return
+  fi
   # Local readiness probe shipped next to the daemon (ADR-0033: userdata-local
   # >= v0.1.6); module-prebuilt.Dockerfile copies it to /app/userdata-health.
   if [[ -d "$dir/cmd/userdata-health" ]]; then
