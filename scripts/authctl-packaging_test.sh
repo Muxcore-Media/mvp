@@ -47,7 +47,7 @@ class AuthctlPackaging(unittest.TestCase):
                         CONTAINER_RUNTIME=str(self.bin / "runtime"), BUILD_ONLY="1",
                         MUXCORE_REGISTRY="fixture.invalid/muxcore", GOTOOLCHAIN="local")
         for key in ("MODULES", "PREBUILT_DIR", "PREBUILT_NO_BUILD",
-                    "AUTHCTL_TEST_FAIL_GO", "AUTHCTL_TEST_SKIP_OUTPUT"):
+                    "AUTHCTL_TEST_FAIL_GO", "AUTHCTL_TEST_SKIP_OUTPUT", "AUTHCTL_TEST_FAIL_MODULE"):
             self.env.pop(key, None)
         self.executable(self.bin / "go", '''#!/usr/bin/env python3
 import json, os, pathlib, sys
@@ -60,6 +60,8 @@ with open(os.environ["AUTHCTL_TEST_GO_LOG"], "a") as log:
                           "output": output, "cgo": os.environ.get("CGO_ENABLED")}) + "\\n")
 if not pathlib.Path(package).is_dir():
     sys.exit(18)
+if package.rstrip("/") == "./cmd/module" and os.environ.get("AUTHCTL_TEST_FAIL_MODULE") == "1":
+    sys.exit(19)
 if package.rstrip("/") == "./cmd/authctl":
     if os.environ.get("AUTHCTL_TEST_FAIL_GO") == "1":
         sys.exit(17)
@@ -129,6 +131,16 @@ with open(os.environ["AUTHCTL_TEST_RUNTIME_LOG"], "a") as log:
 
     def test_host_propagates_authctl_build_failure(self):
         self.assertNotEqual(self.build("auth-local", AUTHCTL_TEST_FAIL_GO="1").returncode, 0)
+
+    def test_host_propagates_non_auth_daemon_build_failure(self):
+        self.executable(self.out / "api-rest/module")
+        self.assertNotEqual(self.build("api-rest", AUTHCTL_TEST_FAIL_MODULE="1").returncode, 0)
+
+    def test_prebuilt_refuses_failed_daemon_build_with_stale_binary(self):
+        self.executable(self.out / "auth-local/module", "#!/bin/sh\necho old-daemon\n")
+        self.assert_refused_before_container(self.publish("auth-local", AUTHCTL_TEST_FAIL_MODULE="1"))
+        self.assertEqual([r["package"] for r in self.records(self.go_log)], ["./cmd/module/"])
+        self.assertFalse((self.out / "auth-local/authctl").exists())
 
     def test_prebuilt_refuses_missing_or_nonexecutable_authctl_before_any_image(self):
         for module in ("api-rest", "auth-local"):
