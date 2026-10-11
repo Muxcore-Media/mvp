@@ -1,5 +1,5 @@
-// erasurecheck checks untrusted paired erasure snapshots without network or
-// store access. A successful check is not evidence of live erasure completion.
+// erasurecheck checks paired erasure snapshots, supplied offline or acquired
+// through verified provider reads. A check does not prove actual data erasure.
 package main
 
 import (
@@ -24,7 +24,10 @@ const maxSnapshotBytes = 1 << 20
 const usage = `usage: erasurecheck -erasure-id E -user-id U [-tenant-id T] -required CSV -tombstone-file PATH
 Read one GetUserErasureStatusResponse proto-JSON snapshot from stdin and one
 UserErasure snapshot from PATH (maximum 1 MiB each). Check supplied snapshots
-only; provider provenance, current state and actual data erasure are unproven.`
+only; provider provenance, current state and actual data erasure are unproven.
+Or replace -tombstone-file with -from-provider -admin-bearer-file PATH to read
+the discovered identity provider using an existing allowed mesh identity and
+admin session. Provider reads check acknowledgments, not actual data erasure.`
 
 func main() { os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)) }
 
@@ -45,6 +48,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.StringVar(&expected.TenantID, "tenant-id", "", "expected tenant ID (empty for household)")
 	requiredCSV := fs.String("required", "", "independent configured module IDs")
 	tombstoneFile := fs.String("tombstone-file", "", "paired UserErasure snapshot")
+	fromProvider := fs.Bool("from-provider", false, "acquire snapshots from the verified identity provider")
+	adminBearerFile := fs.String("admin-bearer-file", "", "regular file containing an existing admin session")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			_, _ = fmt.Fprintln(stdout, usage)
@@ -52,12 +57,16 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		return fail(stderr, "usage", 2)
 	}
-	if fs.NArg() != 0 || *tombstoneFile == "" {
+	if fs.NArg() != 0 || (*fromProvider && (*tombstoneFile != "" || *adminBearerFile == "")) ||
+		(!*fromProvider && (*tombstoneFile == "" || *adminBearerFile != "")) {
 		return fail(stderr, "usage", 2)
 	}
 	expected.Required = strings.Split(*requiredCSV, ",")
 	if _, err := expectedModules(expected); err != nil {
 		return fail(stderr, err.Error(), 2)
+	}
+	if *fromProvider {
+		return runProvider(expected, *adminBearerFile, stdout, stderr)
 	}
 	f, err := os.Open(*tombstoneFile) //nolint:gosec // explicitly selected read-only snapshot input
 	if err != nil {
