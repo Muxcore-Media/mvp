@@ -135,6 +135,11 @@ func TestRunMissingSemanticFields(t *testing.T) {
 	if run(cliArgs(t, e, stone), bytes.NewReader(status), &stdout, &stderr) == 0 {
 		t.Fatal("accepted absent complete")
 	}
+	response.Erasures[0].Complete = true
+	status, err = protojson.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
 	stoneMessage.UserId = ""
 	missingUser, err := protojson.Marshal(stoneMessage)
 	if err != nil {
@@ -142,6 +147,15 @@ func TestRunMissingSemanticFields(t *testing.T) {
 	}
 	if run(cliArgs(t, e, missingUser), bytes.NewReader(status), &stdout, &stderr) == 0 {
 		t.Fatal("accepted missing tombstone user")
+	}
+}
+
+func TestRunRepeatedFlagsUseLastValue(t *testing.T) {
+	e, stone, status := snapshotJSON(t, protojson.MarshalOptions{})
+	args := append([]string{"-user-id", "old-value"}, cliArgs(t, e, stone)...)
+	var stdout, stderr bytes.Buffer
+	if run(args, bytes.NewReader(status), &stdout, &stderr) != 0 || stderr.Len() != 0 {
+		t.Fatalf("last flag value did not win: %s", &stderr)
 	}
 }
 

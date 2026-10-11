@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	authv1 "github.com/Muxcore-Media/core/proto/gen/muxcore/auth/v1"
 )
@@ -40,8 +42,8 @@ type Expected struct {
 }
 
 func expectedModules(e Expected) (map[string]struct{}, error) {
-	if !erasureIDPattern.MatchString(e.ErasureID) || e.UserID == "" || len(e.UserID) > 256 ||
-		strings.TrimSpace(e.UserID) != e.UserID || len(e.TenantID) > 256 || strings.TrimSpace(e.TenantID) != e.TenantID || len(e.Required) == 0 {
+	if !erasureIDPattern.MatchString(e.ErasureID) || !validIdentityField(e.UserID, true) ||
+		!validIdentityField(e.TenantID, false) || len(e.Required) == 0 {
 		return nil, errExpected
 	}
 	set := make(map[string]struct{}, len(e.Required))
@@ -56,6 +58,22 @@ func expectedModules(e Expected) (map[string]struct{}, error) {
 		set[id] = struct{}{}
 	}
 	return set, nil
+}
+
+// Match the ledger SDK's identity-field validity without importing its runtime.
+func validIdentityField(value string, required bool) bool {
+	if value == "" {
+		return !required
+	}
+	if len(value) > 256 || !utf8.ValidString(value) || strings.TrimSpace(value) != value {
+		return false
+	}
+	for _, char := range value {
+		if unicode.IsControl(char) {
+			return false
+		}
+	}
+	return true
 }
 
 func parseUTC(value string) (time.Time, error) {

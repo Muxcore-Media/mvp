@@ -14,7 +14,9 @@ erasurecheck -erasure-id E -user-id U -tenant-id '' \
 list response. Each input is limited to 1 MiB. The expected erasure, immutable
 user and tenant IDs must match the paired inputs. The status has no user ID:
 the mandatory tombstone supplies that association. An omitted tenant flag means
-the empty household tenant.
+the empty household tenant. User and tenant IDs follow the ledger SDK's field
+rules: valid UTF-8, at most 256 bytes, no surrounding whitespace or control
+characters; only the tenant may be empty.
 
 The required CSV must come from the caller's independently selected configuration
 (the household generator is `scripts/gen-erasure-set.sh`). Whitespace around

@@ -195,6 +195,50 @@ func TestCheckOutcomes(t *testing.T) {
 	}
 }
 
+func TestCheckRefusesVacuousCompletion(t *testing.T) {
+	for _, withOptional := range []bool{false, true} {
+		e, stone, response := validSnapshots()
+		e.Required = nil
+		response.Erasures[0].Modules = nil
+		if withOptional {
+			response.Erasures[0].Modules = []*authv1.ErasureModuleStatus{acknowledged("optional", false, authv1.ErasureOutcome_ERASURE_OUTCOME_OK)}
+		}
+		if err := Check(e, stone, response); err != errExpected {
+			t.Fatalf("vacuous completion: got %v, want invalid expected set", err)
+		}
+	}
+}
+
+func TestCheckRejectsInvalidBoundExpectations(t *testing.T) {
+	for _, field := range []string{"erasure", "user", "tenant"} {
+		values := []string{" leading", "trailing ", "em\x00bedded", "line\nbreak", "unicode\u0085control", "invalid\xff", strings.Repeat("x", 257)}
+		if field != "tenant" {
+			values = append(values, "")
+		}
+		if field == "erasure" {
+			values = append(values, "bad/id", strings.Repeat("x", 129))
+		}
+		for _, value := range values {
+			t.Run(field+"/"+value, func(t *testing.T) {
+				e, stone, response := validSnapshots()
+				// Match all corresponding inputs so only validity, not a binding
+				// mismatch, can reject this malformed expectation.
+				switch field {
+				case "erasure":
+					e.ErasureID, stone.ErasureId, response.Erasures[0].ErasureId = value, value, value
+				case "user":
+					e.UserID, stone.UserId = value, value
+				case "tenant":
+					e.TenantID, stone.TenantId = value, value
+				}
+				if err := Check(e, stone, response); err != errExpected {
+					t.Fatalf("got %v, want invalid expectation", err)
+				}
+			})
+		}
+	}
+}
+
 func TestCheckTimestamps(t *testing.T) {
 	for _, value := range []string{"", "invalid", "2026-02-30T10:20:30Z", "2026-10-11T10:20:60Z", "2026-10-11T10:20:30+01:00", "2026-10-11T10:20:30+00:00", "2026-10-11T10:20:30-00:00", "2026-10-11T1:20:30Z", "2026-10-11T10:20:30,1Z", "2026-10-11T10:20:30.0000000001Z"} {
 		for _, field := range []string{"tombstone", "status", "required ack", "optional ack"} {
