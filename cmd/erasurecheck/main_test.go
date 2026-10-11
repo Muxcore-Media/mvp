@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	authv1 "github.com/Muxcore-Media/core/proto/gen/muxcore/auth/v1"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -334,5 +336,165 @@ func TestCLIProcess(t *testing.T) {
 				assertSafeFailure(t, stderr.String())
 			}
 		})
+	}
+}
+
+func providerCLIArgs(t *testing.T, f *acquisitionFixture) []string {
+	t.Helper()
+	return []string{"-from-provider", "-admin-bearer-file", bearerPath(t, fixtureBearer), "-erasure-id", f.expected.ErasureID,
+		"-user-id", f.expected.UserID, "-tenant-id", f.expected.TenantID, "-required", strings.Join(f.expected.Required, ",")}
+}
+
+func assertSafeProviderFailure(t *testing.T, output string) {
+	t.Helper()
+	if !strings.HasPrefix(output, "FAIL provider acknowledgment check ") || strings.Contains(output, "SECRET") || len(output) > 100 || strings.Count(output, "\n") != 1 {
+		t.Fatalf("unsafe provider output: %q", output)
+	}
+}
+
+func TestRunProviderMode(t *testing.T) {
+	f := newAcquisitionFixture(t, "")
+	f.env(t)
+	var stdout, stderr bytes.Buffer
+	before := time.Now()
+	if rc := run(providerCLIArgs(t, f), failingIO{}, &stdout, &stderr); rc != 0 {
+		t.Fatalf("exit=%d stderr=%s", rc, &stderr)
+	}
+	after := time.Now()
+	if stdout.String() != "OK provider acknowledgment check required=4\n" || stderr.Len() != 0 {
+		t.Fatalf("unexpected output: %q / %q", &stdout, &stderr)
+	}
+	for _, call := range f.recorded() {
+		// The deadline is created during run. Check its absolute range without
+		// assuming TLS, RPCs or CI scheduling finish within one second.
+		if call.deadline.Before(before.Add(providerRPCBudget-100*time.Millisecond)) ||
+			call.deadline.After(after.Add(providerRPCBudget+100*time.Millisecond)) {
+			t.Fatal("production RPC deadline is outside the configured budget")
+		}
+	}
+}
+
+func TestRunProviderUsage(t *testing.T) {
+	f := newAcquisitionFixture(t, "")
+	f.env(t)
+	for _, name := range []string{"missing bearer file", "snapshot conflict", "bearer in snapshot mode", "literal token flag", "provider override", "missing expected user"} {
+		t.Run(name, func(t *testing.T) {
+			args := providerCLIArgs(t, f)
+			switch name {
+			case "missing bearer file":
+				args = append([]string{"-from-provider"}, args[3:]...)
+			case "snapshot conflict":
+				args = append(args, "-tombstone-file", "SECRET")
+			case "bearer in snapshot mode":
+				args = append(args[1:], "-tombstone-file", "SECRET")
+			case "literal token flag":
+				args = append(args, "-admin-token", "SECRET")
+			case "provider override":
+				args = append(args, "-provider-address", "SECRET")
+			case "missing expected user":
+				args = append(args, "-user-id", "")
+			}
+			var stdout, stderr bytes.Buffer
+			if rc := run(args, failingIO{}, &stdout, &stderr); rc != 2 || stdout.Len() != 0 {
+				t.Fatalf("exit=%d output=%s", rc, &stdout)
+			}
+			assertSafeFailure(t, stderr.String())
+		})
+	}
+	if len(f.recorded()) != 0 {
+		t.Fatal("network called for invalid usage")
+	}
+}
+
+func TestRunProviderSafeFailures(t *testing.T) {
+	for _, name := range []string{"invalid config", "missing session", "invalid session", "TLS file", "discovery", "ledger", "status", "semantic", "writer"} {
+		t.Run(name, func(t *testing.T) {
+			f := newAcquisitionFixture(t, "")
+			f.env(t)
+			f.expected.ErasureID = "SECRET-erasure"
+			f.expected.UserID = "SECRET-user"
+			f.expected.TenantID = "SECRET-tenant"
+			f.stone.ErasureId = f.expected.ErasureID
+			f.stone.UserId = f.expected.UserID
+			f.stone.TenantId = f.expected.TenantID
+			f.response.Erasures[0].ErasureId = f.expected.ErasureID
+			args := providerCLIArgs(t, f)
+			switch name {
+			case "invalid config":
+				t.Setenv("MUXCORE_MODULE_ID", "SECRET/invalid")
+			case "missing session":
+				args[2] = filepath.Join(t.TempDir(), "SECRET")
+			case "invalid session":
+				args[2] = bearerPath(t, "Bearer SECRET")
+			case "TLS file":
+				t.Setenv("MUXCORE_TLS_CERT", filepath.Join(t.TempDir(), "SECRET"))
+			case "discovery":
+				f.discoveryErr = errors.New("SECRET-discovery-diagnostic")
+			case "ledger":
+				f.list = func(int, *authv1.ListUserErasuresRequest) (*authv1.ListUserErasuresResponse, error) {
+					return nil, errors.New("SECRET-ledger-diagnostic")
+				}
+			case "status":
+				f.statusErr = errors.New("SECRET-status-diagnostic")
+			case "semantic":
+				f.response.Erasures[0].Complete = false
+			}
+			var stdout, stderr bytes.Buffer
+			var out io.Writer = &stdout
+			if name == "writer" {
+				out = failingIO{}
+			}
+			if rc := run(args, failingIO{}, out, &stderr); rc != 1 || stdout.Len() != 0 {
+				t.Fatalf("exit=%d output=%s", rc, &stdout)
+			}
+			assertSafeProviderFailure(t, stderr.String())
+		})
+	}
+}
+
+func TestProviderCLIProcess(t *testing.T) {
+	f := newAcquisitionFixture(t, "")
+	f.env(t)
+	args := append([]string{"-test.run=^TestCLIProcess$", "--"}, providerCLIArgs(t, f)...)
+	cmd := exec.Command(os.Args[0], args...)
+	cmd.Env = append(os.Environ(), "ERASURECHECK_TEST_PROCESS=1")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("process failed: %v %s", err, &stderr)
+	}
+	if stdout.String() != "OK provider acknowledgment check required=4\n" || stderr.Len() != 0 {
+		t.Fatalf("unexpected process output %q / %q", &stdout, &stderr)
+	}
+}
+
+func TestRunProviderOpaqueSession(t *testing.T) {
+	f := newAcquisitionFixture(t, "")
+	f.env(t)
+	// Credential prefixes are provider-specific. A generic provider can accept
+	// this session; the checker must pass it unchanged without Authenticate.
+	f.adminBearer = "mct_fixture-opaque-session"
+	args := providerCLIArgs(t, f)
+	args[2] = bearerPath(t, f.adminBearer)
+	var stdout, stderr bytes.Buffer
+	if rc := run(args, failingIO{}, &stdout, &stderr); rc != 0 {
+		t.Fatalf("opaque session rejected: %d %s", rc, &stderr)
+	}
+	if stdout.String() != "OK provider acknowledgment check required=4\n" || stderr.Len() != 0 {
+		t.Fatal("unexpected opaque-session output")
+	}
+}
+
+func TestReadAdminBearerRejectsFIFOWithoutOpening(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session-fifo")
+	// CI and the supported household tools run on Linux with POSIX utilities.
+	if err := exec.Command("mkfifo", path).Run(); err != nil {
+		t.Fatal(err)
+	}
+	opened := false
+	_, err := readAdminBearer(path, func(string) (bearerInput, error) { opened = true; return nil, errors.New("must not open FIFO") })
+	if err == nil || opened {
+		t.Fatal("FIFO was opened")
 	}
 }
