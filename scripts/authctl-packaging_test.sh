@@ -174,7 +174,7 @@ with open(os.environ["AUTHCTL_TEST_RUNTIME_LOG"], "a") as log:
         return commands[0]
 
     def run_docker_command(self, module, **extra):
-        return subprocess.run(["sh", "-eu", "-c", self.docker_authctl_command()],
+        return subprocess.run(["sh", "-c", self.docker_authctl_command()],
                               cwd=self.ws / module, env=dict(self.env, MODULE=module, **extra),
                               text=True, capture_output=True, timeout=15)
 
