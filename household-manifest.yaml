@@ -389,9 +389,13 @@ state:
     host: maintainer
     env: {MAINTAINER_DB_PATH: /data/maintainer/maintainer.db}
     kind: sqlite
-    personal: false
+    personal: true
     shares: [userdata-data]
-    notes: maintenance rules and exclusions; also mounts userdata-data read-only
+    notes: >-
+      maintenance rules, exclusions and candidates whose criteria name user ids; its
+      reconciler deletes the candidates whose criteria name the erased user id
+      (ADR-0035 §3). Still mounts userdata-data read-only (userdata-local owns it and
+      is the eraser; roadmap C-39)
   media-graph:
     volume: graph-data
     mount: /data/graph

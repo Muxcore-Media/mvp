@@ -59,6 +59,18 @@ For host mode, `MVP_ENABLE_BACKUP_LOCAL=1` enables backup-local. Its default sou
    - Put the escrowed key material back in place.
 7. Start everything and log in with your **original** admin password. auth-local only bootstraps `MVP_ADMIN_PASSWORD` when its database is empty, so a restored database keeps the old accounts.
 
+### Erased users stay erased (ADR-0035 §4)
+
+Archives are immutable and are **not rewritten** when a user is erased. A user deleted after an archive was taken is still in that archive until retention removes it (default 10 archives, no age limit; set `BACKUP_RETENTION_DAYS` for a time bound) or you delete it. Restoring such an archive must not bring the user back, so the erasure ledger (the tombstones) is carried across the restore: **the tombstone wins over restored data.**
+
+Do this around steps 2 to 7 above, with auth-local stopped. The ledger lives in auth-local's own database (`data/auth/auth.db` in host mode, `/data/auth.db` in the `auth-data` volume in compose):
+
+1. **Before step 6 replaces auth-local state**, export the live ledger from the database you are about to replace: `authctl erasures export -db <auth.db> <ledger.json>`. Keep `<ledger.json>` outside the archive.
+2. **After step 6 and before step 7 starts the stack** (so before anything serves), import it into the restored database: `authctl erasures import -db <auth.db> <ledger.json>`.
+3. On start, auth-local deletes any user, credential or session row whose id is tombstoned and refuses to create a tombstoned id. Restored modules carry their own `erasure-applied` records, so each module's startup sweep erases the restored data of an erased user again.
+
+With no live system to export from, restore the newest available auth-local archive, never one older than any other module you restore. This uses the existing `authctl` ledger export and backup-local archives; there is no separate backup format.
+
 ## Restore drill (automated, fixtures only)
 
 `scripts/restore-drill.sh` runs the whole cycle and checks the result. **It wipes all module state**, so use it only on a fixture or test install. It refuses to run without `--confirm-wipe`.

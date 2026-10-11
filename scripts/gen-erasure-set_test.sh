@@ -73,12 +73,32 @@ expect_has "repo: COMPOSE_PROFILES enables (guard)" "$got" playback-guard
 expect_has "repo: COMPOSE_PROFILES enables, id is the compose MUXCORE_MODULE_ID (jellyfin-bridge -> jellyfin)" "$got" jellyfin
 expect_lacks "repo: a service name is not a module id" "$got" jellyfin-bridge
 
+# media-library-maintainer stores user ids in candidate criteria and runs an
+# ADR-0035 reconciler: personal: true, erasure unset (consumer), so it is listed
+# exactly when enabled.
+expect_lacks "repo: disabled library maintainer is omitted" "$(consumers --)" media-library-maintainer
+got="$(consumers MVP_ENABLE_MEDIA_LIBRARY_MAINTAINER=1 --)"
+expect_has "repo: library maintainer enabled by its gate is included" "$got" media-library-maintainer
+expect_has "repo: the always-on consumers stay with the maintainer" "$got" userdata-local
+expect_eq "repo: enabled maintainer is also in AUTH_ERASURE_REQUIRED" "$got" \
+  "$(required MVP_ENABLE_MEDIA_LIBRARY_MAINTAINER=1 --)"
+got="$(consumers --  --profile library-maintainer)"
+expect_has "repo: the library-maintainer compose profile enables it" "$got" media-library-maintainer
+got="$(consumers MVP_ENABLE_MEDIA_LIBRARY_MAINTAINER=0 --)"
+expect_lacks "repo: maintainer gate value 0 stays disabled" "$got" media-library-maintainer
+# Neighbours that read userdata or sit beside it are not consumers: the maintainer
+# mounts userdata-data read-only, which does not make userdata-local's peers personal.
+got="$(consumers MVP_ENABLE_MEDIA_LIBRARY_MAINTAINER=1 MVP_ENABLE_MEDIA_LIST_SYNC=1 MVP_ENABLE_MEDIA_GRAPH=1 --)"
+expect_lacks "repo: an enabled personal: false module stays out beside the maintainer (list-sync)" "$got" media-list-sync
+expect_lacks "repo: an enabled personal: false module stays out beside the maintainer (graph)" "$got" media-graph
+
 # Providers and modules with no ledger disposition are never listed, enabled or not.
 got="$(consumers MVP_ENABLE_AUTH_OIDC=1 MVP_ENABLE_PLEX=1 MVP_ENABLE_EMBY=1 COMPOSE_PROFILES='*' --)"
 for m in auth-local auth-oidc database-sqlite plex emby; do
   expect_lacks "repo: $m (erasure: provider|none) is never listed" "$got" "$m"
 done
 expect_has "repo: everything personal and enabled under profile *" "$got" playback-guard
+expect_has "repo: the maintainer is listed under profile *" "$got" media-library-maintainer
 # A non-personal module that is enabled is not a ledger consumer.
 got="$(consumers MVP_ENABLE_MEDIA_MUSIC=1 MVP_ENABLE_MEDIA_TRANSCODER=1 --)"
 expect_lacks "repo: an enabled non-personal module is not listed" "$got" media-music
@@ -107,6 +127,8 @@ optional_env_gated:
     env: MVP_ENABLE_OPT_NONE
   - name: opt-plain
     env: MVP_ENABLE_OPT_PLAIN
+  - name: opt-shared
+    env: MVP_ENABLE_OPT_SHARED
 state:
   idp: {volume: v1, mount: /d, kind: sqlite, personal: true, erasure: provider}
   always-on: {volume: v2, mount: /d, kind: sqlite, personal: true}
@@ -117,6 +139,7 @@ state:
   opt-profile: {service: opt-profile-svc, volume: v7, mount: /d, kind: files, personal: true}
   opt-none: {volume: v8, mount: /d, kind: files, personal: true, erasure: none}
   opt-plain: {volume: v9, mount: /d, kind: files, personal: false}
+  opt-shared: {volume: v10, mount: /d, kind: sqlite, personal: true, shares: [v1]}
 YAML
 cat >"$FC" <<'YAML'
 services:
@@ -129,6 +152,7 @@ services:
     profiles: [special]
     environment: {MUXCORE_MODULE_ID: opt-profile-id}
   opt-none: {environment: {MUXCORE_MODULE_ID: opt-none}}
+  opt-shared: {environment: {MUXCORE_MODULE_ID: opt-shared}}
 YAML
 F=(--manifest "$FM" --compose "$FC")
 expect_eq "fixture: only required/recommended personal consumers by default" "always-on,rec-personal" "$(consumers -- "${F[@]}")"
@@ -140,6 +164,10 @@ expect_eq "fixture: a profile enables the service and the module id comes from c
   "$(consumers -- "${F[@]}" --profile special)"
 expect_eq "fixture: erasure: none stays out when enabled; non-personal stays out" "always-on,rec-personal" \
   "$(consumers MVP_ENABLE_OPT_NONE=1 MVP_ENABLE_OPT_PLAIN=1 -- "${F[@]}")"
+
+expect_eq "fixture: a personal module that shares another's volume is still a consumer when enabled" \
+  "always-on,opt-on,opt-shared,rec-personal" \
+  "$(consumers MVP_ENABLE_OPT_ON=1 MVP_ENABLE_OPT_SHARED=1 MVP_ENABLE_OPT_PLAIN=1 -- "${F[@]}")"
 
 # ---- configuration errors fail loudly ----
 bad() { # bad name pattern manifest-text
