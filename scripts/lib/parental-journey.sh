@@ -154,7 +154,8 @@ _pj_urlencode() {
 
 # _pj_bff METHOD PATH BEARER [RANGE] [JSON_BODY]
 # One BFF request with exactly one bearer (process substitution, not argv).
-# Sets PJ_CODE; body in "$PJ_WORK/body", headers in "$PJ_WORK/hdr".
+# Sets PJ_CODE and PJ_REQUEST_AT (request start, centiseconds); body in
+# "$PJ_WORK/body", headers in "$PJ_WORK/hdr".
 _pj_bff() {
   local method="$1" path="$2" bearer="$3" range="${4:-}" body="${5:-}"
   local -a args=(-sS -X "$method" -o "$PJ_WORK/body" -D "$PJ_WORK/hdr" -w '%{http_code}' --max-time 30)
@@ -164,6 +165,8 @@ _pj_bff() {
   fi
   : >"$PJ_WORK/body"
   : >"$PJ_WORK/hdr"
+  _pj_now
+  PJ_REQUEST_AT="$PJ_NOW"
   PJ_CODE="$(printf '%s' "$body" | curl "${args[@]}" \
     -H @<(printf 'Authorization: Bearer %s\nAccept: application/json\n' "$bearer") \
     "${PJ_BFF}${path}" 2>"$PJ_WORK/curl.err")" || PJ_CODE="000"
@@ -173,12 +176,31 @@ _pj_bff() {
 # "code" and "parental_code" of a JSON error body (empty when absent). Two
 # separate globals, so an absent `code` can never shift into its place.
 _pj_json_code() {
-  local body re_c='(^|[{,])[[:space:]]*"code"[[:space:]]*:[[:space:]]*"([^"\\]*)"'
-  local re_p='(^|[{,])[[:space:]]*"parental_code"[[:space:]]*:[[:space:]]*"([^"\\]*)"'
+  local out
   PJ_JCODE="" PJ_JPCODE=""
-  body="$(head -c 4096 "$1" 2>/dev/null | tr -d '\000\n\r')"
-  [[ "$body" =~ $re_c ]] && PJ_JCODE="${BASH_REMATCH[2]}"
-  [[ "$body" =~ $re_p ]] && PJ_JPCODE="${BASH_REMATCH[2]}"
+  out="$(python3 -c 'import json, sys
+def unique(pairs):
+    d = {}
+    for key, value in pairs:
+        if key in d:
+            raise ValueError("duplicate member")
+        d[key] = value
+    return d
+def invalid_constant(value):
+    raise ValueError("invalid JSON constant")
+body = open(sys.argv[1], "rb").read(4097)
+if len(body) > 4096:
+    sys.exit(1)
+d = json.loads(body.decode("utf-8"), object_pairs_hook=unique, parse_constant=invalid_constant)
+if not isinstance(d, dict):
+    sys.exit(1)
+code, parental_code = d.get("code", ""), d.get("parental_code", "")
+if not all(isinstance(v, str) and not any(c in v for c in "\t\n\r\0") for v in (code, parental_code)):
+    sys.exit(1)
+print(code + "\t" + parental_code + "\t.")' "$1" 2>/dev/null)" || return 0
+  PJ_JCODE="${out%%$'\t'*}"
+  out="${out#*$'\t'}"
+  PJ_JPCODE="${out%%$'\t'*}"
   return 0
 }
 
@@ -575,20 +597,38 @@ _pj_describe_eff() {
   fi
 }
 
+# _pj_confirmed_clear → current admin-ui's confirmed-clear status fragment.
+# Classification/source are still checked through a fresh BFF read below.
+_pj_confirmed_clear() {
+  python3 -c 'import sys
+from html.parser import HTMLParser
+class P(HTMLParser):
+    found = False
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "p" and a.get("role") == "status" and a.get("data-testid") == "content-rating-cleared":
+            self.found = True
+p = P()
+p.feed(open(sys.argv[1], encoding="utf-8").read())
+sys.exit(0 if p.found else 1)' "$PJ_WORK/admin.html" 2>/dev/null
+}
+
 # _pj_rate CHOICE → R|G|… , clear or unrated through admin-ui's content-rating
 # page (admin only), then the effective classification read back. Operator
 # values must be confirmed ("saved and checked", recorded value) and be the
 # effective classification. A clear must remove the operator value; with
-# ADR-0031 S4 (media modules ≥ v0.1.24) a TMDB value may then apply, which
-# admin-ui's readback can report as unconfirmed (502) — accepted only when the
-# effective source is no longer `operator`. Sets PJ_T_WRITE when the POST
-# returned.
+# ADR-0031 S4 (media modules ≥ v0.1.24) a TMDB value may then apply. Accept the
+# current confirmed-clear status or the legacy clear-only unconfirmed 502,
+# always requiring the effective source to no longer be `operator`.
+# Sets PJ_T_WRITE when the POST returned.
 _pj_rate() {
   local choice="$1" want got
   _pj_admin POST "/media/media-movies/item/${PJ_MOVIE_SEG}/content-rating" "classification=${choice}"
   _pj_now
   PJ_T_WRITE="$PJ_NOW"
-  if [[ "$PJ_CODE" == 200 ]] && grep -q 'Content rating saved and checked' "$PJ_WORK/admin.html"; then
+  if [[ "$choice" == clear && "$PJ_CODE" == 200 ]] && _pj_confirmed_clear; then
+    : # Fresh authoritative readback below also applies to confirmed clears.
+  elif [[ "$PJ_CODE" == 200 ]] && grep -q 'Content rating saved and checked' "$PJ_WORK/admin.html"; then
     case "$choice" in
       clear) want="" ;;
       unrated) want="NR" ;;
@@ -631,7 +671,7 @@ print(m.group(1) if m else "")' "$PJ_WORK/admin.html")"
 # they match (deadline PJ_TIMEOUT); the phase FAILS when the member was still
 # seen in the old state more than PJ_BOUND after the write returned.
 _pj_phase() {
-  local label="$1" what="$2" value="$3" want="$4" unrated="${5:-0}" relogin="${6:-0}" expect first="" stale="" t_iter t_ok
+  local label="$1" what="$2" value="$3" want="$4" unrated="${5:-0}" relogin="${6:-0}" expect first="" stale="" t_ok
   if [[ "$what" == policy ]]; then
     _pj_set_restricted "$PJ_KID_ID" "$value" "$unrated" || return 1
     _pj_effective || return 1
@@ -649,18 +689,21 @@ _pj_phase() {
   PJ_FATAL=0
   while :; do
     PJ_WHY=""
-    _pj_now
-    t_iter="$PJ_NOW"
-    if _pj_check_admin && _pj_check_kid "$expect"; then
-      break
+    if _pj_check_admin; then
+      if _pj_check_kid "$expect"; then
+        break
+      fi
+      # The failed member check leaves the timestamp of its own last request.
+      # Earlier admin/list/detail work must not backdate a later stale result.
+      stale="$PJ_REQUEST_AT"
+      [[ -n "$first" ]] || first="$PJ_WHY"
     fi
     if [[ "$PJ_FATAL" == 1 ]]; then
       _pj_fail "phase ${label}: ${PJ_WHY}"
       return 1
     fi
-    [[ -n "$first" ]] || first="$PJ_WHY"
-    stale="$t_iter"
-    if ((t_iter - PJ_T_WRITE >= PJ_TIMEOUT_CS)); then
+    _pj_now
+    if ((PJ_NOW - PJ_T_WRITE >= PJ_TIMEOUT_CS)); then
       _pj_fail "phase ${label} (${what} ${value:-none}, $(_pj_describe_eff), member ${expect}): not reached within $(_pj_secs "$PJ_TIMEOUT_CS")s; last: ${PJ_WHY}"
       return 1
     fi

@@ -53,7 +53,45 @@ MOVIES = {MOVIE_ID: new_movie(MOVIE_ID, 550, TITLE), "mv_other": new_movie("mv_o
 FLAGS = {}
 PAUSED = [False]
 LOG = {"csrf_posts": [], "kid_requests": [], "module_calls": [], "passwords": [], "secrets": [],
-       "policy_puts": 0, "pause_calls": [], "logouts": 0}
+       "policy_puts": 0, "pause_calls": [], "logouts": 0, "regression_events": []}
+TIMING = {}
+
+
+def event(kind, **fields):
+    """Only fixture facts: never record tokens, cookies or passwords."""
+    LOG["regression_events"].append(dict(kind=kind, at=time.monotonic(), **fields))
+
+
+def timing_request(uid, path):
+    """Delay an earlier request, then misbehave once on a later member request.
+
+    This deliberately models a broken BFF, not elapsed network transit: the
+    stale request itself starts after the bound. Every request is recorded so
+    the shell test can prove it reached that schedule rather than timing out.
+    """
+    if not TIMING.get("active"):
+        return False
+    member = uid == TIMING["uid"]
+    event("request", actor="member" if member else "admin", path=path)
+    stage = FLAGS["timing_stage"]
+    target = {"admin": "/api/movies", "detail": "/api/movies/" + MOVIE_ID,
+              "resolve": "/api/playback/resolve", "stream": "/stream/movies/" + MOVIE_ID}[stage]
+    before = {"admin": "/stream/movies/" + MOVIE_ID, "detail": "/api/movies",
+              "resolve": "/api/movies/" + MOVIE_ID, "stream": "/api/playback/resolve"}[stage]
+    if not TIMING.get("delayed") and path == before and member == (stage != "admin"):
+        TIMING["delayed"] = True
+        event("delay_start", path=path)
+        time.sleep(float(FLAGS.get("timing_delay", 1.3)))
+        event("delay_end", path=path)
+        TIMING["armed"] = True
+    if member and path == target and TIMING.get("armed"):
+        if not TIMING.get("observed"):
+            TIMING["observed"] = True
+            if not FLAGS.get("timing_correct"):
+                event("stale", path=path)
+                return True
+        event("converged", path=path)
+    return False
 
 
 def user_by_id(uid):
@@ -75,7 +113,8 @@ def effective(m):
     if m["source"] == "operator":
         return m["rating"], "operator"
     if FLAGS.get("tmdb_fallback"):
-        return "R", "tmdb"
+        value = FLAGS["tmdb_fallback"]
+        return value if isinstance(value, str) else "R", "tmdb"
     return "", ""
 
 
@@ -219,6 +258,18 @@ class H(BaseHTTPRequestHandler):
         if FLAGS.get("title_leak"):
             body["error"] = "%s is not allowed" % TITLE
         hdrs = [] if FLAGS.get("no_store_missing") else [("Cache-Control", "no-store")]
+        target = FLAGS.get("error_target")
+        path = urlsplit(self.path).path
+        mutate = ((target == "detail" and path == "/api/movies/" + MOVIE_ID)
+                  or (target == "resolve" and path == "/api/playback/resolve")
+                  or (target == "outage" and status == 503))
+        if mutate:
+            shape = FLAGS["error_shape"]
+            event("error_document", target=target, shape=shape, path=path, status=status)
+            if shape == "nested":
+                return self.send(status, {"error": body}, headers=hdrs)
+            if shape == "malformed":
+                return self.send(status, headers=hdrs, raw=json.dumps(body).encode() + b" trailing garbage")
         return self.send(status, body, headers=hdrs)
 
     def body(self):
@@ -257,6 +308,8 @@ class H(BaseHTTPRequestHandler):
         if path == "/_control":
             if self.headers.get("X-Reset"):
                 FLAGS.clear()
+                TIMING.clear()
+                LOG["regression_events"].clear()
                 MOVIES.setdefault(MOVIE_ID, new_movie(MOVIE_ID, 550, TITLE))
             FLAGS.update(json.loads(self.body() or b"{}"))
             if "pause" in FLAGS:
@@ -399,6 +452,11 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, parental_fragment(target, saved=True, pol_override=(rev + 1, pol)), "text/html")
             WRITES[target] = (time.time(), POLICIES.get(target, (0, None))[1])
             POLICIES[target] = (rev + 1, pol)
+            if FLAGS.get("timing_stage"):
+                TIMING["active"] = pol["rules"]["max_rating"] == "G"
+                if TIMING["active"]:
+                    TIMING.update(uid=target, old_policy=WRITES[target][1])
+                    event("write", revision=rev + 1)
             return self.send(200, parental_fragment(target, saved=True), "text/html")
         if len(parts) == 5 and parts[:3] == ["media", "media-movies", "item"] and parts[4] == "content-rating" and method == "POST":
             if not privileged(uid):
@@ -414,10 +472,27 @@ class H(BaseHTTPRequestHandler):
             if FLAGS.get("rating_unconfirmed"):
                 return self.send(502, "The save was acknowledged, but its current classification could not be confirmed.", "text/html")
             if choice == "clear":
-                m.update(rating="", source="")
+                if FLAGS.get("clear_operator_residual") and not FLAGS.get("residual_used"):
+                    FLAGS["residual_used"] = True
+                    event("operator_residual", rating=m["rating"])
+                else:
+                    m.update(rating="", source="")
             else:
                 m.update(rating="NR" if choice == "unrated" else choice, source="operator")
             r, s = effective(m)
+            if choice == "clear" and FLAGS.get("confirmed_clear"):
+                # Current selected admin-ui dd71c7f, content_rating.templ:38–64.
+                # Its clear branch is mutually exclusive with the old saved text.
+                if s == "tmdb" and r == "NR":
+                    message = "Operator classification cleared; the effective rating is now Not rated (NR) from TMDB."
+                elif s == "tmdb":
+                    message = "Operator classification cleared; the effective rating is now %s from TMDB." % r
+                else:
+                    message = "Operator classification cleared; no classification is available now."
+                event("confirmed_clear", rating=r, source=s)
+                return self.send(200, '<p role="status" class="text-green-300" data-testid="content-rating-cleared">%s It was checked against the module.</p>' % html.escape(message), "text/html")
+            if choice == "clear" and FLAGS.get("clear_operator_residual") and s == "operator":
+                return self.send(200, "<p>Content rating saved and checked.</p>", "text/html")
             if choice == "clear" and s:
                 # admin-ui compares the readback with ""/"" and cannot confirm a TMDB fallback.
                 return self.send(502, "The save was acknowledged, but its current classification could not be confirmed.", "text/html")
@@ -432,6 +507,7 @@ class H(BaseHTTPRequestHandler):
             return self.send(401, {"code": "auth.session_required"})
         if uid != "u-admin":
             LOG["kid_requests"].append({"method": method, "path": path, "auth": len(self.headers.get_all("Authorization") or [])})
+        stale = timing_request(uid, path)
         # Operator routes: role gate before any policy lookup or module call.
         operator = (method == "DELETE" and path.startswith("/api/movies/")) or path == "/api/releases/grab" or (
             path.startswith("/api/sessions/") and path.endswith("/stop"))
@@ -453,6 +529,8 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, dict(BLOBS.get(uid, {"prefs": {}}), user_id=uid))
         try:
             pol = session_policy(tok, uid)
+            if stale:
+                pol = TIMING["old_policy"]
         except Unavailable:
             if FLAGS.get("outage_stream_open") and path.startswith("/stream/"):
                 return self.send(206, raw=b"\x00" * 1024, ctype="video/mp4")
