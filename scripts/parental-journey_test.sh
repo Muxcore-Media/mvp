@@ -119,6 +119,7 @@ check_cleaned() {
   [[ -z "$(ls -A "$work/jtmp")" ]] || fail "${name}: journey work dir not removed: $(ls -A "$work/jtmp")"
 }
 
+run_existing_cases() {
 # ---- decision: household registry only; dev / host skip with a reason ----
 (
   unset SMOKE_USERDATA_TLS SMOKE_USERDATA_URL MUXCORE_PROFILE MUXCORE_REQUIRE_TLS
@@ -330,6 +331,118 @@ grep -qx "caller-exit-ran" "$work/out" || fail "L9: the caller's EXIT trap did n
 mutations=$((mutations + 1))
 echo "OK L9: the caller's EXIT/TERM traps are restored and run; no INT trap left"
 
+echo "OK parental-journey existing script tests (${mutations} mutations and fault cases fail the journey)"
+}
+
+# Keep the accepted 48-case matrix separately runnable. New regressions collect
+# every result: an expected before-fix assertion failure cannot hide later cases.
+# Optional artifacts contain masked journey output and secret-free event records.
+regression_cases=0
+regression_failures=0
+regression_case() {
+  local name="$1" expect="$2" flags="$3" pattern="${4:-}" rc=0 ok=1 evidence=0
+  if [[ -n "${PARENTAL_JOURNEY_TEST_FILTER:-}" ]] && ! [[ "$name" =~ $PARENTAL_JOURNEY_TEST_FILTER ]]; then
+    return 0
+  fi
+  control "$flags"
+  journey || rc=$?
+  fakelog | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["regression_events"]))' >"$work/events.json"
+  python3 - "$name" "$flags" "$rc" "$work/events.json" <<'PYCASE' || evidence=$?
+import json, sys
+name, flags, rc, filename = sys.argv[1:]
+flags, rc = json.loads(flags), int(rc)
+events = json.load(open(filename))
+if flags.get("error_target"):
+    hits = [e for e in events if e["kind"] == "error_document"]
+    assert hits, "bad error response was never exercised"
+    assert all(e["shape"] == flags["error_shape"] and e["target"] == flags["error_target"] for e in hits)
+if flags.get("confirmed_clear"):
+    cleared = [e for e in events if e["kind"] == "confirmed_clear"]
+    assert cleared, "current successful-clear response was never exercised"
+    if not flags.get("clear_operator_residual"):
+        assert cleared[0]["rating"] == flags.get("tmdb_fallback", ""), "wrong clear rating fixture"
+        assert cleared[0]["source"] == ("tmdb" if flags.get("tmdb_fallback") else ""), "wrong clear source fixture"
+if flags.get("clear_operator_residual"):
+    assert any(e["kind"] == "operator_residual" for e in events), "operator residual was never exercised"
+if flags.get("timing_stage"):
+    write = next(e["at"] for e in events if e["kind"] == "write")
+    delay_start = next(e["at"] for e in events if e["kind"] == "delay_start")
+    delay_end = next(e["at"] for e in events if e["kind"] == "delay_end")
+    assert write <= delay_start < delay_end
+    observation = next(e for e in events if e["kind"] == ("converged" if flags.get("timing_correct") else "stale"))
+    requests = [e for e in events if e["kind"] == "request" and e["actor"] == "member" and e["path"] == observation["path"] and e["at"] <= observation["at"]]
+    request = requests[-1]
+    elapsed = request["at"] - write
+    assert request["at"] >= delay_end, "stale request started before the injected delay finished"
+    if float(flags.get("timing_delay", 1.3)) > 1:
+        assert elapsed > 1.1, ("member request did not start beyond the 1s bound plus margin", elapsed)
+    else:
+        assert elapsed < 1, ("in-bound control did not stay inside bound", elapsed)
+    converged = [e for e in events if e["kind"] == "converged"]
+    if rc == 0:
+        assert converged, "the passing journey did not observe convergence"
+        assert converged[0]["at"] - write < 4, "convergence missed the polling deadline"
+    print("TIMING %s write=%.6f delay_start=%.6f delay_end=%.6f member_request=%.6f elapsed=%.3f converged=%s" % (name, write, delay_start, delay_end, request["at"], elapsed, "%.6f" % converged[0]["at"] if converged else "not-polled-after-rejection"))
+print("EXERCISED %s events=%d" % (name, len(events)))
+PYCASE
+  [[ "$evidence" == 0 ]] || ok=0
+  if [[ "$expect" == pass && "$rc" != 0 ]] || [[ "$expect" == fail && "$rc" == 0 ]]; then
+    ok=0
+  fi
+  if [[ -n "$pattern" ]] && ! grep -qE -- "$pattern" "$work/out"; then
+    echo "ASSERT ${name}: missing failure reason '${pattern}'"
+    ok=0
+  fi
+  if ! (check_cleaned "$name"); then
+    ok=0
+  fi
+  regression_cases=$((regression_cases + 1))
+  if [[ "$ok" == 1 ]]; then
+    echo "OK regression ${name}: expected=${expect} journey_exit=${rc} evidence_exit=${evidence}"
+  else
+    regression_failures=$((regression_failures + 1))
+    echo "FAIL regression ${name}: expected=${expect} journey_exit=${rc} evidence_exit=${evidence}"
+    cat "$work/out"
+  fi
+  if [[ -n "${PARENTAL_JOURNEY_TEST_ARTIFACTS:-}" ]]; then
+    mkdir -p "$PARENTAL_JOURNEY_TEST_ARTIFACTS"
+    cp "$work/out" "$PARENTAL_JOURNEY_TEST_ARTIFACTS/${name}.log"
+    cp "$work/events.json" "$PARENTAL_JOURNEY_TEST_ARTIFACTS/${name}.events.json"
+    printf 'expected=%s journey_exit=%s evidence_exit=%s assertion_pass=%s\n' "$expect" "$rc" "$evidence" "$ok" >"$PARENTAL_JOURNEY_TEST_ARTIFACTS/${name}.result"
+  fi
+}
+
+run_regression_cases() {
+  local target shape
+  regression_case valid_root_error_documents pass '{}'
+  for target in detail resolve outage; do
+    for shape in nested malformed; do
+      regression_case "R1_${target}_${shape}" fail "{\"error_target\":\"${target}\",\"error_shape\":\"${shape}\"}"
+    done
+  done
+  for target in admin detail resolve stream; do
+    SMOKE_PARENTAL_JOURNEY_TIMEOUT_SEC=4 regression_case "R2_late_${target}" fail "{\"timing_stage\":\"${target}\"}" 'phase T: .*bound'
+  done
+  SMOKE_PARENTAL_JOURNEY_TIMEOUT_SEC=4 regression_case R2_in_bound pass '{"timing_stage":"admin","timing_delay":0.2}'
+  SMOKE_PARENTAL_JOURNEY_TIMEOUT_SEC=4 regression_case R2_already_correct_after_delay pass '{"timing_stage":"admin","timing_correct":true}'
+  SMOKE_PARENTAL_JOURNEY_OUTAGE_TIMEOUT_SEC=4 regression_case R2_outage_bound_preserved fail '{"outage_policy_ttl":2.5}' 'outage: .*bound'
+  regression_case R3_clear_unavailable pass '{"confirmed_clear":true}'
+  regression_case R3_clear_tmdb_r pass '{"confirmed_clear":true,"tmdb_fallback":"R"}'
+  regression_case R3_clear_tmdb_nr pass '{"confirmed_clear":true,"tmdb_fallback":"NR"}'
+  regression_case R3_current_clear_operator_residual fail '{"confirmed_clear":true,"clear_operator_residual":true}' 'after clearing, the effective classification is G/operator'
+  regression_case R3_legacy_clear_operator_residual fail '{"clear_operator_residual":true}' 'after clearing, the effective classification is G/operator'
+  regression_case R3_legacy_clear_502 pass '{"tmdb_fallback":true}'
+  ((regression_cases > 0)) || fail 'no regression case matched PARENTAL_JOURNEY_TEST_FILTER'
+  echo "REGRESSION SUMMARY cases=${regression_cases} passed=$((regression_cases - regression_failures)) failed=${regression_failures}"
+}
+
+case "${PARENTAL_JOURNEY_TEST_GROUP:-all}" in
+  existing) run_existing_cases ;;
+  regression) run_regression_cases ;;
+  all) run_existing_cases; run_regression_cases ;;
+  *) fail 'PARENTAL_JOURNEY_TEST_GROUP must be existing, regression or all' ;;
+esac
+
 # ---- smoke.sh wiring ----
 smoke="$ROOT/smoke.sh"
 grep -q 'source "\$ROOT/scripts/lib/parental-journey.sh"' "$smoke" || fail "smoke.sh does not source the journey"
@@ -341,4 +454,4 @@ run_line="$(grep -n 'parental_journey_run "\$MEDIA_UI_URL" "\$ADMIN_URL" "\$AUTH
 grep -q 'parental_journey_run .* || exit 1' "$smoke" || fail "a journey failure must fail the smoke"
 grep -q '^echo "PASS: MVP smoke .*+ \${journey_label} +' "$smoke" || fail "PASS line lacks the journey step"
 echo "OK smoke.sh runs the journey after acquisition and names it in the PASS line"
-echo "OK parental-journey script tests (${mutations} mutations and fault cases fail the journey)"
+[[ "$regression_failures" == 0 ]] || exit 1
