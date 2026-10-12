@@ -15,7 +15,9 @@ import (
 	jellyfinv1 "github.com/Muxcore-Media/jellyfin/proto/jellyfinv1"
 	plexv1 "github.com/Muxcore-Media/plex/proto/plexv1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 )
 
 type fixturePlexStop struct {
@@ -275,6 +277,186 @@ func TestHandleStopPlaybackSessionPlex(t *testing.T) {
 	}
 	if !body.Stopped || body.ServerType != "plex" || !body.PlexStopped {
 		t.Fatalf("%#v", body)
+	}
+}
+
+type stopJellyfinClient struct {
+	jellyfinv1.JellyfinBridgeClient
+	terminate func(context.Context, *jellyfinv1.TerminateSessionRequest) (*jellyfinv1.TerminateSessionResponse, error)
+}
+
+func (c stopJellyfinClient) TerminateSession(ctx context.Context, req *jellyfinv1.TerminateSessionRequest, _ ...grpc.CallOption) (*jellyfinv1.TerminateSessionResponse, error) {
+	return c.terminate(ctx, req)
+}
+
+type stopPlexClient struct {
+	plexv1.PlexBridgeServiceClient
+	terminate func(context.Context, *plexv1.TerminateSessionRequest) (*plexv1.TerminateSessionResponse, error)
+}
+
+func (c stopPlexClient) TerminateSession(ctx context.Context, req *plexv1.TerminateSessionRequest, _ ...grpc.CallOption) (*plexv1.TerminateSessionResponse, error) {
+	return c.terminate(ctx, req)
+}
+
+// FR-ANA-003: a successful Stop response needs an acknowledgment under the
+// existing monitor/bridge boundary. It does not prove physical stream termination.
+func TestHandleStopPlaybackSessionAcknowledgment(t *testing.T) {
+	const (
+		absent = ""
+		ack    = "ack"
+		noAck  = "false"
+		rpcErr = "rpc_error"
+	)
+	const bridgeDetail = "private bridge diagnostic must not reach the response"
+	tests := []struct {
+		name          string
+		jellyfin      string
+		plex          string
+		monitorStatus int
+		monitorBody   string
+		invalidID     bool
+		wantStatus    int
+		wantCode      string
+		wantType      string
+		wantJellyfin  bool
+		wantPlex      bool
+		wantCalls     string
+		wantBridgeID  string
+	}{
+		{name: "jellyfin_rpc_error_without_monitor", jellyfin: rpcErr, wantStatus: 502, wantCode: "sessions.stop_failed", wantCalls: "jellyfin"},
+		{name: "jellyfin_false_without_monitor", jellyfin: noAck, wantStatus: 502, wantCode: "sessions.stop_failed", wantCalls: "jellyfin"},
+		{name: "plex_rpc_error_without_monitor", plex: rpcErr, wantStatus: 502, wantCode: "sessions.stop_failed", wantCalls: "plex"},
+		{name: "plex_false_without_monitor", plex: noAck, wantStatus: 502, wantCode: "sessions.stop_failed", wantCalls: "plex"},
+		{name: "both_rpc_errors_without_monitor", jellyfin: rpcErr, plex: rpcErr, wantStatus: 502, wantCode: "sessions.stop_failed", wantCalls: "jellyfin,plex"},
+		{name: "both_false_without_monitor", jellyfin: noAck, plex: noAck, wantStatus: 502, wantCode: "sessions.stop_failed", wantCalls: "jellyfin,plex"},
+		{name: "jellyfin_error_plex_false_without_monitor", jellyfin: rpcErr, plex: noAck, wantStatus: 502, wantCode: "sessions.stop_failed", wantCalls: "jellyfin,plex"},
+		{name: "jellyfin_false_plex_error_without_monitor", jellyfin: noAck, plex: rpcErr, wantStatus: 502, wantCode: "sessions.stop_failed", wantCalls: "jellyfin,plex"},
+		{name: "jellyfin_ack_without_monitor", jellyfin: ack, wantStatus: 200, wantType: "jellyfin", wantJellyfin: true, wantCalls: "jellyfin"},
+		{name: "plex_ack_without_monitor", plex: ack, wantStatus: 200, wantType: "plex", wantPlex: true, wantCalls: "plex"},
+		{name: "both_ack_without_monitor", jellyfin: ack, plex: ack, wantStatus: 200, wantType: "jellyfin", wantJellyfin: true, wantPlex: true, wantCalls: "jellyfin,plex"},
+		{name: "jellyfin_ack_plex_error_without_monitor", jellyfin: ack, plex: rpcErr, wantStatus: 200, wantType: "jellyfin", wantJellyfin: true, wantCalls: "jellyfin,plex"},
+		{name: "jellyfin_error_plex_ack_without_monitor", jellyfin: rpcErr, plex: ack, wantStatus: 200, wantType: "plex", wantPlex: true, wantCalls: "jellyfin,plex"},
+		{name: "monitor_error_without_bridges", monitorStatus: 503, monitorBody: "monitor unavailable", wantStatus: 502, wantCode: "sessions.stop_failed"},
+		{name: "monitor_error_both_bridges_fail", monitorStatus: 503, monitorBody: "monitor unavailable", jellyfin: rpcErr, plex: noAck, wantStatus: 502, wantCode: "sessions.stop_failed", wantCalls: "jellyfin,plex"},
+		{name: "monitor_error_jellyfin_ack", monitorStatus: 503, monitorBody: "monitor unavailable", jellyfin: ack, plex: noAck, wantStatus: 200, wantType: "jellyfin", wantJellyfin: true, wantCalls: "jellyfin,plex"},
+		{name: "monitor_error_plex_ack", monitorStatus: 503, monitorBody: "monitor unavailable", jellyfin: noAck, plex: ack, wantStatus: 200, wantType: "plex", wantPlex: true, wantCalls: "jellyfin,plex"},
+		{name: "native_monitor_ack_skips_bridges", monitorStatus: 200, monitorBody: `{"stopped":true,"session":{"ServerType":"native"}}`, jellyfin: rpcErr, plex: rpcErr, wantStatus: 200, wantType: "native"},
+		{name: "jellyfin_monitor_ack_bridge_error", monitorStatus: 200, monitorBody: `{"stopped":true,"session":{"ServerType":"jellyfin","ExternalSessionID":"external-1"}}`, jellyfin: rpcErr, plex: ack, wantStatus: 200, wantType: "jellyfin", wantCalls: "jellyfin", wantBridgeID: "external-1"},
+		{name: "plex_monitor_ack_bridge_false", monitorStatus: 200, monitorBody: `{"stopped":true,"session":{"ServerType":"plex","ExternalSessionID":"external-1"}}`, jellyfin: ack, plex: noAck, wantStatus: 200, wantType: "plex", wantCalls: "plex", wantBridgeID: "external-1"},
+		{name: "empty_monitor_response_retains_ack", monitorStatus: 200, monitorBody: `{}`, jellyfin: rpcErr, plex: noAck, wantStatus: 200, wantCalls: "jellyfin,plex"},
+		{name: "monitor_stopped_false_retains_ack", monitorStatus: 200, monitorBody: `{"stopped":false,"session":{}}`, wantStatus: 200},
+		{name: "no_backends", wantStatus: 503, wantCode: "sessions.unavailable"},
+		{name: "invalid_id_skips_backends", invalidID: true, monitorStatus: 200, monitorBody: `{}`, jellyfin: ack, plex: ack, wantStatus: 400, wantCode: "sessions.id_required"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &server{}
+			var calls []string
+			var bridgeDeadline time.Time
+			recordBridgeCall := func(ctx context.Context, backend, id, reason string) {
+				t.Helper()
+				calls = append(calls, backend)
+				wantID := tt.wantBridgeID
+				if wantID == "" {
+					wantID = "session-1"
+				}
+				if id != wantID || reason != "household stop" {
+					t.Errorf("%s request: id=%q reason=%q", backend, id, reason)
+				}
+				deadline, ok := ctx.Deadline()
+				if !ok || time.Until(deadline) > 6*time.Second {
+					t.Errorf("%s request lacks the bounded Stop deadline", backend)
+				}
+				if !bridgeDeadline.IsZero() && !deadline.Equal(bridgeDeadline) {
+					t.Errorf("%s request changed the shared Stop deadline", backend)
+				}
+				bridgeDeadline = deadline
+			}
+			if tt.jellyfin != absent {
+				s.jellyfin = stopJellyfinClient{terminate: func(ctx context.Context, req *jellyfinv1.TerminateSessionRequest) (*jellyfinv1.TerminateSessionResponse, error) {
+					recordBridgeCall(ctx, "jellyfin", req.GetSessionId(), req.GetReason())
+					if tt.jellyfin == rpcErr {
+						return nil, status.Error(codes.Unavailable, bridgeDetail)
+					}
+					return &jellyfinv1.TerminateSessionResponse{Ok: tt.jellyfin == ack}, nil
+				}}
+			}
+			if tt.plex != absent {
+				s.plex = stopPlexClient{terminate: func(ctx context.Context, req *plexv1.TerminateSessionRequest) (*plexv1.TerminateSessionResponse, error) {
+					recordBridgeCall(ctx, "plex", req.GetSessionId(), req.GetReason())
+					if tt.plex == rpcErr {
+						return nil, status.Error(codes.Unavailable, bridgeDetail)
+					}
+					return &plexv1.TerminateSessionResponse{Ok: tt.plex == ack}, nil
+				}}
+			}
+			var monitorMu sync.Mutex
+			monitorCalls := 0
+			if tt.monitorStatus != 0 {
+				up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					monitorMu.Lock()
+					monitorCalls++
+					monitorMu.Unlock()
+					if r.Method != http.MethodPost || r.URL.Path != "/sessions/session-1/stop" || r.Header.Get("Authorization") != "Bearer house-token" {
+						t.Errorf("unexpected monitor request: %s %s authorization=%q", r.Method, r.URL.Path, r.Header.Get("Authorization"))
+					}
+					w.WriteHeader(tt.monitorStatus)
+					_, _ = w.Write([]byte(tt.monitorBody))
+				}))
+				t.Cleanup(up.Close)
+				s.playbackMonitorHTTP, _ = url.Parse(up.URL)
+				s.playbackMonitorToken = "house-token"
+			}
+			req := httptest.NewRequest(http.MethodPost, "/api/sessions/session-1/stop", nil)
+			if !tt.invalidID {
+				req.SetPathValue("id", "session-1")
+			}
+			w := httptest.NewRecorder()
+			s.handleStopPlaybackSession(w, req)
+			if got := strings.Join(calls, ","); got != tt.wantCalls {
+				t.Errorf("bridge calls=%q, want %q (exactly one attempt per eligible bridge)", got, tt.wantCalls)
+			}
+			wantMonitorCalls := 0
+			if tt.monitorStatus != 0 && !tt.invalidID {
+				wantMonitorCalls = 1
+			}
+			monitorMu.Lock()
+			gotMonitorCalls := monitorCalls
+			monitorMu.Unlock()
+			if gotMonitorCalls != wantMonitorCalls {
+				t.Errorf("monitor calls=%d, want %d", gotMonitorCalls, wantMonitorCalls)
+			}
+			if w.Code != tt.wantStatus {
+				t.Errorf("status=%d, want %d; body=%s", w.Code, tt.wantStatus, w.Body.String())
+			}
+			var body struct {
+				Stopped         *bool  `json:"stopped"`
+				ID              string `json:"id"`
+				ServerType      string `json:"serverType"`
+				JellyfinStopped bool   `json:"jellyfinStopped"`
+				PlexStopped     bool   `json:"plexStopped"`
+				Code            string `json:"code"`
+				Error           string `json:"error"`
+			}
+			if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if tt.wantCode != "" {
+				if body.Code != tt.wantCode || body.Error == "" || body.Stopped != nil {
+					t.Errorf("want error %q without success acknowledgment, got %+v", tt.wantCode, body)
+				}
+				if strings.Contains(body.Error, bridgeDetail) {
+					t.Error("bridge diagnostic leaked into failure response")
+				}
+				if tt.monitorStatus >= 400 && body.Error != tt.monitorBody {
+					t.Errorf("monitor failure message=%q, want unchanged %q", body.Error, tt.monitorBody)
+				}
+				return
+			}
+			if body.Stopped == nil || !*body.Stopped || body.ID != "session-1" || body.Code != "" || body.Error != "" || body.ServerType != tt.wantType || body.JellyfinStopped != tt.wantJellyfin || body.PlexStopped != tt.wantPlex {
+				t.Errorf("unexpected acknowledgment: %+v", body)
+			}
+		})
 	}
 }
 

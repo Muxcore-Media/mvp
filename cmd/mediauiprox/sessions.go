@@ -96,8 +96,12 @@ func (s *server) handleStopPlaybackSession(w http.ResponseWriter, r *http.Reques
 		})
 		plexStopped = perr == nil && resp.GetOk()
 	}
-	if monErr != nil && !jellyfinStopped && !plexStopped {
-		writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": monErr.Error(), "code": "sessions.stop_failed"})
+	if (!monitorConnected || monErr != nil) && !jellyfinStopped && !plexStopped {
+		message := "No playback backend acknowledged the stop request."
+		if monErr != nil {
+			message = monErr.Error()
+		}
+		writeJSONStatus(w, http.StatusBadGateway, map[string]any{"error": message, "code": "sessions.stop_failed"})
 		return
 	}
 	if serverType == "" {
