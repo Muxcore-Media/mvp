@@ -17,12 +17,12 @@ import (
 func ownedSidecars(t *testing.T, dir, video string) []string {
 	t.Helper()
 	var names []string
-	for _, tr := range discoverSidecarSubtitles(filepath.Join(dir, video), true) {
-		p, ok := decodeSidecarTrackID(tr.ID)
-		if !ok {
-			t.Fatalf("not a sidecar id: %s", tr.ID)
+	s := &server{mediaRoots: []string{dir}}
+	for _, tr := range s.discoverSidecarSubtitles("sess", filepath.Join(dir, video)) {
+		if !strings.HasPrefix(tr.ID, "sc_") || tr.path == "" {
+			t.Fatalf("not a sidecar track: %+v", tr)
 		}
-		names = append(names, filepath.Base(p))
+		names = append(names, filepath.Base(tr.path))
 	}
 	sort.Strings(names)
 	return names
@@ -37,18 +37,16 @@ func touchAll(t *testing.T, dir string, names ...string) {
 
 func TestSidecarOwnership(t *testing.T) {
 	cases := []struct {
-		name   string
-		files  []string
-		video  string
-		want   []string
-		unrest []string // what the unrestricted listing keeps offering
+		name  string
+		files []string
+		video string
+		want  []string
 	}{
 		{
-			name:   "flat folder: a sequel's sidecars are not the original's",
-			files:  []string{"Alien.mkv", "Alien.Resurrection.mkv", "Alien.en.srt", "Alien.Resurrection.en.srt", "Alien 2.srt", "Alien.srt"},
-			video:  "Alien.mkv",
-			want:   []string{"Alien.en.srt", "Alien.srt"},
-			unrest: []string{"Alien 2.srt", "Alien.Resurrection.en.srt", "Alien.en.srt", "Alien.srt"},
+			name:  "flat folder: a sequel's sidecars are not the original's",
+			files: []string{"Alien.mkv", "Alien.Resurrection.mkv", "Alien.en.srt", "Alien.Resurrection.en.srt", "Alien 2.srt", "Alien.srt"},
+			video: "Alien.mkv",
+			want:  []string{"Alien.en.srt", "Alien.srt"},
 		},
 		{
 			name:  "flat folder: the sequel owns its own",
@@ -125,19 +123,7 @@ func TestSidecarOwnership(t *testing.T) {
 			touchAll(t, dir, tc.files...)
 			got := ownedSidecars(t, dir, tc.video)
 			if strings.Join(got, "|") != strings.Join(tc.want, "|") {
-				t.Errorf("restricted: got %q want %q", got, tc.want)
-			}
-			// The unrestricted listing keeps today's lenient behaviour.
-			if tc.unrest != nil {
-				var un []string
-				for _, tr := range discoverSidecarSubtitles(filepath.Join(dir, tc.video), false) {
-					p, _ := decodeSidecarTrackID(tr.ID)
-					un = append(un, filepath.Base(p))
-				}
-				sort.Strings(un)
-				if strings.Join(un, "|") != strings.Join(tc.unrest, "|") {
-					t.Errorf("unrestricted: got %q want %q", un, tc.unrest)
-				}
+				t.Errorf("got %q want %q", got, tc.want)
 			}
 		})
 	}
@@ -161,28 +147,26 @@ func TestSidecarOwnershipFlatFolderOverHTTP(t *testing.T) {
 	tracks := f.tracks(t, "/stream/movies/m-g", kid)
 	var sidecars []string
 	for _, tr := range tracks {
-		if p, ok := decodeSidecarTrackID(tr.ID); ok {
-			sidecars = append(sidecars, filepath.Base(p))
+		if strings.HasPrefix(tr.ID, "sc_") {
+			sidecars = append(sidecars, tr.Label)
 		}
 	}
-	if len(sidecars) != 1 || sidecars[0] != "Alien.en.srt" {
+	if len(sidecars) != 1 || !strings.HasSuffix(sidecars[0], "Alien.en.srt") {
 		t.Fatalf("allowed item's sidecars = %v", sidecars)
 	}
-	if res := f.get("/api/playback/subtitles/"+sidecarTrackID(filepath.Join(flat, "Alien.en.srt")), kid); res.status != http.StatusOK || !strings.Contains(res.body, "Hello Alien") {
+	if res := f.get("/api/playback/subtitles/"+f.sidecarID(t, kid, filepath.Join(flat, "Alien.en.srt")), kid); res.status != http.StatusOK || !strings.Contains(res.body, "Hello Alien") {
 		t.Fatalf("own sidecar: %d %s", res.status, res.body)
 	}
 	for _, other := range []string{"Alien.Resurrection.en.srt", "Alien 2.srt"} {
-		assertBlocked(t, "foreign sidecar "+other, f.get("/api/playback/subtitles/"+url.PathEscape(sidecarTrackID(filepath.Join(flat, other))), kid))
+		assertBlocked(t, "foreign sidecar "+other, f.get("/api/playback/subtitles/"+url.PathEscape(f.sidecarID(t, kid, filepath.Join(flat, other))), kid))
 	}
 	assertBlocked(t, "denied item's listing", f.get("/api/playback/subtitles?src="+url.QueryEscape("/stream/movies/m-r"), kid))
 
-	// An unrestricted principal still gets the lenient listing.
-	req, rec := newSubtitleListRequest("/stream/movies/m-g")
+	// Ownership applies to every principal: the unrestricted listing is the same.
+	req, rec := newSubtitleListRequest("/stream/movies/m-g", f.adult)
 	f.s.handlePlaybackSubtitlesList(rec, req)
-	for _, want := range []string{"Alien.en.srt", "Alien.Resurrection.en.srt", "Alien 2.srt"} {
-		if !strings.Contains(decodeAllSidecarNames(t, rec.Body.Bytes()), want) {
-			t.Errorf("unrestricted listing lost %s: %s", want, rec.Body.String())
-		}
+	if got := decodeAllSidecarNames(t, rec.Body.Bytes()); got != "Alien.en.srt" {
+		t.Errorf("unrestricted listing = %q", got)
 	}
 }
 
@@ -221,15 +205,17 @@ func TestModuleSubtitleRowOfAnotherFileIsNotOffered(t *testing.T) {
 	}
 
 	// Unrestricted behaviour is unchanged: the row is still offered.
-	req, rec := newSubtitleListRequest("/stream/movies/m-pg")
+	req, rec := newSubtitleListRequest("/stream/movies/m-pg", f.adult)
 	f.s.handlePlaybackSubtitlesList(rec, req)
 	if !strings.Contains(rec.Body.String(), "sub-wrong") {
 		t.Fatalf("unrestricted listing changed: %s", rec.Body.String())
 	}
 }
 
-func newSubtitleListRequest(src string) (*http.Request, *httptest.ResponseRecorder) {
-	return httptest.NewRequest(http.MethodGet, "/api/playback/subtitles?src="+url.QueryEscape(src), nil), httptest.NewRecorder()
+func newSubtitleListRequest(src, tok string) (*http.Request, *httptest.ResponseRecorder) {
+	req := httptest.NewRequest(http.MethodGet, "/api/playback/subtitles?src="+url.QueryEscape(src), nil)
+	req.AddCookie(&http.Cookie{Name: "session", Value: tok})
+	return req, httptest.NewRecorder()
 }
 
 // decodeAllSidecarNames joins the file names behind every sidecar track of a
@@ -242,8 +228,8 @@ func decodeAllSidecarNames(t *testing.T, body []byte) string {
 	}
 	var names []string
 	for _, tr := range tl.Tracks {
-		if p, ok := decodeSidecarTrackID(tr.ID); ok {
-			names = append(names, filepath.Base(p))
+		if strings.HasPrefix(tr.ID, "sc_") {
+			names = append(names, strings.TrimPrefix(tr.Label, strings.ToUpper(tr.Language)+" · "))
 		}
 	}
 	return strings.Join(names, "|")

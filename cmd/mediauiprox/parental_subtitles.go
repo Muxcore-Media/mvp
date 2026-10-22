@@ -12,20 +12,21 @@ import (
 // `GET /api/playback/subtitles/{id}`).
 //
 // A subtitle track ID names no item: a media-subtitles ID is a global row ID,
-// and a sidecar ID is nothing but the base64 of a file path. Knowing one
+// and a sidecar ID is an opaque, session-scoped hash (ADR-0042) that the serve
+// route resolves only through this table, never by decoding. Knowing one
 // proves nothing about authorization, so a restricted principal may fetch only
 // a track the BFF itself advertised to that same session for an item the gate
-// had authorized. The list route (`GET /api/playback/subtitles?src=`) records
+// had authorized, and any principal may fetch a sidecar only if this session
+// was shown it. The list route (`GET /api/playback/subtitles?src=`) records
 // every track it returns, sidecar and module-held alike, against the BFF
 // session and the authorized item. The serve route reads the binding, never
 // the request, to learn the item, and re-evaluates it on every fetch so a
 // policy or classification change stops further fetches within the policy TTL.
 //
 // A binding that is missing, expired, evicted, lost with a restart or held by
-// another session denies the fetch (403 parental.blocked); the client lists the
-// tracks again, which re-authorizes the item. A principal that was
-// unrestricted when it listed the tracks holds no binding, so it gets the same
-// denial if it becomes restricted before it fetches them.
+// another session denies the fetch (403 parental.blocked for a restricted
+// principal, 404 subtitles.not_found for an unrestricted one); the client lists
+// the tracks again.
 
 const (
 	// subtitleBindingTTL is a sliding window refreshed on every authorized
@@ -42,7 +43,7 @@ const (
 	// within a session. Sidecar IDs name a file, and two videos in one
 	// directory can both claim the same sidecar.
 	subtitleBindingItems = 8
-	// subtitleTrackIDMax bounds a track ID (a sidecar ID is base64 of a path).
+	// subtitleTrackIDMax bounds a track ID.
 	subtitleTrackIDMax = 8192
 )
 
@@ -51,7 +52,9 @@ type subtitleBinding struct {
 	// items are every item the session was shown this track for. The fetch
 	// needs all of them authorized, so an ID claimed by two items is only as
 	// visible as the more restricted one.
-	items   []parentalItem
+	items []parentalItem
+	// path is the confined file of a sidecar track (empty for module rows).
+	path    string
 	expires time.Time // last use + ttl; also the LRU order
 }
 
@@ -80,7 +83,7 @@ func validSubtitleTrackID(id string) bool {
 // bind records trackID → item for one session. It refuses (false) invalid
 // input and a track already claimed by subtitleBindingItems other items; the
 // caller must then not advertise the track.
-func (b *subtitleTrackBindings) bind(sessionID, trackID string, item parentalItem, now time.Time) bool {
+func (b *subtitleTrackBindings) bind(sessionID, trackID, path string, item parentalItem, now time.Time) bool {
 	if b == nil || sessionID == "" || item.ID == "" || item.Kind == "" || !validSubtitleTrackID(trackID) {
 		return false
 	}
@@ -113,7 +116,7 @@ func (b *subtitleTrackBindings) bind(sessionID, trackID string, item parentalIte
 			b.evictOldestLocked(nil, now)
 		}
 	}
-	b.byID[id] = subtitleBinding{sessionID: sessionID, items: items, expires: now.Add(b.ttl)}
+	b.byID[id] = subtitleBinding{sessionID: sessionID, items: items, path: path, expires: now.Add(b.ttl)}
 	if b.bySession[sessionID] == nil {
 		b.bySession[sessionID] = map[string]struct{}{}
 	}
@@ -164,26 +167,39 @@ func (b *subtitleTrackBindings) removeLocked(id string) {
 	}
 }
 
-// lookup returns the items bound to trackID for this session and slides the
-// expiry.
-func (b *subtitleTrackBindings) lookup(sessionID, trackID string, now time.Time) ([]parentalItem, bool) {
+// lookupBinding returns the live binding of trackID for this session and
+// slides its expiry.
+func (b *subtitleTrackBindings) lookupBinding(sessionID, trackID string, now time.Time) (subtitleBinding, bool) {
 	if b == nil || sessionID == "" || !validSubtitleTrackID(trackID) {
-		return nil, false
+		return subtitleBinding{}, false
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	id := subtitleBindingID(sessionID, trackID)
 	e, ok := b.byID[id]
 	if !ok {
-		return nil, false
+		return subtitleBinding{}, false
 	}
 	if !now.Before(e.expires) {
 		b.removeLocked(id)
-		return nil, false
+		return subtitleBinding{}, false
 	}
 	e.expires = now.Add(b.ttl)
 	b.byID[id] = e
-	return append([]parentalItem(nil), e.items...), true
+	e.items = append([]parentalItem(nil), e.items...)
+	return e, true
+}
+
+// lookup returns the items bound to trackID for this session.
+func (b *subtitleTrackBindings) lookup(sessionID, trackID string, now time.Time) ([]parentalItem, bool) {
+	e, ok := b.lookupBinding(sessionID, trackID, now)
+	return e.items, ok
+}
+
+// path returns the sidecar file bound to trackID for this session.
+func (b *subtitleTrackBindings) path(sessionID, trackID string, now time.Time) (string, bool) {
+	e, ok := b.lookupBinding(sessionID, trackID, now)
+	return e.path, ok && e.path != ""
 }
 
 // subtitleTrackIDFromRequest reads the track ID of
@@ -200,18 +216,22 @@ func subtitleTrackIDFromRequest(r *http.Request) string {
 	return id
 }
 
-// bindSubtitleTracks binds every track of an authorized restricted list
-// request to the grant's session and item and returns the tracks that are now
-// fetchable. A track that cannot be bound is dropped: the response never
-// advertises a track the serve route would refuse. Without a restricted grant
-// the tracks are returned untouched.
-func (g *parentalGate) bindSubtitleTracks(grant parentalGrant, ok bool, tracks []playbackSubtitleTrack) []playbackSubtitleTrack {
-	if g == nil || !ok || len(tracks) == 0 {
+// bindSubtitleTracks binds the tracks of a list request to the grant's session
+// and item and returns the tracks that are now fetchable. A track that cannot
+// be bound is dropped: the response never advertises a track the serve route
+// would refuse. Sidecar tracks are bound for every principal (ADR-0042); module
+// rows only for restricted ones, since the module proxies them by row ID.
+func (g *parentalGate) bindSubtitleTracks(grant parentalGrant, restricted bool, tracks []playbackSubtitleTrack) []playbackSubtitleTrack {
+	if g == nil || len(tracks) == 0 {
 		return tracks
 	}
 	out := make([]playbackSubtitleTrack, 0, len(tracks))
 	for _, t := range tracks {
-		if g.subtitles.bind(grant.sessionID, t.ID, grant.item, g.now()) {
+		if t.path == "" && !restricted {
+			out = append(out, t)
+			continue
+		}
+		if g.subtitles.bind(grant.sessionID, t.ID, t.path, grant.item, g.now()) {
 			out = append(out, t)
 		}
 	}

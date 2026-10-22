@@ -423,6 +423,7 @@ func main() {
 		issues:               newMediaIssueStore(*userdataDir),
 		together:             newWatchTogetherStore(*userdataDir),
 		parental:             newParentalGate(userdataProvider),
+		mediaRoots:           parseMediaRoots(os.Getenv("MEDIA_UI_MEDIA_ROOTS")),
 	}
 	s.parental.classifier = newCatalogClassifier(s, time.Now)
 	// ADR-0031: there is no switch that disables parental enforcement. Only a
@@ -784,6 +785,9 @@ func (s *server) registerClassifiedRoutes(mux routeRegistrar) {
 }
 
 type server struct {
+	// mediaRoots confine every sidecar path (MEDIA_UI_MEDIA_ROOTS, ADR-0042).
+	// Empty means sidecars are off.
+	mediaRoots           []string
 	movies               mgmntv1.MovieManagementServiceClient
 	moviesAdmin          mediaadminv1.MediaAdminServiceClient
 	tv                   tvmgmtv1.TvManagementServiceClient
@@ -1393,4 +1397,18 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// parseMediaRoots reads a path list. Relative entries are dropped, not
+// resolved: a root must be an operator's explicit absolute path.
+func parseMediaRoots(raw string) []string {
+	var roots []string
+	for _, r := range filepath.SplitList(strings.TrimSpace(raw)) {
+		if r = strings.TrimSpace(r); filepath.IsAbs(r) && !strings.ContainsRune(r, 0) {
+			roots = append(roots, filepath.Clean(r))
+		} else if r != "" {
+			log.Printf("MEDIA_UI_MEDIA_ROOTS: ignoring non-absolute entry")
+		}
+	}
+	return roots
 }
