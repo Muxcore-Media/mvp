@@ -1462,6 +1462,7 @@ EOF
           MEDIA_UI_REQUIRE_AUTH="${MEDIA_UI_REQUIRE_AUTH:-1}" \
           MEDIA_UI_PUBLIC_URL="${MEDIA_UI_PUBLIC_URL:-https://media.gringotts}" \
           MEDIA_UI_USERDATA_DIR="${MEDIA_UI_USERDATA_DIR:-$DATA/media-ui}" \
+          MEDIA_UI_MEDIA_ROOTS="${MEDIA_UI_MEDIA_ROOTS:-$LIBRARY_ROOT:$TV_LIBRARY_ROOT}" \
           MEDIA_UI_LIVETV_FILE="${MEDIA_UI_LIVETV_FILE:-$DATA/media-ui/livetv.json}" \
           MEDIA_UI_LIBRARY_PATHS_FILE="${MEDIA_UI_LIBRARY_PATHS_FILE:-$DATA/media-ui/library-paths.json}" \
           AUTH_HTTP_URL="${AUTH_HTTP_URL:-https://auth.gringotts}" \
