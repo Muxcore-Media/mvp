@@ -1410,5 +1410,43 @@ func parseMediaRoots(raw string) []string {
 			log.Printf("MEDIA_UI_MEDIA_ROOTS: ignoring non-absolute entry")
 		}
 	}
-	return roots
+	return dropProtectedRoots(roots, protectedPaths())
+}
+
+// protectedPaths are the BFF's own data and identity locations (ADR-0042
+// Decision 6) plus any of its configured data dirs.
+func protectedPaths() []string {
+	p := []string{"/etc", "/data/mesh-id", "/data/mesh-ca", "/data/media-ui"}
+	for _, k := range []string{"MEDIA_UI_USERDATA_DIR", "MUXCORE_DATA_DIR", "MUXCORE_TLS_DIR"} {
+		if v := filepath.Clean(strings.TrimSpace(os.Getenv(k))); filepath.IsAbs(v) {
+			p = append(p, v)
+		}
+	}
+	return p
+}
+
+// within reports whether p equals or is inside dir, by path component.
+func within(p, dir string) bool {
+	rel, err := filepath.Rel(dir, p)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// dropProtectedRoots refuses roots that overlap a protected path in either direction.
+func dropProtectedRoots(roots, protected []string) []string {
+	var kept []string
+	for _, r := range roots {
+		bad := false
+		for _, p := range protected {
+			p = filepath.Clean(p)
+			if within(r, p) || within(p, r) {
+				log.Printf("MEDIA_UI_MEDIA_ROOTS: refusing root %q: overlaps protected path %q", r, p)
+				bad = true
+				break
+			}
+		}
+		if !bad {
+			kept = append(kept, r)
+		}
+	}
+	return kept
 }

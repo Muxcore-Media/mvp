@@ -269,3 +269,28 @@ func TestParseMediaRoots(t *testing.T) {
 func b64(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
 
 func fmt0(s string) string { return "1\n00:00:01,000 --> 00:00:02,000\n" + s + "\n" }
+
+func TestDropProtectedRoots(t *testing.T) {
+	prot := []string{"/etc", "/data/mesh-id", "/data/media-ui", "/var/lib/bff"}
+	for _, c := range []struct {
+		name, root string
+		keep       bool
+	}{
+		{"equal", "/data/mesh-id", false},
+		{"inside", "/data/media-ui/sessions", false},
+		{"inside configured dir", "/var/lib/bff/x", false},
+		{"containing", "/data", false},
+		{"filesystem root", "/", false},
+		{"shared prefix sibling", "/data/mesh-id2", true},
+		{"shared prefix etc", "/etcetera", true},
+		{"good", "/media/movies", true},
+	} {
+		got := dropProtectedRoots([]string{c.root}, prot)
+		if (len(got) == 1) != c.keep {
+			t.Errorf("%s: root %q kept=%v, want %v", c.name, c.root, len(got) == 1, c.keep)
+		}
+	}
+	if got := dropProtectedRoots([]string{"/data", "/media/tv"}, prot); len(got) != 1 || got[0] != "/media/tv" {
+		t.Errorf("mixed = %q", got)
+	}
+}
