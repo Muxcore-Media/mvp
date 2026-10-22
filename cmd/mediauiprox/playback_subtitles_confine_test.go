@@ -257,8 +257,15 @@ func TestSubtitleSidecarsFailClosedWithoutRoots(t *testing.T) {
 }
 
 func TestParseMediaRoots(t *testing.T) {
-	got := parseMediaRoots(" /data/movies/ :relative:/data/tv::/a\x00b")
-	if strings.Join(got, "|") != "/data/movies|/data/tv" {
+	d := t.TempDir()
+	movies, tv := filepath.Join(d, "movies"), filepath.Join(d, "tv")
+	for _, p := range []string{movies, tv} {
+		if err := os.Mkdir(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := parseMediaRoots(" " + movies + "/ :relative:" + tv + "::/a\x00b")
+	if strings.Join(got, "|") != movies+"|"+tv {
 		t.Fatalf("roots = %q", got)
 	}
 	if parseMediaRoots("") != nil {
@@ -271,26 +278,48 @@ func b64(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s
 func fmt0(s string) string { return "1\n00:00:01,000 --> 00:00:02,000\n" + s + "\n" }
 
 func TestDropProtectedRoots(t *testing.T) {
-	prot := []string{"/etc", "/data/mesh-id", "/data/media-ui", "/var/lib/bff"}
+	d := t.TempDir()
+	mk := func(p string) string {
+		p = filepath.Join(d, p)
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	meshID, mediaUI, bff := mk("data/mesh-id"), mk("data/media-ui"), mk("var/lib/bff")
+	etc := mk("etc")
+	prot := []string{etc, meshID, mediaUI, bff, filepath.Join(d, "absent")}
+	link := func(target, name string) string {
+		l := filepath.Join(d, name)
+		if err := os.Symlink(target, l); err != nil {
+			t.Fatal(err)
+		}
+		return l
+	}
 	for _, c := range []struct {
 		name, root string
 		keep       bool
 	}{
-		{"equal", "/data/mesh-id", false},
-		{"inside", "/data/media-ui/sessions", false},
-		{"inside configured dir", "/var/lib/bff/x", false},
-		{"containing", "/data", false},
-		{"filesystem root", "/", false},
-		{"shared prefix sibling", "/data/mesh-id2", true},
-		{"shared prefix etc", "/etcetera", true},
-		{"good", "/media/movies", true},
+		{"equal", meshID, false},
+		{"inside", mk("data/media-ui/sessions"), false},
+		{"inside configured dir", mk("var/lib/bff/x"), false},
+		{"containing", filepath.Join(d, "data"), false},
+		{"symlink to protected", link(meshID, "movies-link"), false},
+		{"symlink inside protected", link(mk("data/media-ui/s2"), "inner-link"), false},
+		{"symlink to parent of protected", link(filepath.Join(d, "data"), "data-link"), false},
+		{"dangling symlink", link(filepath.Join(d, "nope"), "dangling"), false},
+		{"missing root", filepath.Join(d, "missing"), false},
+		{"shared prefix sibling", mk("data/mesh-id2"), true},
+		{"shared prefix etc", mk("etcetera"), true},
+		{"good", mk("media/movies"), true},
+		{"symlink to good", link(mk("media/tv"), "tv-link"), true},
 	} {
 		got := dropProtectedRoots([]string{c.root}, prot)
 		if (len(got) == 1) != c.keep {
 			t.Errorf("%s: root %q kept=%v, want %v", c.name, c.root, len(got) == 1, c.keep)
 		}
 	}
-	if got := dropProtectedRoots([]string{"/data", "/media/tv"}, prot); len(got) != 1 || got[0] != "/media/tv" {
+	if got := dropProtectedRoots([]string{filepath.Join(d, "data"), mk("media/x")}, prot); len(got) != 1 || got[0] != mk("media/x") {
 		t.Errorf("mixed = %q", got)
 	}
 }

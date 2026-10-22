@@ -1431,14 +1431,24 @@ func within(p, dir string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// dropProtectedRoots refuses roots that overlap a protected path in either direction.
+// dropProtectedRoots refuses roots that overlap a protected path in either
+// direction, comparing symlink-resolved paths. A root that cannot be resolved
+// is refused; a protected path that does not exist is used as given.
 func dropProtectedRoots(roots, protected []string) []string {
 	var kept []string
 	for _, r := range roots {
+		real, err := filepath.EvalSymlinks(r)
+		if err != nil {
+			log.Printf("MEDIA_UI_MEDIA_ROOTS: refusing root %q: %v", r, err)
+			continue
+		}
 		bad := false
 		for _, p := range protected {
 			p = filepath.Clean(p)
-			if within(r, p) || within(p, r) {
+			if rp, err := filepath.EvalSymlinks(p); err == nil {
+				p = rp
+			}
+			if within(real, p) || within(p, real) {
 				log.Printf("MEDIA_UI_MEDIA_ROOTS: refusing root %q: overlaps protected path %q", r, p)
 				bad = true
 				break
