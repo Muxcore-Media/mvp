@@ -423,6 +423,7 @@ func main() {
 		issues:               newMediaIssueStore(*userdataDir),
 		together:             newWatchTogetherStore(*userdataDir),
 		parental:             newParentalGate(userdataProvider),
+		mediaRoots:           parseMediaRoots(os.Getenv("MEDIA_UI_MEDIA_ROOTS")),
 	}
 	s.parental.classifier = newCatalogClassifier(s, time.Now)
 	// ADR-0031: there is no switch that disables parental enforcement. Only a
@@ -784,6 +785,9 @@ func (s *server) registerClassifiedRoutes(mux routeRegistrar) {
 }
 
 type server struct {
+	// mediaRoots confine every sidecar path (MEDIA_UI_MEDIA_ROOTS, ADR-0042).
+	// Empty means sidecars are off.
+	mediaRoots           []string
 	movies               mgmntv1.MovieManagementServiceClient
 	moviesAdmin          mediaadminv1.MediaAdminServiceClient
 	tv                   tvmgmtv1.TvManagementServiceClient
@@ -1393,4 +1397,66 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// parseMediaRoots reads a path list. Relative entries are dropped, not
+// resolved: a root must be an operator's explicit absolute path.
+func parseMediaRoots(raw string) []string {
+	var roots []string
+	for _, r := range filepath.SplitList(strings.TrimSpace(raw)) {
+		if r = strings.TrimSpace(r); filepath.IsAbs(r) && !strings.ContainsRune(r, 0) {
+			roots = append(roots, filepath.Clean(r))
+		} else if r != "" {
+			log.Printf("MEDIA_UI_MEDIA_ROOTS: ignoring non-absolute entry")
+		}
+	}
+	return dropProtectedRoots(roots, protectedPaths())
+}
+
+// protectedPaths are the BFF's own data and identity locations (ADR-0042
+// Decision 6) plus any of its configured data dirs.
+func protectedPaths() []string {
+	p := []string{"/etc", "/data/mesh-id", "/data/mesh-ca", "/data/media-ui"}
+	for _, k := range []string{"MEDIA_UI_USERDATA_DIR", "MUXCORE_DATA_DIR", "MUXCORE_TLS_DIR"} {
+		if v := filepath.Clean(strings.TrimSpace(os.Getenv(k))); filepath.IsAbs(v) {
+			p = append(p, v)
+		}
+	}
+	return p
+}
+
+// within reports whether p equals or is inside dir, by path component.
+func within(p, dir string) bool {
+	rel, err := filepath.Rel(dir, p)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// dropProtectedRoots refuses roots that overlap a protected path in either
+// direction, comparing symlink-resolved paths. A root that cannot be resolved
+// is refused; a protected path that does not exist is used as given.
+func dropProtectedRoots(roots, protected []string) []string {
+	var kept []string
+	for _, r := range roots {
+		real, err := filepath.EvalSymlinks(r)
+		if err != nil {
+			log.Printf("MEDIA_UI_MEDIA_ROOTS: refusing root %q: %v", r, err)
+			continue
+		}
+		bad := false
+		for _, p := range protected {
+			p = filepath.Clean(p)
+			if rp, err := filepath.EvalSymlinks(p); err == nil {
+				p = rp
+			}
+			if within(real, p) || within(p, real) {
+				log.Printf("MEDIA_UI_MEDIA_ROOTS: refusing root %q: overlaps protected path %q", r, p)
+				bad = true
+				break
+			}
+		}
+		if !bad {
+			kept = append(kept, r)
+		}
+	}
+	return kept
 }

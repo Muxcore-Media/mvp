@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -148,7 +149,18 @@ func newSubtitleFixture(t *testing.T) *subtitleFixture {
 		series: map[string][]*subtv1.SubtitleMediaItem{},
 	}
 	h.s.subtitles = f.subs
+	h.s.mediaRoots = []string{f.dir}
 	return f
+}
+
+// sidecarID is the opaque ID the list route mints for tok's session.
+func (f *subtitleFixture) sidecarID(t *testing.T, tok, path string) string {
+	t.Helper()
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sidecarTrackID(sessionID(tok), real)
 }
 
 func (f *subtitleFixture) get(path, tok string) serveResult {
@@ -190,6 +202,16 @@ func trackIDs(tracks []playbackSubtitleTrack) []string {
 	return ids
 }
 
+func assertNotFound(t *testing.T, what string, res serveResult) {
+	t.Helper()
+	if res.status != http.StatusNotFound || !strings.Contains(res.body, "subtitles.not_found") {
+		t.Fatalf("%s: want 404 subtitles.not_found, got %d %s", what, res.status, res.body)
+	}
+	if strings.Contains(res.body, "Hello") || strings.Contains(res.body, "TOPSECRET") {
+		t.Fatalf("%s: refusal carries content: %s", what, res.body)
+	}
+}
+
 func assertBlocked(t *testing.T, what string, res serveResult) {
 	t.Helper()
 	assertParentalError(t, what, res, http.StatusForbidden, parentalCodeBlocked)
@@ -212,10 +234,10 @@ func TestSubtitleTracksAdvertisedToRestrictedAreFetchable(t *testing.T) {
 		}
 		byID[tr.ID] = res
 	}
-	if r := byID[sidecarTrackID(filepath.Join(f.dir, "pg", "Movie PG.en.srt"))]; !strings.Contains(r.body, "WEBVTT") || !strings.Contains(r.body, "Hello PG") {
+	if r := byID[f.sidecarID(t, f.kid, filepath.Join(f.dir, "pg", "Movie PG.en.srt"))]; !strings.Contains(r.body, "WEBVTT") || !strings.Contains(r.body, "Hello PG") {
 		t.Fatalf("srt sidecar not converted: %q", r.body)
 	}
-	if r := byID[sidecarTrackID(filepath.Join(f.dir, "pg", "Movie PG.fr.vtt"))]; !strings.Contains(r.body, "Bonjour PG") {
+	if r := byID[f.sidecarID(t, f.kid, filepath.Join(f.dir, "pg", "Movie PG.fr.vtt"))]; !strings.Contains(r.body, "Bonjour PG") {
 		t.Fatalf("vtt sidecar: %q", r.body)
 	}
 	if r := byID["sub-pg-1"]; !strings.Contains(r.body, "/api/subtitles/sub-pg-1/vtt") {
@@ -231,11 +253,12 @@ func TestSubtitleTrackFetchDeniedWithoutAuthorizedBinding(t *testing.T) {
 	granted := f.tracks(t, "/stream/movies/m-pg", f.kid)
 	assertBlocked(t, "denied item list", f.get("/api/playback/subtitles?src="+url.QueryEscape("/stream/movies/m-r"), f.kid))
 	for name, id := range map[string]string{
-		"denied item sidecar":      sidecarTrackID(filepath.Join(f.dir, "r", "Movie R.en.srt")),
+		"denied item sidecar":      f.sidecarID(t, f.kid, filepath.Join(f.dir, "r", "Movie R.en.srt")),
 		"denied item module track": "sub-r-1",
 		"never advertised":         "sub-nobody",
-		"forged path":              sidecarTrackID(f.secret),
-		"altered advertised path":  sidecarTrackID(filepath.Join(f.dir, "pg", "Movie PG.en.srt")) + "x",
+		"forged path":              sidecarTrackID(sessionID(f.kid), f.secret),
+		"old base64 path id":       "sc_" + base64.RawURLEncoding.EncodeToString([]byte(f.secret)),
+		"altered advertised path":  f.sidecarID(t, f.kid, filepath.Join(f.dir, "pg", "Movie PG.en.srt")) + "x",
 	} {
 		assertBlocked(t, name, f.get("/api/playback/subtitles/"+url.PathEscape(id), f.kid))
 	}
@@ -245,18 +268,22 @@ func TestSubtitleTrackFetchDeniedWithoutAuthorizedBinding(t *testing.T) {
 			assertBlocked(t, name+" "+tr.ID, f.get(tr.Src, tok))
 		}
 	}
-	// Unrestricted principals need no binding and bind nothing.
+	// An unrestricted session does not hold the kid's sidecar bindings either;
+	// module rows are proxied by row ID and need none.
 	for _, tr := range granted {
-		if res := f.get(tr.Src, f.adult); res.status != http.StatusOK {
+		res := f.get(tr.Src, f.adult)
+		if strings.HasPrefix(tr.ID, "sc_") {
+			assertNotFound(t, "unrestricted, other session "+tr.ID, res)
+		} else if res.status != http.StatusOK {
 			t.Fatalf("unrestricted fetch of %q: %d %s", tr.ID, res.status, res.body)
 		}
 	}
 	if got := len(f.s.parental.subtitles.byID); got != 3 {
-		t.Fatalf("only the restricted list may bind, got %d bindings", got)
+		t.Fatalf("only the kid's list may bind, got %d bindings", got)
 	}
 	// A client-supplied item cannot name the authority.
 	for _, extra := range []string{"?src=" + url.QueryEscape("/stream/movies/m-pg"), "?media_id=m-pg", "?item=m-pg"} {
-		assertBlocked(t, "supplied item "+extra, f.get("/api/playback/subtitles/"+url.PathEscape(sidecarTrackID(f.secret))+extra, f.kid))
+		assertBlocked(t, "supplied item "+extra, f.get("/api/playback/subtitles/"+url.PathEscape(sidecarTrackID(sessionID(f.kid), f.secret))+extra, f.kid))
 	}
 }
 
@@ -360,8 +387,8 @@ func TestSubtitleIDCollisionIsConservative(t *testing.T) {
 	f := newSubtitleFixture(t)
 	shared := filepath.Join(f.dir, "shared", "Show.en.srt")
 	writeFixtureFile(t, shared, fmt.Sprintf(srtBody, "Hello shared"))
-	id := sidecarTrackID(shared)
-	track := []playbackSubtitleTrack{{ID: id}}
+	id := sidecarTrackID(sessionID(f.kid), shared)
+	track := []playbackSubtitleTrack{{ID: id, path: shared}}
 	sid := sessionID(f.kid)
 	g := parentalGrant{sessionID: sid, item: parentalItem{Kind: "movie", ID: "m-g"}}
 	pg := parentalGrant{sessionID: sid, item: parentalItem{Kind: "movie", ID: "m-pg"}}
@@ -387,7 +414,7 @@ func TestSubtitleTrackBindingsTable(t *testing.T) {
 	movie := func(id string) parentalItem { return parentalItem{Kind: "movie", ID: id} }
 
 	var nilB *subtitleTrackBindings
-	if nilB.bind("s", "t", movie("a"), now) {
+	if nilB.bind("s", "t", "", movie("a"), now) {
 		t.Fatal("nil table must refuse")
 	}
 	if _, ok := nilB.lookup("s", "t", now); ok {
@@ -401,15 +428,15 @@ func TestSubtitleTrackBindingsTable(t *testing.T) {
 		"oversize track": {"s", strings.Repeat("x", subtitleTrackIDMax+1), "a"},
 		"empty item":     {"s", "t", ""},
 	} {
-		if b.bind(args[0], args[1], movie(args[2]), now) {
+		if b.bind(args[0], args[1], "", movie(args[2]), now) {
 			t.Errorf("%s: bound", name)
 		}
 	}
-	if b.bind("s", "t", parentalItem{ID: "a"}, now) {
+	if b.bind("s", "t", "", parentalItem{ID: "a"}, now) {
 		t.Error("an item with no kind bound")
 	}
 	for i := 0; i < 2; i++ { // the second bind is a duplicate claim of the same item
-		if !b.bind("s", "t", movie("a"), now) {
+		if !b.bind("s", "t", "", movie("a"), now) {
 			t.Fatalf("bind %d failed", i+1)
 		}
 	}
@@ -422,16 +449,16 @@ func TestSubtitleTrackBindingsTable(t *testing.T) {
 	// The items of one id are capped; the over-cap claimant is refused so the
 	// caller does not advertise the track.
 	for i := 1; i < subtitleBindingItems; i++ {
-		if !b.bind("s", "t", movie(fmt.Sprint("x", i)), now) {
+		if !b.bind("s", "t", "", movie(fmt.Sprint("x", i)), now) {
 			t.Fatalf("claim %d refused", i)
 		}
 	}
-	if b.bind("s", "t", movie("one-too-many"), now) {
+	if b.bind("s", "t", "", movie("one-too-many"), now) {
 		t.Fatal("claim over the cap bound")
 	}
 	// An expired binding is replaced, not extended with the old claimants.
 	later := now.Add(subtitleBindingTTL + time.Second)
-	if !b.bind("s", "t", movie("fresh"), later) {
+	if !b.bind("s", "t", "", movie("fresh"), later) {
 		t.Fatal("rebind after expiry")
 	}
 	if items, _ := b.lookup("s", "t", later); len(items) != 1 || items[0].ID != "fresh" {
@@ -441,9 +468,9 @@ func TestSubtitleTrackBindingsTable(t *testing.T) {
 	// One session cannot push another session's bindings out.
 	b = newSubtitleTrackBindings()
 	b.perSession, b.max = 4, 8
-	b.bind("victim", "v", movie("a"), now)
+	b.bind("victim", "v", "", movie("a"), now)
 	for i := range 40 {
-		b.bind("attacker", fmt.Sprint("t", i), movie("a"), now.Add(time.Duration(i)*time.Second))
+		b.bind("attacker", fmt.Sprint("t", i), "", movie("a"), now.Add(time.Duration(i)*time.Second))
 	}
 	if _, ok := b.lookup("victim", "v", now.Add(time.Minute)); !ok {
 		t.Fatal("the attacker evicted another session's binding")
@@ -455,9 +482,9 @@ func TestSubtitleTrackBindingsTable(t *testing.T) {
 	b = newSubtitleTrackBindings()
 	b.perSession, b.max = 100, 3
 	for i := range 3 {
-		b.bind(fmt.Sprint("s", i), "t", movie("a"), now.Add(time.Duration(i)*time.Second))
+		b.bind(fmt.Sprint("s", i), "t", "", movie("a"), now.Add(time.Duration(i)*time.Second))
 	}
-	b.bind("s9", "t", movie("a"), now.Add(10*time.Second))
+	b.bind("s9", "t", "", movie("a"), now.Add(10*time.Second))
 	if _, ok := b.lookup("s0", "t", now.Add(11*time.Second)); ok {
 		t.Fatal("the oldest binding must be evicted at the global cap")
 	}

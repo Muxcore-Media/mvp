@@ -2,7 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Muxcore-Media/core/sdk/go/module/pathguard"
 	mgmntv1 "github.com/Muxcore-Media/media-movies/proto/mgmntv1"
 	subtv1 "github.com/Muxcore-Media/media-subtitles/proto/subtv1"
 )
@@ -24,6 +26,9 @@ type playbackSubtitleTrack struct {
 	Language string `json:"language,omitempty"`
 	Src      string `json:"src"`
 	Default  bool   `json:"default,omitempty"`
+	// path is the confined sidecar file behind an sc_ track. It is server-side
+	// only: it is bound to the session and never sent to the client.
+	path string
 }
 
 type playbackSubtitlesResponse struct {
@@ -51,8 +56,19 @@ func parseStreamMediaID(src string) (kind, id string) {
 	return "", ""
 }
 
+func hasDotDotSegment(p string) bool {
+	for _, seg := range strings.FieldsFunc(p, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if seg == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveAbsMediaPath only joins; module rows are untrusted until
+// discoverSidecarSubtitles confines the result against the media roots.
 func resolveAbsMediaPath(rootFolder, filePath string) string {
-	if filePath == "" {
+	if filePath == "" || strings.ContainsRune(filePath, 0) || strings.ContainsRune(rootFolder, 0) || hasDotDotSegment(filePath) {
 		return ""
 	}
 	if filepath.IsAbs(filePath) {
@@ -124,16 +140,50 @@ func (s *server) resolveEpisodePlaybackFile(ctx context.Context, mediaID string)
 	return body.FilePath, body.FileID
 }
 
-// discoverSidecarSubtitles lists the subtitle files beside videoPath. With
-// owned set (a restricted principal) a file is listed only when the video
-// provably owns it (sidecarOwnedBy), not merely when its name starts with the
-// video's.
-func discoverSidecarSubtitles(videoPath string, owned bool) []playbackSubtitleTrack {
-	if videoPath == "" {
+// requestSessionID is "" for a request without a session, which binds nothing.
+func requestSessionID(r *http.Request) string {
+	if tok := sessionTokenFromRequest(r); tok != "" {
+		return sessionID(tok)
+	}
+	return ""
+}
+
+// Sidecar limits (ADR-0042). media-subtitles also takes .ssa/.sub/.txt; the
+// BFF serves only what the player can show.
+const sidecarMaxBytes = 5 << 20
+
+var sidecarExts = map[string]bool{".srt": true, ".vtt": true, ".ass": true}
+
+// confineMediaPath resolves p against the configured media roots. It fails
+// closed: no roots, a path outside them or an unreadable root is "".
+func (s *server) confineMediaPath(p string) string {
+	if len(s.mediaRoots) == 0 || p == "" {
+		return ""
+	}
+	real, err := pathguard.Confine(p, s.mediaRoots)
+	if err != nil {
+		return ""
+	}
+	return real
+}
+
+// sidecarFileOK reports whether fi is a regular, in-limit file (never a
+// symlink, directory or FIFO).
+func sidecarFileOK(fi os.FileInfo) bool {
+	return fi.Mode().IsRegular() && fi.Size() <= sidecarMaxBytes
+}
+
+// discoverSidecarSubtitles lists the subtitle files the video at videoPath
+// owns (sidecarOwnedBy). The video is confined to the media roots first; a
+// sidecar must resolve to a regular file in that same directory. Track IDs are
+// opaque and scoped to sessionID; the path travels only in track.path.
+func (s *server) discoverSidecarSubtitles(sessionID, videoPath string) []playbackSubtitleTrack {
+	video := s.confineMediaPath(videoPath)
+	if video == "" || sessionID == "" {
 		return nil
 	}
-	dir := filepath.Dir(videoPath)
-	base := strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(videoPath))
+	dir := filepath.Dir(video)
+	base := strings.TrimSuffix(filepath.Base(video), filepath.Ext(video))
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -145,29 +195,29 @@ func discoverSidecarSubtitles(videoPath string, owned bool) []playbackSubtitleTr
 			continue
 		}
 		name := ent.Name()
-		low := strings.ToLower(name)
-		if !strings.HasSuffix(low, ".vtt") && !strings.HasSuffix(low, ".srt") && !strings.HasSuffix(low, ".ass") {
+		if !sidecarExts[strings.ToLower(filepath.Ext(name))] || !sidecarOwnedBy(name, video, entries) {
 			continue
 		}
-		stem := strings.TrimSuffix(name, filepath.Ext(name))
-		if stem != base && !strings.HasPrefix(stem, base+".") && !strings.HasPrefix(stem, base+" ") {
+		abs := s.confineMediaPath(filepath.Join(dir, name))
+		if abs == "" || filepath.Dir(abs) != dir {
 			continue
 		}
-		if owned && !sidecarOwnedBy(name, videoPath, entries) {
+		if fi, err := os.Lstat(abs); err != nil || !sidecarFileOK(fi) {
 			continue
 		}
-		abs := filepath.Join(dir, name)
 		if _, ok := seen[abs]; ok {
 			continue
 		}
 		seen[abs] = struct{}{}
+		stem := strings.TrimSuffix(name, filepath.Ext(name))
 		lang := sidecarLanguage(stem, base)
-		label := sidecarLabel(name, lang)
+		id := sidecarTrackID(sessionID, abs)
 		tracks = append(tracks, playbackSubtitleTrack{
-			ID:       sidecarTrackID(abs),
-			Label:    label,
+			ID:       id,
+			Label:    sidecarLabel(name, lang),
 			Language: lang,
-			Src:      "/api/playback/subtitles/" + url.PathEscape(sidecarTrackID(abs)),
+			Src:      "/api/playback/subtitles/" + url.PathEscape(id),
+			path:     abs,
 		})
 	}
 	return tracks
@@ -197,19 +247,11 @@ func sidecarLabel(name, lang string) string {
 	return name
 }
 
-func sidecarTrackID(absPath string) string {
-	return "sc_" + base64.RawURLEncoding.EncodeToString([]byte(absPath))
-}
-
-func decodeSidecarTrackID(id string) (string, bool) {
-	if !strings.HasPrefix(id, "sc_") {
-		return "", false
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(id, "sc_"))
-	if err != nil {
-		return "", false
-	}
-	return string(raw), true
+// sidecarTrackID is opaque: it hides the path and is meaningless to any other
+// session. It is looked up in the binding table, never decoded.
+func sidecarTrackID(sessionID, absPath string) string {
+	sum := sha256.Sum256([]byte(sessionID + "\x00" + absPath))
+	return "sc_" + hex.EncodeToString(sum[:16])
 }
 
 // moduleSubtitleTracks lists the subtitle rows of fileID. For a restricted
@@ -280,8 +322,13 @@ func (s *server) handlePlaybackSubtitlesList(w http.ResponseWriter, r *http.Requ
 	if restricted {
 		kind, mediaID = grant.item.Kind, grant.item.ID
 	}
+	if !restricted {
+		// Unrestricted sessions are bound too (ADR-0042): the item is only
+		// recorded, never authorized.
+		grant = parentalGrant{sessionID: requestSessionID(r), item: parentalItem{Kind: kind, ID: mediaID}}
+	}
 	absPath, fileID := s.resolvePlaybackMediaFile(ctx, kind, mediaID)
-	tracks := discoverSidecarSubtitles(absPath, restricted)
+	tracks := s.discoverSidecarSubtitles(grant.sessionID, absPath)
 	tracks = append(tracks, s.moduleSubtitleTracks(ctx, fileID, restricted)...)
 	tracks = s.parental.bindSubtitleTracks(grant, restricted, tracks)
 
@@ -299,8 +346,19 @@ func (s *server) handlePlaybackSubtitleServe(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if path, ok := decodeSidecarTrackID(id); ok {
-		serveSubtitleFile(w, path)
+	if strings.HasPrefix(id, "sc_") {
+		// Never decoded: the ID is only a key into this session's bindings. A
+		// restricted principal has already passed the gate's per-fetch check.
+		sid := requestSessionID(r)
+		if grant, ok := parentalGrantFrom(r.Context()); ok {
+			sid = grant.sessionID
+		}
+		path, ok := s.parental.subtitles.path(sid, id, s.parental.now())
+		if !ok {
+			writeAPIError(w, http.StatusNotFound, "subtitle not found", "subtitles.not_found")
+			return
+		}
+		s.serveSubtitleFile(w, path)
 		return
 	}
 
@@ -332,23 +390,43 @@ func (s *server) handlePlaybackSubtitleServe(w http.ResponseWriter, r *http.Requ
 	http.NotFound(w, r)
 }
 
-func serveSubtitleFile(w http.ResponseWriter, path string) {
-	if path == "" {
-		http.NotFound(w, nil)
+// serveSubtitleFile re-confines the bound path and reads it through an
+// os.Root on its directory, so a file swapped for a symlink after listing
+// cannot leave that directory.
+func (s *server) serveSubtitleFile(w http.ResponseWriter, path string) {
+	notFound := func() { writeAPIError(w, http.StatusNotFound, "subtitle not found", "subtitles.not_found") }
+	real := s.confineMediaPath(path)
+	if real == "" || !sidecarExts[strings.ToLower(filepath.Ext(real))] {
+		notFound()
 		return
 	}
-	st, err := os.Stat(path)
-	if err != nil || st.IsDir() {
-		http.NotFound(w, nil)
-		return
-	}
-	data, err := os.ReadFile(path)
+	root, err := os.OpenRoot(filepath.Dir(real))
 	if err != nil {
-		http.NotFound(w, nil)
+		notFound()
 		return
 	}
-	low := strings.ToLower(path)
-	if strings.HasSuffix(low, ".srt") {
+	defer func() { _ = root.Close() }()
+	name := filepath.Base(real)
+	if fi, err := root.Lstat(name); err != nil || !sidecarFileOK(fi) {
+		notFound()
+		return
+	}
+	f, err := root.Open(name)
+	if err != nil {
+		notFound()
+		return
+	}
+	defer func() { _ = f.Close() }()
+	if fi, err := f.Stat(); err != nil || !sidecarFileOK(fi) {
+		notFound()
+		return
+	}
+	data, err := io.ReadAll(io.LimitReader(f, sidecarMaxBytes+1))
+	if err != nil || len(data) > sidecarMaxBytes {
+		notFound()
+		return
+	}
+	if strings.EqualFold(filepath.Ext(name), ".srt") {
 		data = []byte(srtToVTT(string(data)))
 	}
 	w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
